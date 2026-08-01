@@ -25,4 +25,25 @@ export const TICK_MS = 50;
 /** Removal delay, in ticks (4.0 s). The tile stays blocked for the whole delay. */
 export const REMOVAL_TICKS = 80;
 
-// TODO(P1): normalize(), toTile(), tileCentre(), fdiv()
+/** Fixed-point unit coordinate → tile coordinate. Positions are never negative. */
+export function toTile(u: number): number {
+  return Math.trunc(u / TILE);
+}
+
+/** Tile coordinate → the fixed-point unit coordinate of that tile's centre. */
+export function tileCentre(t: number): number {
+  return t * TILE + HALF;
+}
+
+/**
+ * Scale the offset (dx, dy) to length `len`, in integer units.
+ *
+ * The single place a float appears inside sim/: IEEE-754 requires sqrt to be
+ * correctly rounded, so the intermediate is exact and portable, and it is
+ * re-quantised to an integer before it leaves.
+ */
+export function normalize(dx: number, dy: number, len: number): [number, number] {
+  const d = Math.trunc(Math.sqrt(dx * dx + dy * dy));
+  if (d === 0) return [0, 0];
+  return [Math.trunc((dx * len) / d), Math.trunc((dy * len) / d)];
+}

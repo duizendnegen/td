@@ -1,6 +1,6 @@
 {
   "$schema": "./schema.ts",
-  "$note": "STRUCTURE ONLY — all values are placeholders. Balance authoring is P3/P4 work.",
+  "$note": "Runner carries the Phase-1 speed-only stat block (128 units/tick = 2.5 tiles/s); all other values are placeholders. Balance authoring is P3/P4 work.",
   "towers": {
     "rapid": { "role": "Single-target DPS baseline", "priority": "first", "levels": [] },
     "sniper": { "role": "Anti-armour, long range", "priority": "carriersFirstThenStrongest", "levels": [] },
@@ -10,6 +10,6 @@
   "enemies": {
     "swarm": { "punishes": "no AoE", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false },
     "tank": { "punishes": "no sniper", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false },
-    "runner": { "punishes": "no slow", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false }
+    "runner": { "punishes": "no slow", "hp": 0, "speed": 128, "carryCapacity": 0, "bounty": 0, "slowImmune": false }
   }
 }
