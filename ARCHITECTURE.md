@@ -39,8 +39,11 @@ properties that drove the call:
 
 The palette atlas carries no surface detail, and nothing is animated, so the camera must stay
 elevated and mid-distance — ground-level views would expose static, featureless meshes. The enemies
-being UFOs is fortunate: a procedural hover-bob plus yaw spin is fully convincing where a walk cycle
-would have been required for ground units.
+being UFOs is fortunate: a procedural tilt-wobble plus yaw spin is fully convincing where a walk
+cycle would have been required for ground units. The saucers skim just above the ground rather than
+hovering high: under the orthographic camera any elevation projects as up-screen drift, which makes
+an enemy's tile ambiguous, so height is capped at a whisker above the ground plane and a blob
+shadow under each enemy keeps its position grid-legible.
 
 The decisive argument: in Canvas 2D an isometric view means baking a sprite set per model and
 hand-writing a painter's-algorithm depth sorter. In three.js it is one orthographic camera and a
@@ -457,7 +460,7 @@ lerps with the accumulator's alpha:
 ```ts
 mesh.position.set(
   lerp(e.prevPos.x, e.pos.x, alpha) / TILE,
-  HOVER_Y,
+  GROUND_TOP_Y + REST_HEIGHT,
   lerp(e.prevPos.y, e.pos.y, alpha) / TILE,
 );
 ```
@@ -466,8 +469,9 @@ Zero allocation per tick, and it is the whole mechanism. A snapshot ring buffer 
 rollback netcode and time-scrub debugging that the POC has no use for, at the cost of a full state
 copy every tick.
 
-Render-only motion — UFO hover bob, yaw spin, tower head rotation, tracer fade, gold-sack sparkle — is
-driven by frame time and never touches the sim.
+Render-only motion — UFO tilt wobble, yaw spin, tower head rotation, tracer fade, gold-sack sparkle —
+is driven by frame time and never touches the sim. The wobble is rotation-only by design: any
+vertical cosmetic motion would reintroduce the up-screen drift that grounding the enemies removed.
 
 ---
 

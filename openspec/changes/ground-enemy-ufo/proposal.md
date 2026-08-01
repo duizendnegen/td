@@ -15,8 +15,9 @@ the footprint), so the ambiguity must go before that lands.
 - The vertical sine bob is replaced by a small tilt wobble (rotation about x/z) so no cosmetic
   motion reintroduces vertical offset or clips the floor; yaw spin and per-enemy phase desync
   are kept.
-- Each enemy gets a ground-level contact decal (the kit's `selection-a`/`selection-b` quad)
-  directly beneath it, giving the round hull an unambiguous grid-aligned contact point.
+- Each enemy gets a ground-level blob shadow directly beneath it, giving the round hull an
+  unambiguous contact point. (The kit's selection quads were considered but read as selection
+  indicators, a meaning reserved for future selection UI.)
 - ARCHITECTURE.md is updated where it describes the hover: the §1 rationale for hover-bob as
   the animation substitute, and the §8 interpolation snippet's `HOVER_Y`.
 
@@ -34,10 +35,8 @@ None.
 
 ## Impact
 
-- `src/render/enemies.ts`: hover/bob constants, position and rotation in `sync()`, contact
-  decal lifecycle alongside the mesh map.
-- `src/render/assets.ts` / `src/app/game.ts`: `selection-a` (or `-b`) added to the loaded
-  model set if not already present.
+- `src/render/enemies.ts`: hover/bob constants, position and rotation in `sync()`, blob-shadow
+  lifecycle alongside the mesh map.
 - `ARCHITECTURE.md`: §1 hover rationale, §8 interpolation snippet.
 - No simulation code changes; the determinism requirement (render never mutates sim state) is
   unaffected and must keep holding.

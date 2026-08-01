@@ -36,15 +36,16 @@ one-sided bob `base = amplitude` (leaves a small oscillating offset and reads as
 flat-shaded look). A saucer tilting as it skims the floor keeps the "hover" fiction the
 architecture wanted from the UFO models.
 
-**Contact decal from the kit's `selection-a` quad.** Already authored as a 1×1 ground decal
-0.05 units tall, shares the single palette material, and is loaded per enemy as a second
-`Group` positioned at the enemy's interpolated x/z at overlay height. Alternatives considered:
-a custom translucent circle geometry (new material, breaks the one-material invariant); reusing
-the enemy mesh's bounding projection (needless complexity). Decal lifecycle mirrors the mesh
-map: created on first sight of an enemy id, removed when the id disappears.
-
-**Decal does not tilt or spin.** It stays axis-aligned to the grid — its job is to translate
-the enemy's position into grid terms, which rotation would undermine.
+**Contact decal is a blob shadow, not the kit's selection quad.** A flat dark translucent
+circle (shared `CircleGeometry` + `MeshBasicMaterial`, one instance per enemy) at the enemy's
+interpolated x/z, just above the ground and below the debug-overlay plane. The `selection-a`
+quad was tried first but reads as a selection indicator — a UI meaning the game will want for
+actual selection later — while a soft dark blob reads as a shadow, which is the grounding cue
+intended. The one-material invariant applies to the model kit; render-only FX (debug overlays,
+this shadow) already carry their own materials, so a second material here breaks nothing. The
+shadow material sets `depthWrite: false` to avoid transparency sorting artifacts against the
+ground. Decal lifecycle mirrors the mesh map: created on first sight of an enemy id, removed
+when the id disappears.
 
 ## Risks / Trade-offs
 
@@ -53,6 +54,6 @@ the enemy's position into grid terms, which rotation would undermine.
   still reads dead, a subtle scale pulse can be added without reintroducing elevation.
 - [Two scene objects per enemy instead of one] → At POC scale (dozens of enemies) this is
   negligible; InstancedMesh remains the documented escape hatch if swarms ever justify it.
-- [Decal z-fighting with debug overlays at the same height] → Place the contact decal at the
-  overlay height constant; the kit quads have real thickness (0.05), so coplanarity does not
-  occur in practice. Verify visually with the flow-field overlay enabled.
+- [Decal z-fighting with debug overlays at the same height] → The shadow sits at +0.02, below
+  the overlay plane at +0.03, and writes no depth. Verify visually with the flow-field overlay
+  enabled.
