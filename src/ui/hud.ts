@@ -1,4 +1,4 @@
-// Treasury, wave, view toggle
+// Treasury, wave
 // See ARCHITECTURE.md §9
 //
 // Responsibilities:

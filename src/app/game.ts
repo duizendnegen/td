@@ -11,7 +11,7 @@ import { CommandQueue } from '../sim/commands';
 import { Sim } from '../sim/sim';
 import { formatHash } from '../sim/hash';
 import { Assets } from '../render/assets';
-import { CameraRig } from '../render/cameras';
+import { IsometricCamera } from '../render/cameras';
 import { DebugOverlay } from '../render/debug';
 import { EnemyRenderer } from '../render/enemies';
 import { buildGround } from '../render/ground';
@@ -65,8 +65,8 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   renderer.scene.add(treasuryMarker);
 
   const enemies = new EnemyRenderer(renderer.scene, assets);
-  const cameras = new CameraRig(renderer.aspect, data.level.grid, treasuryWorld);
-  renderer.onResize((aspect) => cameras.frame(aspect));
+  const camera = new IsometricCamera(renderer.aspect, data.level.grid);
+  renderer.onResize((aspect) => camera.frame(aspect));
 
   // App-side instrumentation for the F4 readout; the sim never reads the clock.
   const stats = { lastTickMs: 0 };
@@ -100,7 +100,6 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   // Input.
   window.addEventListener('keydown', (e) => {
     const action = {
-      Tab: () => cameras.toggle(),
       F1: () => debug.toggleFields(),
       F2: () => debug.toggleWaypoints(),
       F4: () => debug.toggleReadout(),
@@ -111,26 +110,16 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
       action();
     }
   });
-  let dragging = false;
-  canvas.addEventListener('pointerdown', (e) => {
-    dragging = true;
-    canvas.setPointerCapture(e.pointerId);
-  });
-  canvas.addEventListener('pointerup', () => (dragging = false));
-  canvas.addEventListener('pointermove', (e) => {
-    if (dragging && cameras.activeView === 'commander') cameras.orbitBy(e.movementX * -0.005);
-  });
 
   // Exposed for console debugging and automated exploration; read-only use.
-  (window as unknown as Record<string, unknown>).__td = { renderer, cameras, sim, stats, probe };
+  (window as unknown as Record<string, unknown>).__td = { renderer, camera, sim, stats, probe };
 
   startLoop({
     tick: tickOnce,
-    render: (alpha, frameDt) => {
-      cameras.update(frameDt);
+    render: (alpha) => {
       enemies.sync(sim.state.enemies, alpha, performance.now());
       debug.update(stats.lastTickMs);
-      renderer.render(cameras.activeCamera);
+      renderer.render(camera.camera);
     },
   });
 }

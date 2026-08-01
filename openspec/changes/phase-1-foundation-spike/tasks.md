@@ -67,7 +67,7 @@ tests, merging at enemy rendering.
       after 2.1–2.2 and 3.3 are green
 - [x] 4.3 `render/enemies.ts` — enemy meshes (`enemy-ufo-b`), prev/pos interpolation against
       accumulator alpha, frame-time hover bob + yaw spin (render-only)
-- [ ] 4.4 Wire the full loop in `app/game.ts`: load+validate data → build sim from seed → loop →
+- [x] 4.4 Wire the full loop in `app/game.ts`: load+validate data → build sim from seed → loop →
       render; verify smooth 60 fps motion against the 20 Hz sim on the deployed link
 
 ## 5. Debug tooling
@@ -82,10 +82,10 @@ tests, merging at enemy rendering.
 
 ## 6. Scope correction — isometric camera (design D-P1-7)
 
-- [ ] 6.1 Rework `render/cameras.ts` — single isometric `OrthographicCamera` (45° yaw, ~30–35°
+- [x] 6.1 Rework `render/cameras.ts` — single isometric `OrthographicCamera` (45° yaw, ~30–35°
       pitch, whole board framed, resize re-fit); delete the commander perspective camera, the Tab
       toggle, the eased transition, and orbit (spec: isometric-camera)
-- [ ] 6.2 Remove the Tab and orbit wiring from `app/game.ts`; drop the view-toggle note from
+- [x] 6.2 Remove the Tab and orbit wiring from `app/game.ts`; drop the view-toggle note from
       `ui/hud.ts`'s responsibility comment
 
 ## 7. Gate verification

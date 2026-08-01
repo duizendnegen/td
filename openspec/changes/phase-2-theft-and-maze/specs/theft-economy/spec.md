@@ -31,8 +31,8 @@ when the grabbed amount is zero. Enemies SHALL never despawn at the treasury.
 
 ### Requirement: Carriers are slower and visibly marked
 
-An enemy carrying any gold SHALL move at 80% of its base speed and SHALL display a carried-gold
-indicator readable in both camera views. An enemy carrying nothing SHALL move at full speed even
+An enemy carrying any gold SHALL move at 80% of its base speed and SHALL display a clearly
+readable carried-gold indicator. An enemy carrying nothing SHALL move at full speed even
 when returning.
 
 #### Scenario: Loaded carrier slows down
