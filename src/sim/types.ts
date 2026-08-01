@@ -15,10 +15,10 @@ export interface Vec2 {
   y: number;
 }
 
-/** Phase 2 adds 'returning'. Hashed as an integer via ENEMY_STATE_ID. */
-export type EnemyMode = 'inbound';
+/** Hashed as an integer via ENEMY_STATE_ID. */
+export type EnemyMode = 'inbound' | 'returning';
 
-export const ENEMY_STATE_ID: Record<EnemyMode, number> = { inbound: 0 };
+export const ENEMY_STATE_ID: Record<EnemyMode, number> = { inbound: 0, returning: 1 };
 
 export interface Enemy {
   id: number;
@@ -32,8 +32,38 @@ export interface Enemy {
   /** Movement speed in units per tick. */
   speed: number;
   mode: EnemyMode;
+  hp: number;
+  /** Carried gold in milli-gold; > 0 makes this a carrier (80% speed). */
+  carriedMg: number;
   /** Tombstone flag; compacted at the end of the tick that clears it. */
   alive: boolean;
+}
+
+/** Hashed as an integer via STRUCTURE_KIND_ID. */
+export type StructureKind = 'wall' | 'tower';
+
+export const STRUCTURE_KIND_ID: Record<StructureKind, number> = { wall: 0, tower: 1 };
+
+export interface Structure {
+  id: number;
+  kind: StructureKind;
+  /** North-west footprint tile; walls are 1×1, towers 2×2. */
+  tx: number;
+  ty: number;
+  /** Price actually paid in milli-gold — the basis of the removal refund. */
+  paidMg: number;
+  /** Absolute tick a pending removal completes, or -1 while not being removed. */
+  removalCompleteTick: number;
+  /** Towers: absolute tick of the earliest permitted next shot. Walls: 0. */
+  nextFireTick: number;
+}
+
+/** One sack per tile (drops merge); insertion-ordered like every entity array. */
+export interface GoldSack {
+  id: number;
+  tx: number;
+  ty: number;
+  amountMg: number;
 }
 
 export interface SimState {
@@ -43,6 +73,10 @@ export interface SimState {
   /** Insertion-ordered; iteration order is part of the determinism contract. */
   enemies: Enemy[];
   nextEnemyId: number;
+  structures: Structure[];
+  nextStructureId: number;
+  sacks: GoldSack[];
+  nextSackId: number;
   /** Absolute tick of the next debug-timer spawn, one slot per level spawn. */
   nextSpawnTicks: number[];
 }

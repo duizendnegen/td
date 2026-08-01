@@ -6,16 +6,20 @@
 //   - PlaceWall / PlaceTower / StartRemoval / Upgrade / StartWave
 //   - Applied at tick boundaries in stable order
 
-// Phase 1 ships the queue and ordering machinery with no state-mutating
-// commands yet — placement lands in Phase 2. The drain order (command type,
-// then issue sequence) is part of the determinism contract.
+// The drain order (command type, then issue sequence) is part of the
+// determinism contract.
 
-export type CommandBody = { kind: 'noop' };
+import type { StructureKind } from './types';
+
+export type CommandBody =
+  | { kind: 'noop' }
+  | { kind: 'place'; structure: StructureKind; tx: number; ty: number }
+  | { kind: 'remove'; tx: number; ty: number };
 
 export type Command = CommandBody & { seq: number };
 
 /** Drain sort key per kind; lower drains first. */
-const KIND_ORDER: Record<Command['kind'], number> = { noop: 0 };
+const KIND_ORDER: Record<Command['kind'], number> = { noop: 0, place: 1, remove: 2 };
 
 export class CommandQueue {
   private seq = 0;

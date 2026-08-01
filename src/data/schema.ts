@@ -9,7 +9,7 @@
 //   - Float rates from JSON converted to integers once, here, at load
 
 import { z } from 'zod';
-import { GOLD } from '../sim/fixed';
+import { GOLD, TILE } from '../sim/fixed';
 import { buildField } from '../sim/flowfield';
 import { Grid } from '../sim/grid';
 
@@ -61,9 +61,22 @@ const EnemyStatsSchema = z.object({
   slowImmune: z.boolean(),
 });
 
+/** Phase 2's one live tower; the other archetypes stay unshaped until Phase 3. */
+const RapidTowerSchema = z.looseObject({
+  cost: z.int().nonnegative(),
+  damage: z.int().positive(),
+  /** Authored in tiles for readability; converted to fixed-point units at load. */
+  rangeTiles: z.number().positive(),
+  fireIntervalTicks: z.int().positive(),
+});
+
 export const BalanceSchema = z.object({
-  // Tower stat blocks get their real shape in Phase 3.
-  towers: z.record(z.string(), z.unknown()),
+  build: z.object({
+    wallCost: z.int().nonnegative(),
+    removalRefundFraction: z.number().min(0).max(1),
+  }),
+  // Only rapid has its real Phase-2 shape; the rest arrive in Phase 3.
+  towers: z.looseObject({ rapid: RapidTowerSchema }),
   enemies: z.record(z.string(), EnemyStatsSchema),
 });
 export type Balance = z.infer<typeof BalanceSchema>;
@@ -72,6 +85,20 @@ export type Balance = z.infer<typeof BalanceSchema>;
 export interface EnemyType {
   key: string;
   speed: number;
+  hp: number;
+  /** Carry capacity in milli-gold. */
+  carryMg: number;
+  /** Kill bounty in milli-gold. */
+  bountyMg: number;
+}
+
+/** The rapid tower's stats, integer-converted for the sim. */
+export interface TowerStats {
+  costMg: number;
+  damage: number;
+  /** Range in fixed-point units, measured from the tower's centre. */
+  rangeUnits: number;
+  fireIntervalTicks: number;
 }
 
 /** Everything the sim needs, converted to integers exactly once, here. */
@@ -84,6 +111,10 @@ export interface GameData {
   interestRatePer10k: number;
   /** Sorted by key so typeId assignment ignores authoring order. */
   enemyTypes: EnemyType[];
+  wallCostMg: number;
+  /** removalRefundFraction × 1000, rounded — refund is paidMg*frac/1000, floored. */
+  refundPer1000: number;
+  rapidTower: TowerStats;
 }
 
 /**
@@ -141,6 +172,7 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
     }
   }
 
+  const rapid = balance.towers.rapid;
   return {
     level,
     balance,
@@ -149,6 +181,23 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
     interestRatePer10k: Math.round(level.economy.interestRatePerTick * 10_000),
     enemyTypes: Object.keys(balance.enemies)
       .sort()
-      .map((key) => ({ key, speed: balance.enemies[key]!.speed })),
+      .map((key) => {
+        const e = balance.enemies[key]!;
+        return {
+          key,
+          speed: e.speed,
+          hp: e.hp,
+          carryMg: e.carryCapacity * GOLD,
+          bountyMg: e.bounty * GOLD,
+        };
+      }),
+    wallCostMg: balance.build.wallCost * GOLD,
+    refundPer1000: Math.round(balance.build.removalRefundFraction * 1000),
+    rapidTower: {
+      costMg: rapid.cost * GOLD,
+      damage: rapid.damage,
+      rangeUnits: Math.round(rapid.rangeTiles * TILE),
+      fireIntervalTicks: rapid.fireIntervalTicks,
+    },
   };
 }

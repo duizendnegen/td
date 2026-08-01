@@ -28,15 +28,36 @@ export interface FlowField {
   cost: Int32Array;
 }
 
+/** A field buffer of the right size for `grid`, ready for buildFieldInto. */
+export function allocField(grid: Grid): FlowField {
+  const size = grid.width * grid.height;
+  return { dir: new Int8Array(size), cost: new Int32Array(size) };
+}
+
 /**
  * Multi-source Dijkstra outward from `sources`. A diagonal edge exists only
  * if both orthogonally adjacent tiles between its endpoints are walkable, so
  * no field can ever express a corner cut.
  */
 export function buildField(grid: Grid, sources: readonly { x: number; y: number }[]): FlowField {
-  const size = grid.width * grid.height;
-  const dir = new Int8Array(size).fill(UNREACHABLE);
-  const cost = new Int32Array(size).fill(UNREACHABLE);
+  const field = allocField(grid);
+  buildFieldInto(grid, sources, field);
+  return field;
+}
+
+/**
+ * buildField writing into a caller-owned buffer — the spare-buffer variant
+ * placement validation rebuilds into so a rejected attempt allocates nothing
+ * (ARCHITECTURE.md §7).
+ */
+export function buildFieldInto(
+  grid: Grid,
+  sources: readonly { x: number; y: number }[],
+  out: FlowField,
+): void {
+  const { dir, cost } = out;
+  dir.fill(UNREACHABLE);
+  cost.fill(UNREACHABLE);
 
   // Bucket queue keyed on cost: pop order is (cost, insertion order), which
   // is deterministic without any explicit tie-break.
@@ -81,8 +102,6 @@ export function buildField(grid: Grid, sources: readonly { x: number; y: number 
       }
     }
   }
-
-  return { dir, cost };
 }
 
 /** The tile one field step from (tx, ty), or null at sources/unreachable tiles. */

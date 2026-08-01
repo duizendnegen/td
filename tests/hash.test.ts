@@ -13,6 +13,8 @@ function makeEnemy(id: number): Enemy {
     waypoint: { x: 1536, y: 10752 },
     speed: 120,
     mode: 'inbound',
+    hp: 130,
+    carriedMg: 0,
     alive: true,
   };
 }
@@ -23,6 +25,13 @@ function makeState(): SimState {
     treasuryMg: 200_000,
     enemies: [makeEnemy(0), makeEnemy(1)],
     nextEnemyId: 2,
+    structures: [
+      { id: 0, kind: 'wall', tx: 4, ty: 5, paidMg: 4000, removalCompleteTick: -1, nextFireTick: 0 },
+      { id: 1, kind: 'tower', tx: 8, ty: 5, paidMg: 50_000, removalCompleteTick: -1, nextFireTick: 20 },
+    ],
+    nextStructureId: 2,
+    sacks: [{ id: 0, tx: 6, ty: 5, amountMg: 25_000 }],
+    nextSackId: 1,
     nextSpawnTicks: [40],
   };
 }
@@ -48,6 +57,24 @@ describe('state hash', () => {
       (s) => s.enemies[0]!.speed++,
       (s) => s.enemies[0]!.id++,
       (s) => s.enemies.pop(),
+      // Phase-2 fields — every one must be visible to the hash.
+      (s) => (s.enemies[0]!.mode = 'returning'),
+      (s) => s.enemies[0]!.hp--,
+      (s) => (s.enemies[1]!.carriedMg += 1000),
+      (s) => (s.enemies[1]!.alive = false),
+      (s) => s.nextStructureId++,
+      (s) => s.structures.pop(),
+      (s) => (s.structures[0]!.kind = 'tower'),
+      (s) => s.structures[0]!.tx++,
+      (s) => s.structures[0]!.ty--,
+      (s) => s.structures[0]!.paidMg++,
+      (s) => (s.structures[0]!.removalCompleteTick = 97),
+      (s) => s.structures[1]!.nextFireTick++,
+      (s) => s.nextSackId++,
+      (s) => s.sacks.pop(),
+      (s) => s.sacks[0]!.tx++,
+      (s) => s.sacks[0]!.ty++,
+      (s) => s.sacks[0]!.amountMg--,
     ];
     for (const mutate of mutations) {
       const state = makeState();

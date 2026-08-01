@@ -3,8 +3,8 @@
 //
 // Responsibilities:
 //   - Waypoint commitment and re-evaluation on arrival
-//   - inbound / returning state machine (theft is Phase 2; only inbound exists)
-//   - Carriers move at 80% speed (Phase 2)
+//   - Commitment invalidation on mask changes (phase-2 design D2)
+//   - Carriers move at 80% speed
 
 import { length, normalize, tileCentre, toTile } from './fixed';
 import type { FlowField } from './flowfield';
@@ -12,16 +12,30 @@ import { nextTile } from './flowfield';
 import type { Grid } from './grid';
 import type { Enemy, SimState } from './types';
 
+/** Both live fields, picked per enemy by its mode. */
+export interface Fields {
+  inbound: FlowField;
+  returning: FlowField;
+}
+
+/** Effective per-tick speed: carriers move at 80%, via integer math. */
+export function effectiveSpeed(e: Enemy): number {
+  return e.carriedMg > 0 ? Math.trunc((e.speed * 4) / 5) : e.speed;
+}
+
 /**
  * Tick step 5: move every enemy toward its committed waypoint at fixed speed.
  *
- * The commitment is never revised between waypoints: only on arriving at the
- * waypoint (within one step's reach — landing is exact) does the enemy re-read
- * the field at its current tile and commit the next tile centre.
+ * The commitment is never revised between waypoints (the one exception is the
+ * invalidation sweep below): only on arriving at the waypoint does the enemy
+ * re-read the field for its mode at its current tile and commit the next tile
+ * centre.
  */
-export function stepEnemies(state: SimState, grid: Grid, inbound: FlowField): void {
+export function stepEnemies(state: SimState, grid: Grid, fields: Fields): void {
   for (const e of state.enemies) {
-    let budget = e.speed;
+    if (!e.alive) continue;
+    const field = e.mode === 'inbound' ? fields.inbound : fields.returning;
+    let budget = effectiveSpeed(e);
     // An enemy that lands mid-tick with movement budget left continues toward
     // the next waypoint, so speed is honoured exactly through turns.
     while (budget > 0) {
@@ -32,8 +46,8 @@ export function stepEnemies(state: SimState, grid: Grid, inbound: FlowField): vo
         e.pos.x = e.waypoint.x;
         e.pos.y = e.waypoint.y;
         budget -= length(dx, dy);
-        const next = nextTile(inbound, grid, toTile(e.pos.x), toTile(e.pos.y));
-        if (!next) break; // at a field source (treasury) or unreachable: hold
+        const next = nextTile(field, grid, toTile(e.pos.x), toTile(e.pos.y));
+        if (!next) break; // at a field source (treasury/spawn) or unreachable: hold
         e.waypoint.x = tileCentre(next.x);
         e.waypoint.y = tileCentre(next.y);
       } else {
@@ -46,12 +60,33 @@ export function stepEnemies(state: SimState, grid: Grid, inbound: FlowField): vo
   }
 }
 
-/** Tick step 6: enemies standing on the treasury centre despawn (Phase 1). */
-export function despawnAtTreasury(state: SimState, treasury: { x: number; y: number }): void {
-  const cx = tileCentre(treasury.x);
-  const cy = tileCentre(treasury.y);
+/**
+ * Design D2: after any mask-change rebuild, re-commit every enemy whose
+ * committed move became illegal — its waypoint tile is now blocked, or the
+ * move is diagonal and either flanking orthogonal tile is now blocked. Runs
+ * before movement in the same tick, so an enemy never walks into a fresh
+ * wall. Removal (unblocking) never invalidates, so this only ever fires on
+ * newly blocked tiles.
+ */
+export function invalidateCommitments(state: SimState, grid: Grid, fields: Fields): void {
   for (const e of state.enemies) {
-    if (e.pos.x === cx && e.pos.y === cy) e.alive = false;
+    if (!e.alive) continue;
+    const ctx = toTile(e.pos.x);
+    const cty = toTile(e.pos.y);
+    const wtx = toTile(e.waypoint.x);
+    const wty = toTile(e.waypoint.y);
+    if (wtx === ctx && wty === cty) continue; // committed to its own tile
+    const diagonal = wtx !== ctx && wty !== cty;
+    const illegal =
+      grid.isBlocked(wtx, wty) ||
+      (diagonal && (grid.isBlocked(wtx, cty) || grid.isBlocked(ctx, wty)));
+    if (!illegal) continue;
+    const field = e.mode === 'inbound' ? fields.inbound : fields.returning;
+    const next = nextTile(field, grid, ctx, cty);
+    // Placement validation guarantees a live enemy is never stranded, so
+    // next is null only when the enemy already stands on a source tile.
+    e.waypoint.x = tileCentre(next ? next.x : ctx);
+    e.waypoint.y = tileCentre(next ? next.y : cty);
   }
 }
 
@@ -64,6 +99,7 @@ export function spawnDueEnemies(
   spawns: readonly { x: number; y: number }[],
   typeId: number,
   speed: number,
+  hp: number,
   intervalTicks: number,
 ): void {
   spawns.forEach((spawn, i) => {
@@ -81,6 +117,8 @@ export function spawnDueEnemies(
       waypoint: { x, y },
       speed,
       mode: 'inbound',
+      hp,
+      carriedMg: 0,
       alive: true,
     };
     state.enemies.push(enemy);

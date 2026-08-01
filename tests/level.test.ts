@@ -70,12 +70,27 @@ describe('level and balance schemas', () => {
 
   it('assigns enemy typeIds in sorted key order, independent of authoring order', () => {
     const data = loadGameData(baseLevel(), {
-      towers: {},
+      build: { wallCost: 4, removalRefundFraction: 0.5 },
+      towers: { rapid: { cost: 50, damage: 8, rangeTiles: 3.5, fireIntervalTicks: 5 } },
       enemies: {
         tank: { hp: 0, speed: 1, carryCapacity: 0, bounty: 0, slowImmune: false },
         runner: { hp: 0, speed: 128, carryCapacity: 0, bounty: 0, slowImmune: false },
       },
     });
     expect(data.enemyTypes.map((t) => t.key)).toEqual(['runner', 'tank']);
+  });
+
+  it('converts phase-2 build and tower blocks to integers at load', () => {
+    const data = loadGameData(baseLevel(), balanceJson);
+    expect(data.wallCostMg).toBe(4000);
+    expect(data.refundPer1000).toBe(500);
+    expect(data.rapidTower.costMg).toBe(50_000);
+    expect(data.rapidTower.rangeUnits).toBe(3584); // 3.5 tiles × 1024
+    expect(Number.isInteger(data.rapidTower.rangeUnits)).toBe(true);
+    // Tuned values stay in balance.json; only the ×1000 gold scaling is pinned.
+    const runner = data.enemyTypes.find((t) => t.key === 'runner')!;
+    expect(runner.carryMg).toBe((balanceJson.enemies.runner.carryCapacity as number) * 1000);
+    expect(runner.bountyMg).toBe((balanceJson.enemies.runner.bounty as number) * 1000);
+    expect(runner.hp).toBeGreaterThan(0);
   });
 });

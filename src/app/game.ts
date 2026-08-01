@@ -13,13 +13,27 @@ import { formatHash } from '../sim/hash';
 import { Assets } from '../render/assets';
 import { IsometricCamera } from '../render/cameras';
 import { DebugOverlay } from '../render/debug';
-import { EnemyRenderer } from '../render/enemies';
+import { EnemyRenderer, SackRenderer } from '../render/enemies';
+import { FxRenderer, GhostPreview } from '../render/fx';
 import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
+import { StructureRenderer } from '../render/towers';
+import { TreasuryHud } from '../ui/hud';
+import { buildHintLine, InputController } from '../ui/input';
+import { PaletteUI } from '../ui/palette';
 import { startLoop } from './loop';
 
-// The ~18-model kit subset grows as phases land; Phase 1 uses these.
-const MODELS = ['tile', 'tile-rock', 'tile-spawn', 'enemy-ufo-b', 'detail-crystal-large'] as const;
+// The ~18-model kit subset grows as phases land; Phase 2 adds the tower kit.
+const MODELS = [
+  'tile',
+  'tile-rock',
+  'tile-spawn',
+  'enemy-ufo-b',
+  'detail-crystal-large',
+  'tower-square-bottom-a',
+  'tower-square-top-a',
+  'weapon-turret',
+] as const;
 
 /** Default seed; overridable via ?seed= so any seed is testable on the live link. */
 export const DEFAULT_SEED = 0xc0ffee;
@@ -65,8 +79,23 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   renderer.scene.add(treasuryMarker);
 
   const enemies = new EnemyRenderer(renderer.scene, assets);
+  const structures = new StructureRenderer(renderer.scene, assets);
+  const sacks = new SackRenderer(renderer.scene);
+  const fx = new FxRenderer(renderer.scene);
+  const ghost = new GhostPreview(renderer.scene, data.rapidTower.rangeUnits);
   const camera = new IsometricCamera(renderer.aspect, data.level.grid);
   renderer.onResize((aspect) => camera.frame(aspect));
+
+  // UI: reads sim state, emits commands — never mutates state directly.
+  const hud = document.getElementById('hud');
+  if (!hud) throw new Error('missing #hud element');
+  const treasuryHud = new TreasuryHud(hud);
+  const palette = new PaletteUI(hud, {
+    wallMg: data.wallCostMg,
+    towerMg: data.rapidTower.costMg,
+  });
+  const input = new InputController(canvas, camera.camera, sim, commands, palette, ghost, fx);
+  buildHintLine(hud);
 
   // App-side instrumentation for the F4 readout; the sim never reads the clock.
   const stats = { lastTickMs: 0 };
@@ -76,8 +105,6 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     stats.lastTickMs = performance.now() - start;
   };
 
-  const hud = document.getElementById('hud');
-  if (!hud) throw new Error('missing #hud element');
   const debug = new DebugOverlay(renderer.scene, sim, hud);
 
   // Fast-forward determinism probe (design D-P1-3): the same tick path as
@@ -112,12 +139,28 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   });
 
   // Exposed for console debugging and automated exploration; read-only use.
-  (window as unknown as Record<string, unknown>).__td = { renderer, camera, sim, stats, probe };
+  (window as unknown as Record<string, unknown>).__td = {
+    renderer,
+    camera,
+    sim,
+    stats,
+    probe,
+    commands,
+    palette,
+  };
 
   startLoop({
     tick: tickOnce,
     render: (alpha) => {
-      enemies.sync(sim.state.enemies, alpha, performance.now());
+      const now = performance.now();
+      enemies.sync(sim.state.enemies, alpha, now);
+      structures.sync(sim.state.structures, sim.state.tick);
+      sacks.sync(sim.state.sacks, now);
+      fx.drain(sim.events, now);
+      fx.update(now);
+      input.update();
+      treasuryHud.update(sim.state.treasuryMg);
+      palette.refresh(sim.state.treasuryMg);
       debug.update(stats.lastTickMs);
       renderer.render(camera.camera);
     },

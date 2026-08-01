@@ -100,7 +100,9 @@ export class DebugOverlay {
   private readonly readout: HTMLDivElement;
 
   private fieldLayer: THREE.Object3D | null = null; // F1
-  private waypointLayer: THREE.LineSegments | null = null; // F2
+  /** The inbound field the F1 layer was built from; a swap means a rebuild. */
+  private fieldLayerSource: object | null = null;
+  private waypointLayer: THREE.Group | null = null; // F2
   private waypointsOn = false;
   private readoutOn = false; // F4
 
@@ -119,14 +121,20 @@ export class DebugOverlay {
     if (this.fieldLayer) {
       this.scene.remove(this.fieldLayer);
       this.fieldLayer = null;
+      this.fieldLayerSource = null;
       return;
     }
+    this.buildFields();
+  }
+
+  private buildFields(): void {
     const layer = new THREE.Group();
     layer.add(buildFieldLayer(this.sim, this.sim.inbound, INBOUND_COLOR, -0.09));
     layer.add(buildFieldLayer(this.sim, this.sim.returning, RETURNING_COLOR, 0.09));
     layer.add(buildBlockedLayer(this.sim));
     this.scene.add(layer);
     this.fieldLayer = layer;
+    this.fieldLayerSource = this.sim.inbound;
   }
 
   /** F2: line from each enemy to its committed waypoint. */
@@ -134,7 +142,9 @@ export class DebugOverlay {
     this.waypointsOn = !this.waypointsOn;
     if (!this.waypointsOn && this.waypointLayer) {
       this.scene.remove(this.waypointLayer);
-      this.waypointLayer.geometry.dispose();
+      for (const child of this.waypointLayer.children) {
+        (child as THREE.LineSegments).geometry.dispose();
+      }
       this.waypointLayer = null;
     }
   }
@@ -147,6 +157,12 @@ export class DebugOverlay {
 
   /** Called every frame; refreshes whichever dynamic layers are visible. */
   update(lastTickMs: number): void {
+    // The live fields are swapped objects; a new reference means the mask
+    // changed and a visible F1 layer is stale — rebuild it.
+    if (this.fieldLayer && this.fieldLayerSource !== this.sim.inbound) {
+      this.scene.remove(this.fieldLayer);
+      this.buildFields();
+    }
     if (this.waypointsOn) this.refreshWaypoints();
     if (this.readoutOn) {
       const s = this.sim.state;
@@ -159,9 +175,10 @@ export class DebugOverlay {
   }
 
   private refreshWaypoints(): void {
-    const points: number[] = [];
+    const y = OVERLAY_Y + 0.25;
+    const byMode: Record<'inbound' | 'returning', number[]> = { inbound: [], returning: [] };
     for (const e of this.sim.state.enemies) {
-      const y = OVERLAY_Y + 0.25;
+      const points = byMode[e.mode];
       const px = e.pos.x / TILE;
       const pz = e.pos.y / TILE;
       const wx = e.waypoint.x / TILE;
@@ -175,10 +192,14 @@ export class DebugOverlay {
     }
     if (this.waypointLayer) {
       this.scene.remove(this.waypointLayer);
-      this.waypointLayer.geometry.dispose();
+      for (const child of this.waypointLayer.children) {
+        (child as THREE.LineSegments).geometry.dispose();
+      }
     }
-    // Enemy modes are all inbound in Phase 1; colour by mode arrives with Phase 2.
-    this.waypointLayer = lineSegments(points, INBOUND_COLOR);
+    const layer = new THREE.Group();
+    layer.add(lineSegments(byMode.inbound, INBOUND_COLOR));
+    layer.add(lineSegments(byMode.returning, RETURNING_COLOR));
+    this.waypointLayer = layer;
     this.scene.add(this.waypointLayer);
   }
 }

@@ -118,27 +118,42 @@ toward top-down and re-judge — the isometric look is negotiable, legibility is
 - Gold escaping through a spawn is gone
 - Treasury in milli-gold; spending blocked while `balance < 0`
 
+**Minimal tower combat** (`sim/tower.ts`) — *scope raised 2026-08-01*
+- Originally nothing in this phase could deal damage, which made the gate unjudgeable: maze length
+  affected nothing and every theft was a guaranteed total loss. The scope was deliberately raised to
+  pull **one minimal rapid-fire tower** forward from Phase 3: fixed stats from `balance.json`,
+  hitscan on the firing tick, first-along-path targeting, render-only tracer
+- Kill **bounties** credit the treasury — the economy's income side
+- Killed carriers **drop their sack organically** where they die (replacing the planned debug-key
+  sack spawner)
+- No upgrades, no other archetypes, no enemy variety — those remain Phase 3
+
 **Render**
-- Placeholder tower blocks and wall meshes at correct footprints
+- Kit-composed tower (square base + turret) and placeholder wall meshes at correct footprints
 - Gold-sack meshes on the ground, carried-gold indicator above carriers
-- Ghost placement preview tinted valid/invalid, driven by the **real** validation function
+- Ghost placement preview tinted valid/invalid/debt, driven by the **real** validation function
+- **Range ring** on the tower ghost and on a selected tower (pulled from Phase 3 — without it,
+  tower placement is blind)
 
 **UI** (`ui/`)
-- Minimal HUD: treasury readout, build palette (wall + one placeholder tower), removal countdown
+- Minimal HUD: treasury readout, build palette (wall + rapid-fire tower) with affordability and
+  debt-warning states, removal countdown
 - Pointer → ground raycast → tile → command
 
-**Tests** — `placement.test.ts`, `theft.test.ts`
+**Tests** — `placement.test.ts`, `theft.test.ts`, `tower.test.ts`
 
 ### Explicitly not in this phase
 
-No tower weapons and no damage — nothing can be killed yet. No waves, no interest, no upgrades. Gold
-sacks appear only via a debug key, since killing carriers is what normally drops them.
+No waves, no interest, no upgrades. No second tower archetype, no targeting priorities beyond
+first-along-path, no enemy variety, no status effects — the rapid-fire tower is deliberately the
+*only* thing that can kill, and everything else combat-shaped stays in Phase 3.
 
 ### Deliverable
 
-A deployed link where you build a maze with walls, watch enemies re-route live, watch them reach the
-treasury, steal, slow down, and carry your money back out through the gauntlet you built. Sealing the
-maze is impossible; removing a wall takes four seconds.
+A deployed link where you build a maze with walls and one tower type, watch enemies re-route live,
+watch them reach the treasury, steal, slow down, and carry your money back out through the gauntlet
+you built — and sometimes die on the way, dropping the gold for the next thief. Sealing the maze is
+impossible; removing a wall takes four seconds.
 
 ### Gate — the go/no-go
 
@@ -163,7 +178,8 @@ place the project can be killed or redirected, and that is precisely why it is P
 ### Scope
 
 **Towers** (`sim/tower.ts`)
-- Four archetypes with fixed targeting priorities:
+- Four archetypes with fixed targeting priorities — the rapid-fire baseline shipped minimally in
+  Phase 2 (scope raise); Phase 3 adds the other three and retrofits upgrades onto rapid fire:
 
   | Tower | Role | Priority | Kit model |
   |---|---|---|---|
@@ -172,10 +188,11 @@ place the project can be killed or redirected, and that is precisely why it is P
   | Area damage | Anti-swarm | First | square + `weapon-catapult` |
   | Slow | Force multiplier, no kill power | First | round + `tower-round-crystals` |
 
-- Hitscan resolution, damage on the firing tick, render-only tracer events
+- Hitscan resolution, damage on the firing tick, render-only tracer events (mechanism built in
+  Phase 2; extended to the new archetypes here)
 - Three upgrade levels per tower, each ~1.5× the previous cost
 - Slow does not stack — `slowUntil = max(...)`
-- Kill bounties straight to the treasury; killing a carrier drops its sack
+- Kill bounties and carrier sack drops (built in Phase 2) extended across all archetypes
 
 **Enemies**
 - Swarm (punishes no AoE), Tank (punishes no sniper), Runner (punishes no slow)
@@ -191,9 +208,9 @@ place the project can be killed or redirected, and that is precisely why it is P
 - `F3` debug: tower ranges and target lines
 
 **UI**
-- Full build palette with costs and affordability states
+- Full build palette with costs and affordability states (wall + rapid fire shipped in Phase 2)
 - Tower inspector: level, stats, upgrade cost, remove-with-countdown
-- Range preview on hover and on selection
+- Range preview on hover and on selection (shipped for rapid fire in Phase 2)
 
 **Tests** — targeting priority selection, slow non-stacking, upgrade cost curve, bounty accounting
 
