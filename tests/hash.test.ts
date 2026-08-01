@@ -15,6 +15,7 @@ function makeEnemy(id: number): Enemy {
     mode: 'inbound',
     hp: 130,
     carriedMg: 0,
+    slowUntil: 0,
     alive: true,
   };
 }
@@ -26,8 +27,8 @@ function makeState(): SimState {
     enemies: [makeEnemy(0), makeEnemy(1)],
     nextEnemyId: 2,
     structures: [
-      { id: 0, kind: 'wall', tx: 4, ty: 5, paidMg: 4000, removalCompleteTick: -1, nextFireTick: 0 },
-      { id: 1, kind: 'tower', tx: 8, ty: 5, paidMg: 50_000, removalCompleteTick: -1, nextFireTick: 20 },
+      { id: 0, kind: 'wall', tx: 4, ty: 5, archetypeId: -1, level: 0, paidMg: 4000, removalCompleteTick: -1, nextFireTick: 0 },
+      { id: 1, kind: 'tower', tx: 8, ty: 5, archetypeId: 0, level: 1, paidMg: 50_000, removalCompleteTick: -1, nextFireTick: 20 },
     ],
     nextStructureId: 2,
     sacks: [{ id: 0, tx: 6, ty: 5, amountMg: 25_000 }],
@@ -62,6 +63,10 @@ describe('state hash', () => {
       (s) => s.enemies[0]!.hp--,
       (s) => (s.enemies[1]!.carriedMg += 1000),
       (s) => (s.enemies[1]!.alive = false),
+      // Phase-3 fields.
+      (s) => (s.enemies[0]!.slowUntil = 60),
+      (s) => s.structures[1]!.archetypeId++,
+      (s) => s.structures[1]!.level++,
       (s) => s.nextStructureId++,
       (s) => s.structures.pop(),
       (s) => (s.structures[0]!.kind = 'tower'),

@@ -1,10 +1,12 @@
 // Pointer picking, ghost validation loop, command emission
-// See ARCHITECTURE.md §9 and the phase-2 build-ui spec
+// See ARCHITECTURE.md §9 and the phase-3 build-ui spec
 //
 // Responsibilities:
 //   - Raycast against the ground plane to get a tile coordinate
 //   - Ghost preview runs the REAL validation (sim.previewPlacement),
 //     re-evaluated on hovered-tile change or new tick — never per mouse-move
+//   - Selecting a tower drives the inspector and its range rings, including
+//     the next-level preview while the upgrade action is hovered
 //   - Never writes sim state directly — emits commands only
 //   - Every invalid click plays the same red flash the sim's rejects use
 
@@ -12,15 +14,17 @@ import * as THREE from 'three';
 import type { CommandQueue } from '../sim/commands';
 import { footprintFor, structureAt } from '../sim/placement';
 import type { Sim } from '../sim/sim';
-import type { Structure, StructureKind } from '../sim/types';
+import { towerStats } from '../sim/tower';
 import type { FxRenderer, GhostPreview, GhostTint } from '../render/fx';
 import { GROUND_TOP_Y } from '../render/renderer';
-import type { PaletteUI } from './palette';
+import type { InspectorUI } from './inspector';
+import { toolStructure, type PaletteUI, type Tool } from './palette';
 
 export class InputController {
   private readonly sim: Sim;
   private readonly commands: CommandQueue;
   private readonly palette: PaletteUI;
+  private readonly inspector: InspectorUI;
   private readonly ghost: GhostPreview;
   private readonly fx: FxRenderer;
   private readonly camera: THREE.Camera;
@@ -28,7 +32,6 @@ export class InputController {
   private readonly ndc = new THREE.Vector2();
 
   private hovered: { tx: number; ty: number } | null = null;
-  private selectedTower: Structure | null = null;
   /** Ghost re-evaluation keys: last evaluated (tile, tick) pair. */
   private lastEvalTick = -1;
   private lastEvalTile = '';
@@ -40,12 +43,14 @@ export class InputController {
     sim: Sim,
     commands: CommandQueue,
     palette: PaletteUI,
+    inspector: InspectorUI,
     ghost: GhostPreview,
     fx: FxRenderer,
   ) {
     this.sim = sim;
     this.commands = commands;
     this.palette = palette;
+    this.inspector = inspector;
     this.ghost = ghost;
     this.fx = fx;
     this.camera = camera;
@@ -57,7 +62,7 @@ export class InputController {
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     palette.onChange = () => {
-      this.selectedTower = null;
+      this.inspector.select(null);
       this.forceReevaluate();
     };
   }
@@ -90,18 +95,25 @@ export class InputController {
     const tile = this.hovered;
     if (!tile) return;
     const tool = this.palette.selected;
+    const structure = tool !== null ? toolStructure(tool) : null;
 
-    if (tool === 'wall' || tool === 'tower') {
+    if (structure) {
       // Re-run the real validation at click time; a red ghost or a stale
       // green both end in the same local flash with no command issued
       // when invalid (build-ui spec). A valid verdict may still lose the
       // race at the applying tick — then the sim's own reject event plays
       // the identical flash.
-      const verdict = this.sim.previewPlacement(tool, tile.tx, tile.ty);
+      const verdict = this.sim.previewPlacement(tile.tx, tile.ty);
       if (verdict === 'ok') {
-        this.commands.issue({ kind: 'place', structure: tool, tx: tile.tx, ty: tile.ty });
+        this.commands.issue({
+          kind: 'place',
+          structure: structure.kind,
+          ...(structure.kind === 'tower' ? { archetype: structure.archetype } : {}),
+          tx: tile.tx,
+          ty: tile.ty,
+        });
       } else {
-        this.fx.flashReject(footprintFor(tool, tile.tx, tile.ty), performance.now());
+        this.fx.flashReject(footprintFor(tile.tx, tile.ty), performance.now());
       }
       return;
     }
@@ -114,14 +126,22 @@ export class InputController {
       return;
     }
 
-    // No tool: select a tower to inspect its range ring.
+    // No tool: select a tower to inspect it.
     const s = structureAt(this.sim.state.structures, tile.tx, tile.ty);
-    this.selectedTower = s?.kind === 'tower' ? s : null;
+    this.inspector.select(s?.kind === 'tower' ? s : null);
   }
 
   private forceReevaluate(): void {
     this.lastEvalTick = -1;
     this.lastEvalTile = '';
+  }
+
+  /** The level-1 range for a tower tool's ghost ring; 0 for walls. */
+  private toolRangeUnits(tool: Tool): number {
+    const structure = toolStructure(tool);
+    if (!structure || structure.kind !== 'tower') return 0;
+    const id = this.sim.data.towers.findIndex((t) => t.archetype === structure.archetype);
+    return this.sim.data.towers[id]!.levels[0]!.rangeUnits;
   }
 
   /**
@@ -132,8 +152,9 @@ export class InputController {
   update(): void {
     const tool = this.palette.selected;
     const tile = this.hovered;
+    const structure = tool !== null ? toolStructure(tool) : null;
 
-    if (tool === 'wall' || tool === 'tower') {
+    if (structure) {
       if (!tile) {
         this.ghost.hide();
         this.lastEvalTile = '';
@@ -144,39 +165,42 @@ export class InputController {
       if (tick !== this.lastEvalTick || key !== this.lastEvalTile) {
         this.lastEvalTick = tick;
         this.lastEvalTile = key;
-        this.lastVerdictOk = this.sim.previewPlacement(tool, tile.tx, tile.ty) === 'ok';
+        this.lastVerdictOk = this.sim.previewPlacement(tile.tx, tile.ty) === 'ok';
       }
-      this.ghost.show(tool, tile.tx, tile.ty, this.tint(tool));
+      this.ghost.show(structure.kind, tile.tx, tile.ty, this.tint(tool!), this.toolRangeUnits(tool!));
+      this.ghost.showPreviewRingAt(null);
       return;
     }
 
-    // No build tool: the ghost shows at most a selected tower's range ring.
-    const sel = this.selectedTower;
-    if (sel && this.sim.state.structures.includes(sel)) {
+    // No build tool: the ghost shows at most the inspected tower's rings.
+    const sel = this.inspector.current;
+    if (sel) {
+      const centre = { x: sel.tx + 0.5, z: sel.ty + 0.5 };
       this.ghost.hide();
-      this.ghost.showRingAt({ x: sel.tx + 1, z: sel.ty + 1 });
+      this.ghost.showRingAt(centre, towerStats(sel, this.sim.data).rangeUnits);
+      // Next-level ring while the upgrade action is hovered (build-ui spec);
+      // identical radii (non-range archetypes) draw nothing extra visible.
+      this.ghost.showPreviewRingAt(centre, this.inspector.previewStats?.rangeUnits ?? 0);
     } else {
-      this.selectedTower = null;
       this.ghost.hide();
     }
   }
 
-  private tint(kind: StructureKind): GhostTint {
+  private tint(tool: Tool): GhostTint {
     if (!this.lastVerdictOk) return 'invalid';
-    const costMg = kind === 'wall' ? this.sim.data.wallCostMg : this.sim.data.rapidTower.costMg;
-    const debt = costMg > this.sim.state.treasuryMg;
+    const debt = this.palette.costOf(tool) > this.sim.state.treasuryMg;
     return debt ? 'debt' : 'valid';
   }
 }
 
-/** HUD hint line for the phase-2 controls. */
+/** HUD hint line for the phase-3 controls. */
 export function buildHintLine(hud: HTMLElement): void {
   const el = document.createElement('div');
   el.style.cssText =
-    'position:absolute;bottom:14px;left:14px;padding:6px 10px;background:#0007;' +
-    'font:12px/1.6 system-ui;border-radius:6px;color:#aab4c4;user-select:none;pointer-events:none';
+    'position:absolute;bottom:14px;left:14px;padding:6px 10px;background:#0007;max-width:210px;' +
+    'font:11px/1.6 system-ui;border-radius:6px;color:#aab4c4;user-select:none;pointer-events:none';
   el.innerHTML =
-    '1 wall · 2 tower · 3 remove · Esc / right-click cancel<br>' +
-    'F1 fields · F2 waypoints · F4 readout · F8 probe';
+    '1 wall · 2-5 towers · 6 remove<br>click tower to inspect · Esc cancels<br>' +
+    'F1 fields · F2 waypoints · F3 ranges<br>F4 readout · F8 probe';
   hud.appendChild(el);
 }

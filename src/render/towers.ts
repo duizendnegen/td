@@ -2,18 +2,30 @@
 // See ARCHITECTURE.md §8
 //
 // Responsibilities:
-//   - Kit tower models scaled 2x to fill the 2x2 footprint
-//   - Placeholder wall block on 1x1 footprints
+//   - Kit models are natively 1×1 — every structure sits on its single tile
+//   - Modular tower composition: one kit segment per upgrade level per
+//     archetype (square bases + weapon heads; round + crystals for slow),
+//     so level reads as height (tower-upgrades spec)
+//   - Weapon head yaws toward the tower's current target (cosmetic)
 //   - Removal countdown readout floating above a structure being removed
 
 import * as THREE from 'three';
-import { TICK_HZ } from '../sim/fixed';
-import type { Structure } from '../sim/types';
+import { ARCHETYPES, type TowerArchetype } from '../data/schema';
+import { TICK_HZ, TILE } from '../sim/fixed';
+import type { Enemy, Structure } from '../sim/types';
 import type { Assets } from './assets';
 import { GROUND_TOP_Y } from './renderer';
 
 const WALL_COLOR = 0x9aa4b2;
 const COUNTDOWN_COLOR = '#ff6b5e';
+
+/** Base and per-level middle segments, plus the weapon head, per archetype. */
+const KIT: Record<TowerArchetype, { base: string; middle: string; head: string }> = {
+  rapid: { base: 'tower-square-bottom-a', middle: 'tower-square-middle-a', head: 'weapon-turret' },
+  sniper: { base: 'tower-square-bottom-a', middle: 'tower-square-middle-b', head: 'weapon-ballista' },
+  area: { base: 'tower-square-bottom-a', middle: 'tower-square-middle-a', head: 'weapon-catapult' },
+  slow: { base: 'tower-round-bottom-a', middle: 'tower-round-middle-a', head: 'tower-round-crystals' },
+};
 
 /** A text sprite backed by a small canvas; cheap enough per structure. */
 class CountdownLabel {
@@ -74,6 +86,10 @@ export class StructureRenderer {
   private readonly meshes = new Map<number, THREE.Group>();
   private readonly labels = new Map<number, CountdownLabel>();
   private readonly heights = new Map<number, number>();
+  /** The weapon head per tower, for the cosmetic target yaw. */
+  private readonly heads = new Map<number, THREE.Object3D>();
+  /** The level each mesh was built for; an upgrade triggers a rebuild. */
+  private readonly builtLevels = new Map<number, number>();
 
   constructor(scene: THREE.Scene, assets: Assets) {
     this.scene = scene;
@@ -87,31 +103,65 @@ export class StructureRenderer {
       mesh.position.y = 0.275;
       group.add(mesh);
       this.heights.set(s.id, 0.55);
-      group.position.set(s.tx + 0.5, GROUND_TOP_Y, s.ty + 0.5);
     } else {
-      // Kit models are 1×1; scaled 2× the tower fills its 2×2 footprint.
-      const height = stack(group, [
-        this.assets.instance('tower-square-bottom-a'),
-        this.assets.instance('tower-square-top-a'),
-        this.assets.instance('weapon-turret'),
-      ]);
-      group.scale.setScalar(2);
-      this.heights.set(s.id, height * 2);
-      group.position.set(s.tx + 1, GROUND_TOP_Y, s.ty + 1);
+      // One middle segment per level above 1: level legibility is height.
+      const kit = KIT[ARCHETYPES[s.archetypeId]!];
+      const parts: THREE.Object3D[] = [this.assets.instance(kit.base)];
+      for (let l = 1; l < s.level; l++) parts.push(this.assets.instance(kit.middle));
+      const head = this.assets.instance(kit.head);
+      parts.push(head);
+      const height = stack(group, parts);
+      this.heights.set(s.id, height);
+      this.heads.set(s.id, head);
     }
+    group.position.set(s.tx + 0.5, GROUND_TOP_Y, s.ty + 0.5);
     return group;
   }
 
-  /** Reflect sim structures into the scene; tick drives countdown labels. */
-  sync(structures: readonly Structure[], tick: number): void {
+  private dropMesh(id: number): void {
+    const mesh = this.meshes.get(id);
+    if (mesh) this.scene.remove(mesh);
+    this.meshes.delete(id);
+    this.heights.delete(id);
+    this.heads.delete(id);
+    this.builtLevels.delete(id);
+  }
+
+  /**
+   * Reflect sim structures into the scene; tick drives countdown labels and
+   * `targetFor` supplies each tower's current target for the head yaw —
+   * read-only sim state, cosmetic result.
+   */
+  sync(
+    structures: readonly Structure[],
+    tick: number,
+    targetFor: (s: Structure) => Enemy | null,
+  ): void {
     const live = new Set<number>();
     for (const s of structures) {
       live.add(s.id);
+      // An upgrade changes the composition: rebuild the mesh at the new level.
+      if (this.meshes.has(s.id) && this.builtLevels.get(s.id) !== s.level) {
+        this.dropMesh(s.id);
+      }
       let mesh = this.meshes.get(s.id);
       if (!mesh) {
         mesh = this.build(s);
         this.meshes.set(s.id, mesh);
+        this.builtLevels.set(s.id, s.level);
         this.scene.add(mesh);
+      }
+
+      // Cosmetic head yaw toward the current target; holds the last bearing
+      // while no target is in range.
+      const head = this.heads.get(s.id);
+      if (head) {
+        const target = targetFor(s);
+        if (target) {
+          const dx = target.pos.x / TILE - (s.tx + 0.5);
+          const dz = target.pos.y / TILE - (s.ty + 0.5);
+          head.rotation.y = Math.atan2(dx, dz);
+        }
       }
 
       // Removal countdown (build-ui spec): remaining seconds, one decimal.
@@ -128,12 +178,8 @@ export class StructureRenderer {
         label.set(seconds.toFixed(1));
       }
     }
-    for (const [id, mesh] of this.meshes) {
-      if (!live.has(id)) {
-        this.scene.remove(mesh);
-        this.meshes.delete(id);
-        this.heights.delete(id);
-      }
+    for (const id of this.meshes.keys()) {
+      if (!live.has(id)) this.dropMesh(id);
     }
     for (const [id, label] of this.labels) {
       if (!live.has(id)) {

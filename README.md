@@ -23,7 +23,7 @@ Demonstrate feasibility of:
 
 ## Grid & Movement
 
-- **30×20 playable tiles.** Walkable grid is 1×1; towers occupy a **2×2 footprint** (Desktop TD lineage — enemies path through 1-wide gaps, making mazing expressive). Walls are 1×1.
+- **30×20 playable tiles.** Every structure — wall or tower — occupies a **1×1 footprint**: towers are wall segments that shoot, so they slot directly into wall lines and the whole maze shares one building vocabulary. (Phase-2 playtest rework: the original 2×2 tower footprint could not join 1-wide wall lines and fought the mazing.)
 - **Diagonal movement allowed**, with corner-cutting prevented: the flow field never points diagonally between two blocked tiles (enforced at field-build time).
 - **Enemy position is continuous:** `(x, y)` floats in tile-space. Current tile = `(floor(x), floor(y))` — used for field lookup, gold drops, and pickups.
 - **Movement is waypoint-based:** enemies steer toward the *center of the next tile* the field indicates, not along raw field vectors. On arrival (within epsilon) they re-read the field and pick the next center. This prevents wall-hugging and gives smooth re-pathing.
@@ -57,7 +57,7 @@ Treasury and build-gold are **one pool**. Spending on towers lowers the same bal
 
 ## Towers
 
-Four archetypes, each with a **3-level upgrade path** (damage/rate bumps, each level ~1.5× the previous cost). Targeting priority is **fixed per tower type**.
+Four archetypes, each with a **3-level upgrade path**. Each archetype upgrades along two identity axes (rapid: rate+damage; sniper: range+damage; area: range+damage; slow: range+duration), with hand-authored stat rows and each level's cost matched to its compounded power (~1.7×/level). Targeting priority is **fixed per tower type**.
 
 | Tower | Role | Priority |
 |---|---|---|

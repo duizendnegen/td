@@ -6,6 +6,8 @@
 //   - Every group.spawn references a declared spawn id
 //   - Every group.type exists in balance.json
 //   - Every spawn reaches the treasury on the starting terrain
+//   - Per-archetype level tables: exactly three hand-authored rows, with each
+//     archetype's non-axis stats identical across rows (phase-3 design D2)
 //   - Float rates from JSON converted to integers once, here, at load
 
 import { z } from 'zod';
@@ -61,13 +63,24 @@ const EnemyStatsSchema = z.object({
   slowImmune: z.boolean(),
 });
 
-/** Phase 2's one live tower; the other archetypes stay unshaped until Phase 3. */
-const RapidTowerSchema = z.looseObject({
-  cost: z.int().nonnegative(),
-  damage: z.int().positive(),
+/** One hand-authored level row (design D2: nothing computed from multipliers). */
+const TowerLevelSchema = z.object({
+  cost: z.int().positive(),
+  /** 0 for the slow tower — it never deals damage. */
+  damage: z.int().nonnegative(),
   /** Authored in tiles for readability; converted to fixed-point units at load. */
   rangeTiles: z.number().positive(),
   fireIntervalTicks: z.int().positive(),
+  /** Slow only: status duration bought by upgrades. */
+  slowDurationTicks: z.int().positive().optional(),
+});
+
+const TowerSchema = z.looseObject({
+  levels: z.array(TowerLevelSchema).length(3),
+  /** Area only: burst radius, fixed across levels. */
+  burstRadiusTiles: z.number().positive().optional(),
+  /** Slow only: the single global slow percentage — slowed speed = speed × pct / 100. */
+  slowSpeedPercent: z.int().min(1).max(99).optional(),
 });
 
 export const BalanceSchema = z.object({
@@ -75,11 +88,19 @@ export const BalanceSchema = z.object({
     wallCost: z.int().nonnegative(),
     removalRefundFraction: z.number().min(0).max(1),
   }),
-  // Only rapid has its real Phase-2 shape; the rest arrive in Phase 3.
-  towers: z.looseObject({ rapid: RapidTowerSchema }),
+  towers: z.object({
+    rapid: TowerSchema,
+    sniper: TowerSchema,
+    area: TowerSchema,
+    slow: TowerSchema,
+  }),
   enemies: z.record(z.string(), EnemyStatsSchema),
 });
 export type Balance = z.infer<typeof BalanceSchema>;
+
+/** Canonical archetype order; a structure's archetypeId is an index into this. */
+export const ARCHETYPES = ['rapid', 'sniper', 'area', 'slow'] as const;
+export type TowerArchetype = (typeof ARCHETYPES)[number];
 
 /** One enemy type in canonical order; a sim typeId is an index into this list. */
 export interface EnemyType {
@@ -90,15 +111,28 @@ export interface EnemyType {
   carryMg: number;
   /** Kill bounty in milli-gold. */
   bountyMg: number;
+  /** Immune to the slow status (reserved for Phase 4's spawner). */
+  slowImmune: boolean;
 }
 
-/** The rapid tower's stats, integer-converted for the sim. */
-export interface TowerStats {
+/** One level row, integer-converted for the sim. */
+export interface TowerLevelStats {
   costMg: number;
   damage: number;
   /** Range in fixed-point units, measured from the tower's centre. */
   rangeUnits: number;
   fireIntervalTicks: number;
+  /** 0 for every archetype but slow. */
+  slowDurationTicks: number;
+}
+
+/** One archetype, integer-converted; indexed by archetypeId in GameData. */
+export interface TowerDef {
+  archetype: TowerArchetype;
+  /** Exactly three rows; a tower at level L uses levels[L - 1]. */
+  levels: readonly TowerLevelStats[];
+  /** Burst radius in fixed-point units; 0 for every archetype but area. */
+  burstRadiusUnits: number;
 }
 
 /** Everything the sim needs, converted to integers exactly once, here. */
@@ -114,7 +148,43 @@ export interface GameData {
   wallCostMg: number;
   /** removalRefundFraction × 1000, rounded — refund is paidMg*frac/1000, floored. */
   refundPer1000: number;
-  rapidTower: TowerStats;
+  /** Indexed by archetypeId (canonical ARCHETYPES order). */
+  towers: TowerDef[];
+  /** The single global slow multiplier: slowed speed = speed × this / 100. */
+  slowSpeedPer100: number;
+}
+
+/**
+ * D2 semantic checks: each archetype scales exactly its two axes, and every
+ * non-axis stat repeats verbatim across its three rows.
+ */
+function checkTowerAxes(balance: Balance): void {
+  const constantAcross = (
+    archetype: TowerArchetype,
+    stat: string,
+    pick: (l: z.infer<typeof TowerLevelSchema>) => number | undefined,
+  ): void => {
+    const levels = balance.towers[archetype].levels;
+    if (levels.some((l) => pick(l) !== pick(levels[0]!))) {
+      throw new Error(`balance: ${archetype}.${stat} is not a scaling axis and must be identical across levels`);
+    }
+  };
+  constantAcross('rapid', 'rangeTiles', (l) => l.rangeTiles);
+  constantAcross('sniper', 'fireIntervalTicks', (l) => l.fireIntervalTicks);
+  constantAcross('area', 'fireIntervalTicks', (l) => l.fireIntervalTicks);
+  constantAcross('slow', 'fireIntervalTicks', (l) => l.fireIntervalTicks);
+  if (balance.towers.slow.levels.some((l) => l.damage !== 0)) {
+    throw new Error('balance: the slow tower deals no damage; every slow level needs damage 0');
+  }
+  if (balance.towers.slow.levels.some((l) => l.slowDurationTicks === undefined)) {
+    throw new Error('balance: every slow level needs slowDurationTicks');
+  }
+  if (balance.towers.area.burstRadiusTiles === undefined) {
+    throw new Error('balance: area needs burstRadiusTiles');
+  }
+  if (balance.towers.slow.slowSpeedPercent === undefined) {
+    throw new Error('balance: slow needs slowSpeedPercent');
+  }
 }
 
 /**
@@ -125,6 +195,7 @@ export interface GameData {
 export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData {
   const level = LevelSchema.parse(levelJson);
   const balance = BalanceSchema.parse(balanceJson);
+  checkTowerAxes(balance);
 
   const { width, height } = level.grid;
   const grid = new Grid(width, height);
@@ -172,7 +243,6 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
     }
   }
 
-  const rapid = balance.towers.rapid;
   return {
     level,
     balance,
@@ -189,15 +259,25 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
           hp: e.hp,
           carryMg: e.carryCapacity * GOLD,
           bountyMg: e.bounty * GOLD,
+          slowImmune: e.slowImmune,
         };
       }),
     wallCostMg: balance.build.wallCost * GOLD,
     refundPer1000: Math.round(balance.build.removalRefundFraction * 1000),
-    rapidTower: {
-      costMg: rapid.cost * GOLD,
-      damage: rapid.damage,
-      rangeUnits: Math.round(rapid.rangeTiles * TILE),
-      fireIntervalTicks: rapid.fireIntervalTicks,
-    },
+    towers: ARCHETYPES.map((archetype) => {
+      const t = balance.towers[archetype];
+      return {
+        archetype,
+        levels: t.levels.map((l) => ({
+          costMg: l.cost * GOLD,
+          damage: l.damage,
+          rangeUnits: Math.round(l.rangeTiles * TILE),
+          fireIntervalTicks: l.fireIntervalTicks,
+          slowDurationTicks: l.slowDurationTicks ?? 0,
+        })),
+        burstRadiusUnits: Math.round((t.burstRadiusTiles ?? 0) * TILE),
+      };
+    }),
+    slowSpeedPer100: balance.towers.slow.slowSpeedPercent ?? 100,
   };
 }

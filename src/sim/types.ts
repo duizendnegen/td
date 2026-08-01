@@ -35,6 +35,12 @@ export interface Enemy {
   hp: number;
   /** Carried gold in milli-gold; > 0 makes this a carrier (80% speed). */
   carriedMg: number;
+  /**
+   * Absolute tick the slow status expires; 0 = never slowed. While
+   * tick < slowUntil the slow percentage applies after the carrier factor.
+   * Re-application takes max(...) — slow extends, never stacks (design D4).
+   */
+  slowUntil: number;
   /** Tombstone flag; compacted at the end of the tick that clears it. */
   alive: boolean;
 }
@@ -47,10 +53,17 @@ export const STRUCTURE_KIND_ID: Record<StructureKind, number> = { wall: 0, tower
 export interface Structure {
   id: number;
   kind: StructureKind;
-  /** North-west footprint tile; walls are 1×1, towers 2×2. */
+  /** The structure's tile; every structure is 1×1 (phase-3 design D1). */
   tx: number;
   ty: number;
-  /** Price actually paid in milli-gold — the basis of the removal refund. */
+  /** Towers: index into the canonical archetype list. Walls: -1. */
+  archetypeId: number;
+  /** Towers: current upgrade level, 1–3. Walls: 0. */
+  level: number;
+  /**
+   * Total invested in milli-gold — base cost plus every upgrade cost paid.
+   * The basis of the removal refund (phase-3 design D3).
+   */
   paidMg: number;
   /** Absolute tick a pending removal completes, or -1 while not being removed. */
   removalCompleteTick: number;

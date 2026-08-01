@@ -18,9 +18,16 @@ export interface Fields {
   returning: FlowField;
 }
 
-/** Effective per-tick speed: carriers move at 80%, via integer math. */
-export function effectiveSpeed(e: Enemy): number {
-  return e.carriedMg > 0 ? Math.trunc((e.speed * 4) / 5) : e.speed;
+/**
+ * Effective per-tick speed, all integer math in one pinned order (design D4):
+ * the carrier factor (80%) applies first, then the slow percentage while the
+ * slow is unexpired. The two orders round differently, so this order is part
+ * of the determinism contract and pinned by test.
+ */
+export function effectiveSpeed(e: Enemy, tick: number, slowSpeedPer100: number): number {
+  let speed = e.carriedMg > 0 ? Math.trunc((e.speed * 4) / 5) : e.speed;
+  if (tick < e.slowUntil) speed = Math.trunc((speed * slowSpeedPer100) / 100);
+  return speed;
 }
 
 /**
@@ -31,11 +38,16 @@ export function effectiveSpeed(e: Enemy): number {
  * re-read the field for its mode at its current tile and commit the next tile
  * centre.
  */
-export function stepEnemies(state: SimState, grid: Grid, fields: Fields): void {
+export function stepEnemies(
+  state: SimState,
+  grid: Grid,
+  fields: Fields,
+  slowSpeedPer100: number,
+): void {
   for (const e of state.enemies) {
     if (!e.alive) continue;
     const field = e.mode === 'inbound' ? fields.inbound : fields.returning;
-    let budget = effectiveSpeed(e);
+    let budget = effectiveSpeed(e, state.tick, slowSpeedPer100);
     // An enemy that lands mid-tick with movement budget left continues toward
     // the next waypoint, so speed is honoured exactly through turns.
     while (budget > 0) {
@@ -90,9 +102,39 @@ export function invalidateCommitments(state: SimState, grid: Grid, fields: Field
   }
 }
 
+/** Spawn one typed enemy at a spawn tile — shared by the timer and the spawn command. */
+export function spawnEnemy(
+  state: SimState,
+  spawn: { x: number; y: number },
+  typeId: number,
+  speed: number,
+  hp: number,
+): Enemy {
+  const x = tileCentre(spawn.x);
+  const y = tileCentre(spawn.y);
+  const enemy: Enemy = {
+    id: state.nextEnemyId++,
+    typeId,
+    pos: { x, y },
+    prevPos: { x, y },
+    // Committing the own tile centre makes the first movement tick re-read
+    // the field and commit the real first waypoint.
+    waypoint: { x, y },
+    speed,
+    mode: 'inbound',
+    hp,
+    carriedMg: 0,
+    slowUntil: 0,
+    alive: true,
+  };
+  state.enemies.push(enemy);
+  return enemy;
+}
+
 /**
- * Tick step 4 (Phase-1 stand-in for the wave scheduler): spawn one enemy per
- * spawn point whenever its absolute-tick timer comes due.
+ * Tick step 4 (debug-timer stand-in for the Phase-4 wave scheduler): spawn
+ * one enemy of the named type per spawn point whenever its absolute-tick
+ * timer comes due.
  */
 export function spawnDueEnemies(
   state: SimState,
@@ -105,22 +147,6 @@ export function spawnDueEnemies(
   spawns.forEach((spawn, i) => {
     if (state.tick < state.nextSpawnTicks[i]!) return;
     state.nextSpawnTicks[i] = state.tick + intervalTicks;
-    const x = tileCentre(spawn.x);
-    const y = tileCentre(spawn.y);
-    const enemy: Enemy = {
-      id: state.nextEnemyId++,
-      typeId,
-      pos: { x, y },
-      prevPos: { x, y },
-      // Committing the own tile centre makes the first movement tick re-read
-      // the field and commit the real first waypoint.
-      waypoint: { x, y },
-      speed,
-      mode: 'inbound',
-      hp,
-      carriedMg: 0,
-      alive: true,
-    };
-    state.enemies.push(enemy);
+    spawnEnemy(state, spawn, typeId, speed, hp);
   });
 }

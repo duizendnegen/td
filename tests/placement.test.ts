@@ -33,18 +33,41 @@ describe('placement validation', () => {
     expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
   });
 
-  it('rejects a placement whose footprint contains an enemy', () => {
+  it('rejects a placement whose footprint tile contains an enemy', () => {
     const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 0 }, { x: 6, y: 0 }));
     injectEnemy(sim, 3, 2);
     // Wall directly on the enemy.
     sim.tick([place('wall', 3, 2)]);
     expect(sim.state.structures).toHaveLength(0);
-    // 2×2 tower whose south-east tile contains the enemy.
-    sim.tick([place('tower', 2, 1)]);
+    // Tower directly on the enemy — the 1×1 check is the same single tile.
+    sim.tick([place('tower', 3, 2)]);
     expect(sim.state.structures).toHaveLength(0);
-    // Same tower one tile further away is fine.
+    // The neighbouring tile is fine.
     sim.tick([place('tower', 4, 3)]);
     expect(sim.state.structures).toHaveLength(1);
+  });
+
+  it('a tower occupies exactly one tile and slots into a wall line', () => {
+    // Wall line across x=3 with gaps at (3,1) and (3,2).
+    const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
+    sim.tick([place('wall', 3, 0), place('wall', 3, 3), place('wall', 3, 4)]);
+    expect(sim.state.structures).toHaveLength(3);
+
+    // The tower slots into the line at (3,1) like any wall segment: exactly
+    // one tile blocked and charged, neighbours untouched.
+    const before = sim.state.treasuryMg;
+    sim.tick([place('tower', 3, 1)]);
+    expect(sim.state.structures).toHaveLength(4);
+    expect(sim.state.treasuryMg).toBe(before - 50_000);
+    expect(sim.grid.isBlocked(3, 1)).toBe(true);
+    expect(sim.grid.isBlocked(4, 1)).toBe(false);
+    expect(sim.grid.isBlocked(3, 2)).toBe(false);
+
+    // A tower in the last gap would seal the corridor — same pipeline, same
+    // rejection as a wall.
+    sim.tick([place('tower', 3, 2)]);
+    expect(sim.state.structures).toHaveLength(4);
+    expect(sim.grid.isBlocked(3, 2)).toBe(false);
   });
 
   it('rejection is atomic: post-tick hash equals the run without the attempt', () => {

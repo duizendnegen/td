@@ -12,6 +12,7 @@ import { TILE } from '../sim/fixed';
 import { DIR_DX, DIR_DY, UNREACHABLE, type FlowField } from '../sim/flowfield';
 import { formatHash } from '../sim/hash';
 import type { Sim } from '../sim/sim';
+import { towerCentre, towerStats } from '../sim/tower';
 import { GROUND_TOP_Y } from './renderer';
 
 const OVERLAY_Y = GROUND_TOP_Y + 0.03;
@@ -19,6 +20,8 @@ const INBOUND_COLOR = 0x35d0ff; // cyan
 const RETURNING_COLOR = 0xffa03c; // orange
 const BLOCKED_COLOR = 0xff4455;
 const UNREACHABLE_COLOR = 0xff44ff;
+/** F3 tower colours per archetypeId (canonical ARCHETYPES order). */
+const TOWER_COLORS = [0xffe08a, 0xff8a5c, 0xffb02e, 0x6fd9ff];
 
 function lineSegments(points: number[], color: number): THREE.LineSegments {
   const geo = new THREE.BufferGeometry();
@@ -104,6 +107,8 @@ export class DebugOverlay {
   private fieldLayerSource: object | null = null;
   private waypointLayer: THREE.Group | null = null; // F2
   private waypointsOn = false;
+  private combatLayer: THREE.Group | null = null; // F3
+  private combatOn = false;
   private readoutOn = false; // F4
 
   constructor(scene: THREE.Scene, sim: Sim, hud: HTMLElement) {
@@ -149,6 +154,24 @@ export class DebugOverlay {
     }
   }
 
+  /** F3: tower range boundaries and target lines, from live sim state. */
+  toggleCombat(): void {
+    this.combatOn = !this.combatOn;
+    if (!this.combatOn && this.combatLayer) {
+      this.dropCombatLayer();
+    }
+  }
+
+  private dropCombatLayer(): void {
+    if (!this.combatLayer) return;
+    this.scene.remove(this.combatLayer);
+    for (const child of this.combatLayer.children) {
+      (child as THREE.LineSegments).geometry.dispose();
+      ((child as THREE.LineSegments).material as THREE.Material).dispose();
+    }
+    this.combatLayer = null;
+  }
+
   /** F4: tick / hash / entity count / ms-per-tick. */
   toggleReadout(): void {
     this.readoutOn = !this.readoutOn;
@@ -164,14 +187,57 @@ export class DebugOverlay {
       this.buildFields();
     }
     if (this.waypointsOn) this.refreshWaypoints();
+    if (this.combatOn) this.refreshCombat();
     if (this.readoutOn) {
       const s = this.sim.state;
+      const byType = new Map<string, number>();
+      let slowed = 0;
+      for (const e of s.enemies) {
+        const key = this.sim.data.enemyTypes[e.typeId]?.key ?? '?';
+        byType.set(key, (byType.get(key) ?? 0) + 1);
+        if (s.tick < e.slowUntil) slowed++;
+      }
+      const types = [...byType.entries()].map(([k, n]) => `${k} ${n}`).join(' · ') || 'none';
       this.readout.textContent =
         `tick    ${s.tick}\n` +
         `hash    ${formatHash(this.sim.hash())}\n` +
-        `enemies ${s.enemies.length}\n` +
+        `enemies ${s.enemies.length} (${slowed} slowed)\n` +
+        `        ${types}\n` +
         `ms/tick ${lastTickMs.toFixed(3)}`;
     }
+  }
+
+  /** F3: per-tower range circle and a line to the current target. */
+  private refreshCombat(): void {
+    this.dropCombatLayer();
+    const layer = new THREE.Group();
+    const y = OVERLAY_Y + 0.02;
+    for (const t of this.sim.state.structures) {
+      if (t.kind !== 'tower') continue;
+      const color = TOWER_COLORS[t.archetypeId] ?? 0xffffff;
+      const { x: cx, y: cy } = towerCentre(t);
+      const wx = cx / TILE;
+      const wz = cy / TILE;
+      const radius = towerStats(t, this.sim.data).rangeUnits / TILE;
+
+      const points: number[] = [];
+      const SEGMENTS = 48;
+      for (let i = 0; i < SEGMENTS; i++) {
+        const a0 = (i / SEGMENTS) * Math.PI * 2;
+        const a1 = ((i + 1) / SEGMENTS) * Math.PI * 2;
+        points.push(
+          wx + Math.cos(a0) * radius, y, wz + Math.sin(a0) * radius,
+          wx + Math.cos(a1) * radius, y, wz + Math.sin(a1) * radius,
+        );
+      }
+      const target = this.sim.currentTarget(t);
+      if (target) {
+        points.push(wx, y + 0.4, wz, target.pos.x / TILE, y + 0.1, target.pos.y / TILE);
+      }
+      layer.add(lineSegments(points, color));
+    }
+    this.combatLayer = layer;
+    this.scene.add(layer);
   }
 
   private refreshWaypoints(): void {

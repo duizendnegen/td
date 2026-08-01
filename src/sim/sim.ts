@@ -6,11 +6,12 @@
 //   - Fixed 10-step tick order (see ARCHITECTURE.md §7)
 //   - Exposes render-only events, which are outside the state hash
 
-import type { GameData } from '../data/schema';
+import type { GameData, TowerArchetype } from '../data/schema';
+import { ARCHETYPES } from '../data/schema';
 import type { Command } from './commands';
 import { canSpend, resolveArrivals, resolveDeaths } from './economy';
 import type { RenderEvent } from './events';
-import { invalidateCommitments, spawnDueEnemies, stepEnemies } from './enemy';
+import { invalidateCommitments, spawnDueEnemies, spawnEnemy, stepEnemies } from './enemy';
 import type { FlowField } from './flowfield';
 import { allocField, buildFieldInto } from './flowfield';
 import type { Grid } from './grid';
@@ -18,15 +19,27 @@ import { hashState } from './hash';
 import { REMOVAL_TICKS } from './fixed';
 import type { PlacementVerdict } from './placement';
 import { footprintFor, structureAt, tickRemovals, validatePlacement } from './placement';
-import { fireTowers } from './tower';
+import { fireTowers, selectTarget } from './tower';
 import { Rng } from './rng';
-import type { SimState, StructureKind } from './types';
+import type { Enemy, SimState, Structure, StructureKind } from './types';
 
-/** Phase-1 debug-timer spawn cadence (1.5 s); Phase 4 replaces it with waves. */
+/** Debug-timer spawn cadence (1.5 s); Phase 4 replaces it with waves. */
 export const DEBUG_SPAWN_INTERVAL_TICKS = 30;
 
-/** The single spawnable enemy type until Phase 3 (model mapping: enemy-ufo-b). */
-export const PHASE1_ENEMY = 'runner';
+/** The type the debug timer spawns (model mapping: enemy-ufo-b). */
+export const TIMER_ENEMY = 'runner';
+
+/** Towers may only upgrade to this level; the level-3 inspector reads maxed. */
+export const MAX_TOWER_LEVEL = 3;
+
+export interface SimOptions {
+  /**
+   * Debug-timer spawning on/off (default on). The leak-rate harness turns it
+   * off so authored bursts are the only pressure; like the seed, this is
+   * fixed at construction and part of a run's replay setup.
+   */
+  timerSpawns?: boolean;
+}
 
 export class Sim {
   readonly state: SimState;
@@ -44,7 +57,8 @@ export class Sim {
   private readonly rng: Rng;
   private readonly treasury: { x: number; y: number };
   private readonly activeSpawns: { x: number; y: number }[];
-  private readonly spawnTypeId: number;
+  private readonly timerTypeId: number;
+  private readonly timerSpawns: boolean;
   /** Spare field pair for validation rebuilds; swapped live on accept (D1). */
   private readonly scratch: { inbound: FlowField; returning: FlowField };
   private readonly carryMgByType: number[];
@@ -52,7 +66,7 @@ export class Sim {
   /** Set by any step-2 placement commit; step 3 runs the sweep on it. */
   private maskChanged = false;
 
-  constructor(data: GameData, seed: number) {
+  constructor(data: GameData, seed: number, options: SimOptions = {}) {
     this.rng = new Rng(seed);
     this.data = data;
     this.grid = data.grid;
@@ -61,8 +75,9 @@ export class Sim {
     this.activeSpawns = data.level.spawns
       .filter((s) => s.activeFromWave === 1)
       .map((s) => ({ x: s.x, y: s.y }));
-    this.spawnTypeId = data.enemyTypes.findIndex((t) => t.key === PHASE1_ENEMY);
-    if (this.spawnTypeId < 0) throw new Error(`balance defines no "${PHASE1_ENEMY}" enemy`);
+    this.timerTypeId = data.enemyTypes.findIndex((t) => t.key === TIMER_ENEMY);
+    if (this.timerTypeId < 0) throw new Error(`balance defines no "${TIMER_ENEMY}" enemy`);
+    this.timerSpawns = options.timerSpawns ?? true;
     this.carryMgByType = data.enemyTypes.map((t) => t.carryMg);
     this.bountyMgByType = data.enemyTypes.map((t) => t.bountyMg);
 
@@ -108,14 +123,16 @@ export class Sim {
       this.maskChanged = false;
     }
     // 4. Spawning (debug timer stands in for the Phase-4 wave scheduler)
-    const spawnType = this.data.enemyTypes[this.spawnTypeId]!;
-    spawnDueEnemies(s, this.activeSpawns, this.spawnTypeId, spawnType.speed, spawnType.hp, DEBUG_SPAWN_INTERVAL_TICKS);
+    if (this.timerSpawns) {
+      const spawnType = this.data.enemyTypes[this.timerTypeId]!;
+      spawnDueEnemies(s, this.activeSpawns, this.timerTypeId, spawnType.speed, spawnType.hp, DEBUG_SPAWN_INTERVAL_TICKS);
+    }
     // 5. Enemy movement and waypoint re-evaluation
-    stepEnemies(s, this.grid, fields);
+    stepEnemies(s, this.grid, fields, this.data.slowSpeedPer100);
     // 6. Arrival: treasury grab-and-flip, sack pickup, spawn escape
-    resolveArrivals(s, this.treasury, this.activeSpawns, this.carryMgByType);
+    resolveArrivals(s, this.treasury, this.activeSpawns, this.carryMgByType, this.events);
     // 7. Tower targeting and firing (damage applies this tick)
-    fireTowers(s, this.grid, this.inbound, this.data.rapidTower, this.events);
+    fireTowers(s, this.grid, fields, this.data, this.events);
     // 8. Deaths: bounties, carrier sack drops, tombstones
     resolveDeaths(s, this.bountyMgByType);
     // 9. Economy: interest and bankruptcy are Phase 4
@@ -131,24 +148,40 @@ export class Sim {
    * pipeline the authoritative apply runs, against live state, with no
    * observable mutation — hovering never changes the hash.
    */
-  previewPlacement(kind: StructureKind, tx: number, ty: number): PlacementVerdict {
+  previewPlacement(tx: number, ty: number): PlacementVerdict {
     if (!canSpend(this.state.treasuryMg)) return 'no-funds';
     return validatePlacement(
       this.grid,
       this.state.enemies,
       this.activeSpawns,
       this.treasury,
-      footprintFor(kind, tx, ty),
+      footprintFor(tx, ty),
       this.scratch,
     );
+  }
+
+  /**
+   * The tower's current target, re-derived from live state — read-only, for
+   * the F3 overlay and the weapon-head yaw. Matches the firing selection
+   * exactly because it IS the firing selection.
+   */
+  currentTarget(t: Structure): Enemy | null {
+    if (t.kind !== 'tower') return null;
+    return selectTarget(t, this.state, this.grid, { inbound: this.inbound, returning: this.returning }, this.data);
   }
 
   private apply(command: Command): void {
     switch (command.kind) {
       case 'noop':
         break;
+      case 'spawn':
+        this.applySpawn(command.type, command.spawn);
+        break;
       case 'place':
-        this.applyPlace(command.structure, command.tx, command.ty);
+        this.applyPlace(command.structure, command.archetype ?? 'rapid', command.tx, command.ty);
+        break;
+      case 'upgrade':
+        this.applyUpgrade(command.tx, command.ty);
         break;
       case 'remove': {
         const s = structureAt(this.state.structures, command.tx, command.ty);
@@ -160,10 +193,21 @@ export class Sim {
     }
   }
 
-  private applyPlace(kind: StructureKind, tx: number, ty: number): void {
+  /** Typed spawn (enemy-variety spec): ordinary command, ordinary queue. */
+  private applySpawn(type: string, spawnIndex: number): void {
+    const typeId = this.data.enemyTypes.findIndex((t) => t.key === type);
+    const spawn = this.activeSpawns[spawnIndex];
+    if (typeId < 0 || !spawn) return; // unknown type or spawn: reject silently
+    const stats = this.data.enemyTypes[typeId]!;
+    spawnEnemy(this.state, spawn, typeId, stats.speed, stats.hp);
+  }
+
+  private applyPlace(kind: StructureKind, archetype: TowerArchetype, tx: number, ty: number): void {
     const s = this.state;
-    const footprint = footprintFor(kind, tx, ty);
-    const costMg = kind === 'wall' ? this.data.wallCostMg : this.data.rapidTower.costMg;
+    const footprint = footprintFor(tx, ty);
+    const archetypeId = kind === 'wall' ? -1 : ARCHETYPES.indexOf(archetype);
+    const costMg =
+      kind === 'wall' ? this.data.wallCostMg : this.data.towers[archetypeId]!.levels[0]!.costMg;
 
     const verdict = canSpend(s.treasuryMg)
       ? validatePlacement(this.grid, s.enemies, this.activeSpawns, this.treasury, footprint, this.scratch)
@@ -182,12 +226,39 @@ export class Sim {
       kind,
       tx,
       ty,
+      archetypeId,
+      level: kind === 'wall' ? 0 : 1,
       paidMg: costMg,
       removalCompleteTick: -1,
       nextFireTick: 0,
     });
     s.treasuryMg -= costMg;
     this.maskChanged = true;
+  }
+
+  /**
+   * Upgrade (tower-upgrades spec): valid only on an existing tower below max
+   * level with no removal countdown while the balance is ≥ 0. Stats and the
+   * charge land in the same tick; any failure leaves state untouched.
+   */
+  private applyUpgrade(tx: number, ty: number): void {
+    const s = this.state;
+    const t = structureAt(s.structures, tx, ty);
+    const valid =
+      t !== null &&
+      t.kind === 'tower' &&
+      t.level < MAX_TOWER_LEVEL &&
+      t.removalCompleteTick < 0 &&
+      canSpend(s.treasuryMg);
+    if (!valid) {
+      this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
+      return;
+    }
+    // levels[] is 0-based: the next level's row is levels[t.level].
+    const costMg = this.data.towers[t.archetypeId]!.levels[t.level]!.costMg;
+    s.treasuryMg -= costMg;
+    t.paidMg += costMg;
+    t.level++;
   }
 
   private swapScratchFields(): void {

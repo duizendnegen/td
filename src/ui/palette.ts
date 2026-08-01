@@ -1,15 +1,22 @@
 // Build palette
-// See ARCHITECTURE.md §9 and the phase-2 build-ui spec
+// See ARCHITECTURE.md §9 and the phase-3 build-ui spec
 //
 // Responsibilities:
-//   - Wall + rapid tower with costs, plus the removal tool
+//   - Wall + all four tower archetypes with level-1 costs, plus removal
 //   - Affordable / debt-warning / blocked states, refreshed per frame
 //   - Debt-warned items stay selectable; below 0 everything is blocked
 
+import type { TowerArchetype } from '../data/schema';
 import { GOLD } from '../sim/fixed';
-import type { StructureKind } from '../sim/types';
 
-export type Tool = StructureKind | 'remove';
+export type Tool = 'wall' | TowerArchetype | 'remove';
+
+/** The structure a tool places, or null for the removal tool. */
+export function toolStructure(tool: Tool): { kind: 'wall' } | { kind: 'tower'; archetype: TowerArchetype } | null {
+  if (tool === 'wall') return { kind: 'wall' };
+  if (tool === 'remove') return null;
+  return { kind: 'tower', archetype: tool };
+}
 
 interface Item {
   tool: Tool;
@@ -20,8 +27,14 @@ interface Item {
 }
 
 const BASE_STYLE =
-  'padding:10px 14px;border-radius:8px;border:1px solid #3a4354;background:#1b2230;' +
-  'color:#e8eaed;font:600 14px/1.3 system-ui;cursor:pointer;min-width:86px;text-align:center';
+  'padding:8px 10px;border-radius:8px;border:1px solid #3a4354;background:#1b2230;' +
+  'color:#e8eaed;font:600 13px/1.3 system-ui;cursor:pointer;min-width:72px;text-align:center';
+
+export interface PaletteCosts {
+  wallMg: number;
+  /** Level-1 cost per archetype, in canonical order rapid/sniper/area/slow. */
+  towerMg: Record<TowerArchetype, number>;
+}
 
 export class PaletteUI {
   private readonly items: Item[] = [];
@@ -29,17 +42,20 @@ export class PaletteUI {
   private blocked = false;
   onChange: ((tool: Tool | null) => void) | null = null;
 
-  constructor(hud: HTMLElement, costs: { wallMg: number; towerMg: number }) {
+  constructor(hud: HTMLElement, costs: PaletteCosts) {
     const bar = document.createElement('div');
     bar.style.cssText =
       'position:absolute;bottom:14px;left:50%;transform:translateX(-50%);' +
-      'display:flex;gap:10px;user-select:none';
+      'display:flex;gap:8px;user-select:none';
     hud.appendChild(bar);
 
     const defs: [Tool, string, string, number][] = [
       ['wall', 'Wall', '1', costs.wallMg],
-      ['tower', 'Tower', '2', costs.towerMg],
-      ['remove', 'Remove', '3', 0],
+      ['rapid', 'Rapid', '2', costs.towerMg.rapid],
+      ['sniper', 'Sniper', '3', costs.towerMg.sniper],
+      ['area', 'Area', '4', costs.towerMg.area],
+      ['slow', 'Slow', '5', costs.towerMg.slow],
+      ['remove', 'Remove', '6', 0],
     ];
     for (const [tool, label, key, costMg] of defs) {
       const button = document.createElement('button');
@@ -60,6 +76,11 @@ export class PaletteUI {
 
   get selected(): Tool | null {
     return this.selectedTool;
+  }
+
+  /** The selected tool's cost, for the ghost's debt tint. */
+  costOf(tool: Tool): number {
+    return this.items.find((i) => i.tool === tool)?.costMg ?? 0;
   }
 
   select(tool: Tool | null): void {

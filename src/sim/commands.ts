@@ -3,23 +3,33 @@
 //
 // Responsibilities:
 //   - The ONLY input path into the sim
-//   - PlaceWall / PlaceTower / StartRemoval / Upgrade / StartWave
+//   - Place / StartRemoval / Upgrade / Spawn
 //   - Applied at tick boundaries in stable order
 
 // The drain order (command type, then issue sequence) is part of the
 // determinism contract.
 
+import type { TowerArchetype } from '../data/schema';
 import type { StructureKind } from './types';
 
 export type CommandBody =
   | { kind: 'noop' }
-  | { kind: 'place'; structure: StructureKind; tx: number; ty: number }
+  /** Typed debug/preset spawn: enemy type key, index into the active spawns. */
+  | { kind: 'spawn'; type: string; spawn: number }
+  | { kind: 'place'; structure: StructureKind; archetype?: TowerArchetype; tx: number; ty: number }
+  | { kind: 'upgrade'; tx: number; ty: number }
   | { kind: 'remove'; tx: number; ty: number };
 
 export type Command = CommandBody & { seq: number };
 
 /** Drain sort key per kind; lower drains first. */
-const KIND_ORDER: Record<Command['kind'], number> = { noop: 0, place: 1, remove: 2 };
+const KIND_ORDER: Record<Command['kind'], number> = {
+  noop: 0,
+  spawn: 1,
+  place: 2,
+  upgrade: 3,
+  remove: 4,
+};
 
 export class CommandQueue {
   private seq = 0;

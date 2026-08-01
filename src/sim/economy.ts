@@ -7,6 +7,7 @@
 //   - Deaths: bounty credit and carrier sack drops
 //   - (Interest and bankruptcy are Phase 4)
 
+import type { RenderEvent } from './events';
 import { tileCentre, toTile } from './fixed';
 import type { Enemy, SimState } from './types';
 
@@ -37,6 +38,7 @@ export function resolveArrivals(
   treasury: { x: number; y: number },
   activeSpawns: readonly { x: number; y: number }[],
   carryMgByType: readonly number[],
+  events: RenderEvent[],
 ): void {
   const treasuryX = tileCentre(treasury.x);
   const treasuryY = tileCentre(treasury.y);
@@ -70,11 +72,13 @@ export function resolveArrivals(
       e.mode = 'returning';
     }
 
-    // Spawn escape: the enemy and its gold leave play permanently.
+    // Spawn escape: the enemy and its gold leave play permanently. The event
+    // is render-only (leak feedback, harness instrumentation) — not hashed.
     if (e.mode === 'returning') {
       for (const s of activeSpawns) {
         if (e.pos.x === tileCentre(s.x) && e.pos.y === tileCentre(s.y)) {
           e.alive = false;
+          events.push({ kind: 'goldLeaked', enemyId: e.id, amountMg: e.carriedMg });
           break;
         }
       }

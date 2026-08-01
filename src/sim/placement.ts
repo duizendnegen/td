@@ -12,33 +12,31 @@ import { toTile } from './fixed';
 import type { FlowField } from './flowfield';
 import { buildFieldInto } from './flowfield';
 import type { Grid } from './grid';
-import type { Enemy, SimState, Structure, StructureKind } from './types';
+import type { Enemy, SimState, Structure } from './types';
 
 export interface FootprintTile {
   x: number;
   y: number;
 }
 
-/** Footprint tiles for a structure kind at north-west tile (tx, ty). */
-export function footprintFor(kind: StructureKind, tx: number, ty: number): FootprintTile[] {
-  if (kind === 'wall') return [{ x: tx, y: ty }];
-  return [
-    { x: tx, y: ty },
-    { x: tx + 1, y: ty },
-    { x: tx, y: ty + 1 },
-    { x: tx + 1, y: ty + 1 },
-  ];
+/**
+ * Footprint tiles for a structure at (tx, ty). Every structure is 1×1
+ * (phase-3 design D1: towers are wall segments that shoot), so this is a
+ * single tile; the array shape survives for the validation pipeline and the
+ * placementRejected event.
+ */
+export function footprintFor(tx: number, ty: number): FootprintTile[] {
+  return [{ x: tx, y: ty }];
 }
 
-/** The structure whose footprint contains (tx, ty), or null. */
+/** The structure on tile (tx, ty), or null. */
 export function structureAt(
   structures: readonly Structure[],
   tx: number,
   ty: number,
 ): Structure | null {
   for (const s of structures) {
-    const size = s.kind === 'wall' ? 1 : 2;
-    if (tx >= s.tx && tx < s.tx + size && ty >= s.ty && ty < s.ty + size) return s;
+    if (s.tx === tx && s.ty === ty) return s;
   }
   return null;
 }
@@ -119,7 +117,7 @@ export function tickRemovals(state: SimState, grid: Grid, refundPer1000: number)
   let changed = false;
   for (const s of state.structures) {
     if (s.removalCompleteTick < 0 || state.tick < s.removalCompleteTick) continue;
-    for (const t of footprintFor(s.kind, s.tx, s.ty)) grid.setBlocked(t.x, t.y, false);
+    grid.setBlocked(s.tx, s.ty, false);
     state.treasuryMg += Math.floor((s.paidMg * refundPer1000) / 1000);
     s.removalCompleteTick = -2; // reaped below
     changed = true;

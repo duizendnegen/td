@@ -1,6 +1,6 @@
 {
   "$schema": "./schema.ts",
-  "$note": "Phase-2 blocks: build costs, refund fraction, the rapid tower, and a real runner stat block. Tuned to the 'kills a carrier sometimes on a good maze' bar: with first-along-path targeting an enemy only takes focused fire while it leads (~1.5s headway = 6 shots), so runner hp 60 vs damage 10 means a fresh leader survives one pass but a carrier re-entering range with inbound damage usually dies — verified in replay.test.ts, where the same 2000-tick session produces both kills AND successful escapes with gold. Swarm/tank remain placeholders until Phase 3.",
+  "$note": "Phase-3 blocks: four archetypes × three hand-authored levels (design D2: dual axes per archetype, ~1.3× per stat per level, cost matched to the compounded ~1.7× power so gold-per-output stays flat), real swarm/tank/runner stat blocks, and the reserved slow-immune brute (unused until Phase 4). Rows tuned against the leak-rate harness (tests/leak.test.ts): the rapid range came down from phase-2's 3.5 so one archetype can no longer cover both maze ends, and each enemy type's punisher pressure is asserted directionally there, not by feel.",
   "build": {
     "wallCost": 4,
     "removalRefundFraction": 0.5
@@ -9,19 +9,50 @@
     "rapid": {
       "role": "Single-target DPS baseline",
       "priority": "first",
-      "cost": 50,
-      "damage": 10,
-      "rangeTiles": 3.5,
-      "fireIntervalTicks": 5,
-      "levels": []
+      "axes": "rate+damage",
+      "levels": [
+        { "cost": 50, "damage": 10, "rangeTiles": 2.5, "fireIntervalTicks": 5 },
+        { "cost": 85, "damage": 13, "rangeTiles": 2.5, "fireIntervalTicks": 4 },
+        { "cost": 145, "damage": 17, "rangeTiles": 2.5, "fireIntervalTicks": 3 }
+      ]
     },
-    "sniper": { "role": "Anti-armour, long range", "priority": "carriersFirstThenStrongest", "levels": [] },
-    "area": { "role": "Anti-swarm", "priority": "first", "levels": [] },
-    "slow": { "role": "Force multiplier, no kill power", "priority": "first", "levels": [] }
+    "sniper": {
+      "role": "Anti-armour, long range",
+      "priority": "carriersFirstThenStrongest",
+      "axes": "range+damage",
+      "levels": [
+        { "cost": 70, "damage": 60, "rangeTiles": 5.0, "fireIntervalTicks": 20 },
+        { "cost": 120, "damage": 78, "rangeTiles": 5.75, "fireIntervalTicks": 20 },
+        { "cost": 205, "damage": 100, "rangeTiles": 6.5, "fireIntervalTicks": 20 }
+      ]
+    },
+    "area": {
+      "role": "Anti-swarm",
+      "priority": "first",
+      "axes": "range+damage",
+      "burstRadiusTiles": 1.5,
+      "levels": [
+        { "cost": 80, "damage": 26, "rangeTiles": 2.5, "fireIntervalTicks": 15 },
+        { "cost": 135, "damage": 34, "rangeTiles": 3.0, "fireIntervalTicks": 15 },
+        { "cost": 230, "damage": 44, "rangeTiles": 3.5, "fireIntervalTicks": 15 }
+      ]
+    },
+    "slow": {
+      "role": "Force multiplier, no kill power",
+      "priority": "first",
+      "axes": "range+duration",
+      "slowSpeedPercent": 45,
+      "levels": [
+        { "cost": 40, "damage": 0, "rangeTiles": 2.5, "fireIntervalTicks": 10, "slowDurationTicks": 40 },
+        { "cost": 70, "damage": 0, "rangeTiles": 3.0, "fireIntervalTicks": 10, "slowDurationTicks": 54 },
+        { "cost": 120, "damage": 0, "rangeTiles": 3.5, "fireIntervalTicks": 10, "slowDurationTicks": 70 }
+      ]
+    }
   },
   "enemies": {
-    "swarm": { "punishes": "no AoE", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false },
-    "tank": { "punishes": "no sniper", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false },
-    "runner": { "punishes": "no slow", "hp": 60, "speed": 128, "carryCapacity": 25, "bounty": 6, "slowImmune": false }
+    "swarm": { "punishes": "no AoE", "hp": 50, "speed": 110, "carryCapacity": 8, "bounty": 2, "slowImmune": false },
+    "tank": { "punishes": "no sniper", "hp": 900, "speed": 70, "carryCapacity": 60, "bounty": 25, "slowImmune": false },
+    "runner": { "punishes": "no slow", "hp": 480, "speed": 210, "carryCapacity": 25, "bounty": 10, "slowImmune": false },
+    "brute": { "punishes": "reserved: slow-immune, Phase 4", "hp": 600, "speed": 90, "carryCapacity": 40, "bounty": 18, "slowImmune": true }
   }
 }

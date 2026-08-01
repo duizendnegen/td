@@ -83,8 +83,9 @@ every reload with the same seed.
 - [ ] `F1` shows zero diagonals cutting between two blocked tiles
 - [ ] Movement is smooth at 60 fps display against a 20 Hz sim — interpolation is doing its job
 - [ ] The kit renders correctly: one material, one atlas, no missing-texture warnings
-- [ ] **The isometric view is legible** — 1-wide gaps, 2×2 footprints, and height differences all
-      read at a glance — the first real read on POC goal #3
+- [ ] **The isometric view is legible** — 1-wide gaps, tower footprints (2×2 at the time; 1×1
+      since Phase 3), and height differences all read at a glance — the first real read on POC
+      goal #3
 - [ ] Sim tick cost leaves ample headroom (target: well under 1 ms with 50 enemies)
 
 **If this gate fails:** the failure is almost certainly the camera criterion, not the technical ones.
@@ -102,7 +103,8 @@ toward top-down and re-judge — the isometric look is negotiable, legibility is
 ### Scope
 
 **Placement** (`sim/placement.ts`)
-- Wall (1×1) and tower-footprint (2×2) placement, charged against the treasury
+- Wall (1×1) and tower-footprint (2×2 at the time; all structures 1×1 since Phase 3) placement,
+  charged against the treasury
 - Full validation: in bounds, unoccupied, **no enemy standing in the footprint**, every active spawn
   still reaches the treasury, **and every live enemy still reaches its current goal**
 - Rejected placements revert the mask and restore the previous field with no allocation
@@ -159,7 +161,9 @@ impossible; removing a wall takes four seconds.
 
 - [ ] **Does the theft round trip feel good?** Is watching a carrier walk back out through your maze
       tense, or merely a second walk animation?
-- [ ] Does mazing feel expressive? Do 1-wide gaps between 2×2 footprints create interesting shapes?
+- [ ] Does mazing feel expressive? Do 1-wide gaps between structure footprints create interesting
+      shapes? *(Playtest verdict: not with 2×2 towers — they could not join wall lines, which led
+      directly to the Phase-3 1×1 rework.)*
 - [ ] Is re-pathing legible — can you see enemies react to a wall you just placed?
 - [ ] Does money-as-health land emotionally, or does it just read as an abstract number?
 - [ ] Sealing is genuinely impossible; the stranded-enemy case is caught
@@ -177,6 +181,12 @@ place the project can be killed or redirected, and that is precisely why it is P
 
 ### Scope
 
+**Footprint rework** (`sim/placement.ts`) — *scope added 2026-08, from the Phase-2 gate*
+- **All structures become 1×1** (breaking: placement spec + golden replay hashes). The Phase-2
+  playtest verdict was that mazes are built from 1×1 wall lines and a 2×2 tower cannot be a
+  segment of one — towers sat outside the game's core vocabulary. Towers are now wall segments
+  that shoot; wall vs tower is purely an economic choice.
+
 **Towers** (`sim/tower.ts`)
 - Four archetypes with fixed targeting priorities — the rapid-fire baseline shipped minimally in
   Phase 2 (scope raise); Phase 3 adds the other three and retrofits upgrades onto rapid fire:
@@ -190,7 +200,9 @@ place the project can be killed or redirected, and that is precisely why it is P
 
 - Hitscan resolution, damage on the firing tick, render-only tracer events (mechanism built in
   Phase 2; extended to the new archetypes here)
-- Three upgrade levels per tower, each ~1.5× the previous cost
+- Three upgrade levels per tower, dual-axis per archetype, with hand-authored stat rows and each
+  level's cost matched to its compounded power (~1.7×) so upgrade-vs-expand stays a spatial
+  choice rather than an economic one
 - Slow does not stack — `slowUntil = max(...)`
 - Kill bounties and carrier sack drops (built in Phase 2) extended across all archetypes
 
@@ -200,8 +212,8 @@ place the project can be killed or redirected, and that is precisely why it is P
 - One slow-immune type reserved for later waves
 
 **Render**
-- **Modular tower composition** — upgrade level adds a segment, so towers visibly grow: ~2.4 → 3.4 →
-  4.4 units tall
+- **Modular tower composition** — upgrade level adds a segment, so towers visibly grow (spire
+  proportions re-judged at the 1×1 footprint)
 - Weapon head yaws toward its current target (cosmetic)
 - Tracers, muzzle flashes, impact effects, AoE burst
 - Status icons hovering above enemies: carrying gold, slowed
@@ -225,9 +237,11 @@ visibly grow, and watch each enemy type punish the archetype you left out.
 
 ### Gate
 
-- [ ] **Do the counters read without explanation?** Does a swarm wave visibly punish missing AoE?
+- [ ] **Do the counters read without explanation?** Does a swarm burst visibly punish missing AoE?
 - [ ] Does the sniper's carrier priority make treasury-side placement feel like a distinct role from
       spawn-side? This is the mechanic that gives the maze two meaningful ends
+- [ ] **Do walls and towers compose into a single mazing vocabulary?** Does slotting a tower into
+      a wall line feel like building one maze, not placing two kinds of object?
 - [ ] Is the upgrade-as-height read strong in the isometric view — do taller towers read as more
       powerful at a glance?
 - [ ] Do the four archetypes feel distinct, or do two of them collapse into "the damage tower"?

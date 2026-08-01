@@ -17,7 +17,7 @@ rather than an accident.
 | D3 | HUD layer | **Plain DOM + TypeScript** | POC HUD is small; no framework lifecycle fighting a 20 Hz loop |
 | D4 | Testing | **Targeted sim tests (Vitest)** + one replay-hash test | Cover the invariants that are invisible by eye, nothing more |
 | D5 | Phasing | **4 phases, risk-first** | Both hard unknowns (determinism, WebGL) proven on day one |
-| D6 | Tower footprint | **Scale kit models 2×** | Preserves the 2×2 Desktop TD mazing; towers gain imposing height |
+| D6 | Tower footprint | ~~Scale kit models 2×~~ **All structures 1×1, kit models at native scale** (reworked in Phase 3) | The Phase-2 playtest showed a 2×2 tower cannot be a segment of a 1-wide wall line; towers are now wall segments that shoot |
 | D7 | Attack resolution | **Hitscan + render-only tracer** | Smallest deterministic surface; no projectile entities in the hash |
 | D8 | Data authoring | **JSON + zod validation** | Matches the README format; hand-editable; validator doubles as reachability check |
 | D9 | Interpolation | **prev/curr on each entity** | Near-free, no per-tick allocation, sufficient for client prediction |
@@ -371,6 +371,13 @@ if (sim.tick >= t.nextFireTick) {
 }
 ```
 
+Stats (`damage`, `fireIntervalTicks`, range, slow duration) come from the tower archetype's
+current level row in balance data. Within a tick, towers due to fire resolve in **insertion
+order**, and target selection skips enemies already at `hp ≤ 0` from an earlier same-tick shot —
+build order pins same-tick resolution, and no shot is wasted on the dead. Priorities read the two
+flow fields: rapid/area/slow pick minimal *inbound* cost (first along path); the sniper's
+carrier rule picks minimal *returning* cost (closest to escaping), otherwise max stat-block hp.
+
 `events` is drained by the renderer each frame and never read by the sim, so it is outside the state
 hash. The known cost: a catapult boulder can visibly land after its target has already died.
 Acceptable for a POC whose thesis is the maze and the economy, not projectile feel. Upgrading the
@@ -390,7 +397,7 @@ All 160 models share one material, so the renderer loads `colormap.png` once, bu
 
 The 600 static ground tiles are merged into **one** `BufferGeometry` via `mergeGeometries` at level
 load — one draw call for the entire board, rebuilt only when terrain changes (never, during a level).
-No `InstancedMesh` needed at this scale; it can be introduced for enemies if a swarm wave ever
+No `InstancedMesh` needed at this scale; it can be introduced for enemies if a swarm burst ever
 justifies it, which at these triangle counts it will not.
 
 Only the ~18 models actually used are copied into `public/models/`, not all 160.
@@ -417,22 +424,25 @@ silhouette makes the no-kill-power tower identifiable at a glance from the ortho
 Models are a full tile wide as authored; scaling is purely cosmetic and never enters the sim, where
 enemies are points.
 
-### Tower composition and the 2× scale
+### Tower composition at 1×1
 
-Kit towers are 1×1 units. Scaled 2×, a tower fills its 2×2 tile footprint exactly, and vertical
-segments become 1.0–1.2 units tall each:
+Kit towers are 1×1 units and render at native scale on their single tile (Phase-3 rework of D6:
+towers are wall segments that shoot). Each archetype composes from its own kit pieces — square
+bases with a weapon head for the damage towers, the round base with crystals for slow — and each
+upgrade level stacks one more middle segment:
 
-| Level | Composition | Approx. height |
-|---|---|---|
-| 1 | `bottom-a` + `top-a` + head | ~2.4 units |
-| 2 | `bottom-a` + `middle-a` + `top-a` + head | ~3.4 units |
-| 3 | `bottom-a` + `middle-a` + `middle-b` + `top-a` + `roof-a` + head | ~4.4 units |
+| Level | Composition (rapid, e.g.) |
+|---|---|
+| 1 | `tower-square-bottom-a` + `weapon-turret` |
+| 2 | `bottom-a` + `middle-a` + `weapon-turret` |
+| 3 | `bottom-a` + `middle-a` + `middle-a` + `weapon-turret` |
 
-Upgrading literally makes the tower taller. Against 1-unit-wide walls and a 0.2-unit ground plane,
-that is a strong read — and the isometric pitch is low enough to show it.
+Upgrading literally makes the tower taller — a spire above the 0.55-unit walls. The spire
+proportions at a 1-unit-wide base are a cosmetic call, re-judged at the Phase-3 gate.
 
-The head is parented to the top segment and yaws toward its current target. Since damage is hitscan,
-the yaw is cosmetic and lives entirely in `render/`.
+The head is the top segment and yaws toward the tower's current target, re-derived read-only from
+sim state each frame (the same pure selection the sim fires with). Since damage is hitscan, the
+yaw is cosmetic and lives entirely in `render/`.
 
 ### Camera
 
@@ -440,7 +450,7 @@ One fixed camera: an `OrthographicCamera` at 45° yaw and a fixed 30° pitch —
 dimetric projection of RollerCoaster Tycoon-era games (a ground tile projects as a diamond of
 width:height = 1/sin(pitch), so 30° gives an exact 2:1 diamond) — framing the whole 30×20 board.
 
-Orthographic is not a stylistic choice: with no perspective distortion, a 1-tile gap and a 2×2
+Orthographic is not a stylistic choice: with no perspective distortion, a 1-tile gap and a 1×1
 footprint measure identically anywhere on the board, which is what makes maze planning legible.
 Overlays (grid, ranges, flow field) render as flat decals on the ground plane. The kit's
 `selection-a` / `selection-b` are 1×1 decal quads 0.05 units tall, authored for exactly this.

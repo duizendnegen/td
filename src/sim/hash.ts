@@ -43,6 +43,7 @@ export function hashState(state: SimState, rngState: readonly number[]): number 
     h = mix(h, ENEMY_STATE_ID[e.mode]);
     h = mix(h, e.hp);
     h = mix(h, e.carriedMg);
+    h = mix(h, e.slowUntil);
     h = mix(h, e.alive ? 1 : 0);
   }
   h = mix(h, state.nextStructureId);
@@ -52,6 +53,8 @@ export function hashState(state: SimState, rngState: readonly number[]): number 
     h = mix(h, STRUCTURE_KIND_ID[s.kind]);
     h = mix(h, s.tx);
     h = mix(h, s.ty);
+    h = mix(h, s.archetypeId);
+    h = mix(h, s.level);
     h = mix(h, s.paidMg);
     h = mix(h, s.removalCompleteTick);
     h = mix(h, s.nextFireTick);

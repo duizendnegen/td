@@ -2,8 +2,10 @@
 // See ARCHITECTURE.md §8
 //
 // Responsibilities:
+//   - Model and scale per enemy type (render-side mapping only)
 //   - Procedural hover bob and yaw spin, driven by frame time
-//   - Carried-gold indicator above carriers (theft-economy spec)
+//   - Carried-gold and slowed indicators above enemies (build-ui spec),
+//     driven read-only from sim state
 //   - Gold-sack meshes on the ground
 
 import * as THREE from 'three';
@@ -12,12 +14,21 @@ import type { Enemy, GoldSack } from '../sim/types';
 import type { Assets } from './assets';
 import { GROUND_TOP_Y } from './renderer';
 
-// The single spawnable type is the runner (ARCHITECTURE.md §8 model mapping).
-const MODEL = 'enemy-ufo-b';
-const SCALE = 0.7;
+/**
+ * Model + scale per enemy type key (ARCHITECTURE.md §8 model mapping);
+ * unknown keys fall back to the runner's.
+ */
+const TYPE_MODELS: Record<string, { model: string; scale: number }> = {
+  runner: { model: 'enemy-ufo-b', scale: 0.7 },
+  swarm: { model: 'enemy-ufo-c', scale: 0.6 },
+  tank: { model: 'enemy-ufo-a', scale: 1.0 },
+  brute: { model: 'enemy-ufo-d', scale: 0.8 },
+};
+const FALLBACK = TYPE_MODELS['runner']!;
 const HOVER_BASE = 0.35;
 const BOB_AMPLITUDE = 0.06;
 const GOLD_COLOR = 0xffc93c;
+const SLOW_COLOR = 0x6fd9ff;
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -27,33 +38,44 @@ const goldMaterial = new THREE.MeshLambertMaterial({
   color: GOLD_COLOR,
   emissive: 0x8a6b00,
 });
+const slowMaterial = new THREE.MeshLambertMaterial({
+  color: SLOW_COLOR,
+  emissive: 0x1a5c78,
+});
 
 export class EnemyRenderer {
   private readonly scene: THREE.Scene;
   private readonly assets: Assets;
+  /** typeId → type key, in the sim's canonical order. */
+  private readonly typeKeys: readonly string[];
   private readonly meshes = new Map<number, THREE.Group>();
   private readonly indicators = new Map<number, THREE.Mesh>();
-  // The indicator is a small gold octahedron floating above the model.
+  private readonly slowIcons = new Map<number, THREE.Mesh>();
+  // The gold indicator is a small octahedron floating above the model; the
+  // slowed icon a flattened cyan one beside it.
   private readonly indicatorGeometry = new THREE.OctahedronGeometry(0.16);
+  private readonly slowGeometry = new THREE.OctahedronGeometry(0.14, 0);
 
-  constructor(scene: THREE.Scene, assets: Assets) {
+  constructor(scene: THREE.Scene, assets: Assets, typeKeys: readonly string[]) {
     this.scene = scene;
     this.assets = assets;
+    this.typeKeys = typeKeys;
   }
 
   /**
    * Reflect sim enemies into the scene. Position interpolates prevPos→pos by
-   * the accumulator alpha; bob and spin are frame-time cosmetics that never
-   * touch sim state.
+   * the accumulator alpha; bob and spin are frame-time cosmetics; `tick`
+   * drives the slowed icon from `slowUntil`, read-only.
    */
-  sync(enemies: readonly Enemy[], alpha: number, timeMs: number): void {
+  sync(enemies: readonly Enemy[], alpha: number, timeMs: number, tick: number): void {
     const live = new Set<number>();
     for (const e of enemies) {
       live.add(e.id);
       let mesh = this.meshes.get(e.id);
       if (!mesh) {
-        mesh = this.assets.instance(MODEL);
-        mesh.scale.setScalar(SCALE);
+        const def = TYPE_MODELS[this.typeKeys[e.typeId] ?? ''] ?? FALLBACK;
+        mesh = this.assets.instance(def.model);
+        mesh.scale.setScalar(def.scale);
         this.meshes.set(e.id, mesh);
         this.scene.add(mesh);
       }
@@ -79,6 +101,23 @@ export class EnemyRenderer {
       } else if (indicator) {
         indicator.visible = false;
       }
+
+      // Slowed indicator: visible while the slow is unexpired.
+      let slowIcon = this.slowIcons.get(e.id);
+      if (tick < e.slowUntil) {
+        if (!slowIcon) {
+          slowIcon = new THREE.Mesh(this.slowGeometry, slowMaterial);
+          slowIcon.scale.set(1, 0.5, 1); // flattened: reads as distinct from gold
+          this.slowIcons.set(e.id, slowIcon);
+          this.scene.add(slowIcon);
+        }
+        slowIcon.visible = true;
+        const dodge = e.carriedMg > 0 ? 0.24 : 0; // sit beside a gold indicator
+        slowIcon.position.set(x + dodge, y + 0.75, z - dodge);
+        slowIcon.rotation.y = -timeMs / 350;
+      } else if (slowIcon) {
+        slowIcon.visible = false;
+      }
     }
     for (const [id, mesh] of this.meshes) {
       if (!live.has(id)) {
@@ -88,6 +127,11 @@ export class EnemyRenderer {
         if (indicator) {
           this.scene.remove(indicator);
           this.indicators.delete(id);
+        }
+        const slowIcon = this.slowIcons.get(id);
+        if (slowIcon) {
+          this.scene.remove(slowIcon);
+          this.slowIcons.delete(id);
         }
       }
     }

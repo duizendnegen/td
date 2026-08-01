@@ -7,5 +7,16 @@
 import type { FootprintTile } from './placement';
 
 export type RenderEvent =
-  | { kind: 'tracer'; fromX: number; fromY: number; toX: number; toY: number }
-  | { kind: 'placementRejected'; tiles: FootprintTile[] };
+  | {
+      kind: 'tracer';
+      towerId: number;
+      archetypeId: number;
+      fromX: number;
+      fromY: number;
+      toX: number;
+      toY: number;
+    }
+  | { kind: 'aoeBurst'; towerId: number; x: number; y: number; radiusUnits: number }
+  | { kind: 'placementRejected'; tiles: FootprintTile[] }
+  /** An enemy escaped through a spawn, taking its carried gold out of play. */
+  | { kind: 'goldLeaked'; enemyId: number; amountMg: number };

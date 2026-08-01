@@ -46,8 +46,8 @@ describe('carrier speed', () => {
     const { sim } = makeSim(corridor(), testBalance({ speed: 128 }));
     const carrier = injectEnemy(sim, 3, 1, { speed: 128, carriedMg: 25_000 });
     const empty = injectEnemy(sim, 3, 0, { speed: 128 });
-    expect(effectiveSpeed(carrier)).toBe(102); // trunc(128 * 4 / 5)
-    expect(effectiveSpeed(empty)).toBe(128);
+    expect(effectiveSpeed(carrier, sim.state.tick, 55)).toBe(102); // trunc(128 * 4 / 5)
+    expect(effectiveSpeed(empty, sim.state.tick, 55)).toBe(128);
   });
 
   it('a zero-grab returner keeps full speed', () => {
@@ -56,7 +56,7 @@ describe('carrier speed', () => {
     const e = injectEnemy(sim, 6, 1, { speed: 128 });
     sim.tick([]);
     expect(e.mode).toBe('returning');
-    expect(effectiveSpeed(e)).toBe(128);
+    expect(effectiveSpeed(e, sim.state.tick, 55)).toBe(128);
   });
 
   it('a full round trip: steal at the treasury, walk back slower, escape at the spawn', () => {
