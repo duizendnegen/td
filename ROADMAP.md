@@ -39,7 +39,7 @@ round trip is not fun, nothing layered on top of it will be.
 
 **Project setup**
 - `git init`, GitHub repo, GitHub Pages via Actions on push to `main`
-- Vite 8 + TypeScript 7 + Vitest 4, strict mode, `base: '/peptd/'`
+- Vite 8 + TypeScript 7 + Vitest 4, strict mode, `base: '/td/'`
 - The ~18 GLBs actually used copied into `public/models/` alongside `colormap.png`
 
 **Sim core** (`sim/`)

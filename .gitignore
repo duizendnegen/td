@@ -17,3 +17,7 @@ assets/
 
 # Test output
 coverage/
+
+# Playwright MCP exploration artifacts
+.playwright-mcp/
+/*.png
