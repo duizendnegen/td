@@ -82,5 +82,5 @@
       accordingly
 - [x] 8.2 Tune `balance.json` to the "kills a carrier sometimes on a good maze" bar; note chosen
       values
-- [ ] 8.3 Deploy to the live link and play the gate: theft round-trip feel, mazing
+- [x] 8.3 Deploy to the live link and play the gate: theft round-trip feel, mazing
       expressiveness, re-pathing legibility, money-as-health read, sealing/stranding impossible
