@@ -436,8 +436,9 @@ the yaw is cosmetic and lives entirely in `render/`.
 
 ### Camera
 
-One fixed isometric camera: an `OrthographicCamera` at 45° yaw and ~30–35° pitch (true isometric is
-arctan(1/√2) ≈ 35.26°; the exact pitch is tuned by eye), framing the whole 30×20 board.
+One fixed camera: an `OrthographicCamera` at 45° yaw and a fixed 30° pitch — the classic 2:1
+dimetric projection of RollerCoaster Tycoon-era games (a ground tile projects as a diamond of
+width:height = 1/sin(pitch), so 30° gives an exact 2:1 diamond) — framing the whole 30×20 board.
 
 Orthographic is not a stylistic choice: with no perspective distortion, a 1-tile gap and a 2×2
 footprint measure identically anywhere on the board, which is what makes maze planning legible.
