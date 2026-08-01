@@ -91,5 +91,5 @@
 - [x] 10.2 Docs sweep: README / ROADMAP / ARCHITECTURE for 1×1 footprints; ROADMAP Phase-3
       gate rewording ("swarm burst", mazing-vocabulary criterion); record the footprint change
       as a Phase-3 scope note
-- [ ] 10.3 Verify the deployed build: all four towers placeable and upgradeable, bursts
+- [x] 10.3 Verify the deployed build: all four towers placeable and upgradeable, bursts
       produce the counter reads, F3 legible — then deploy to the live link
