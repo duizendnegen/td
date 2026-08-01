@@ -4,54 +4,113 @@
 // Responsibilities:
 //   - The layer a networked command source would later replace
 
+import balanceJson from '../data/balance.json';
 import levelJson from '../data/levels/level_01.json';
+import { loadGameData } from '../data/schema';
+import { CommandQueue } from '../sim/commands';
+import { Sim } from '../sim/sim';
+import { formatHash } from '../sim/hash';
 import { Assets } from '../render/assets';
 import { CameraRig } from '../render/cameras';
+import { DebugOverlay } from '../render/debug';
+import { EnemyRenderer } from '../render/enemies';
 import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
+import { startLoop } from './loop';
 
 // The ~18-model kit subset grows as phases land; Phase 1 uses these.
 const MODELS = ['tile', 'tile-rock', 'tile-spawn', 'enemy-ufo-b', 'detail-crystal-large'] as const;
 
-// Interim shape until data/schema.ts lands (task 3.4) and this import goes
-// through zod validation.
-interface LevelFile {
-  grid: { width: number; height: number };
-  treasury: { x: number; y: number };
-  spawns: { id: string; x: number; y: number }[];
-  terrain: { blocked: { x: number; y: number }[] };
+/** Default seed; overridable via ?seed= so any seed is testable on the live link. */
+export const DEFAULT_SEED = 0xc0ffee;
+
+/** The fast-forward probe's tick count matches the gate check (design D-P1-3). */
+export const PROBE_TICKS = 2000;
+
+function seedFromUrl(): number {
+  const raw = new URLSearchParams(window.location.search).get('seed');
+  if (raw === null) return DEFAULT_SEED;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    console.warn(`ignoring invalid ?seed=${raw}; using default`);
+    return DEFAULT_SEED;
+  }
+  return parsed;
 }
 
 export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
-  const level = levelJson as unknown as LevelFile;
+  // Load + validate data — a bad level stops the boot here, before rendering.
+  const data = loadGameData(levelJson, balanceJson);
   const assets = await Assets.load(MODELS);
-  const renderer = new Renderer(canvas);
 
-  const blocked = new Set(level.terrain.blocked.map((t) => `${t.x},${t.y}`));
+  // Sim: the seed flows only through Sim construction.
+  const seed = seedFromUrl();
+  const sim = new Sim(data, seed);
+  const commands = new CommandQueue();
+  console.log(`seed ${seed}${seed === DEFAULT_SEED ? ' (default)' : ' (from ?seed=)'}`);
+
+  // Render.
+  const renderer = new Renderer(canvas);
   renderer.scene.add(
     buildGround(assets, {
-      width: level.grid.width,
-      height: level.grid.height,
-      isBlocked: (tx, ty) => blocked.has(`${tx},${ty}`),
-      spawns: level.spawns,
+      width: data.level.grid.width,
+      height: data.level.grid.height,
+      isBlocked: (tx, ty) => data.grid.isBlocked(tx, ty),
+      spawns: data.level.spawns,
     }),
   );
-
-  const treasuryWorld = tileToWorld(level.treasury.x, level.treasury.y);
+  const treasuryWorld = tileToWorld(data.level.treasury.x, data.level.treasury.y);
   const treasuryMarker = assets.instance('detail-crystal-large');
   treasuryMarker.position.set(treasuryWorld.x, GROUND_TOP_Y, treasuryWorld.z);
   renderer.scene.add(treasuryMarker);
 
-  const cameras = new CameraRig(renderer.aspect, level.grid, treasuryWorld);
+  const enemies = new EnemyRenderer(renderer.scene, assets);
+  const cameras = new CameraRig(renderer.aspect, data.level.grid, treasuryWorld);
   renderer.onResize((aspect) => cameras.frame(aspect));
 
+  // App-side instrumentation for the F4 readout; the sim never reads the clock.
+  const stats = { lastTickMs: 0 };
+  const tickOnce = (): void => {
+    const start = performance.now();
+    sim.tick(commands.drain());
+    stats.lastTickMs = performance.now() - start;
+  };
+
+  const hud = document.getElementById('hud');
+  if (!hud) throw new Error('missing #hud element');
+  const debug = new DebugOverlay(renderer.scene, sim, hud);
+
+  // Fast-forward determinism probe (design D-P1-3): the same tick path as
+  // real-time running, just driven synchronously. It runs TO the next
+  // multiple of PROBE_TICKS — an absolute checkpoint — so two machines that
+  // press it at different moments still log the same tick number and hash.
+  const probe = (): void => {
+    const target = (Math.floor(sim.state.tick / PROBE_TICKS) + 1) * PROBE_TICKS;
+    const ran = target - sim.state.tick;
+    const start = performance.now();
+    while (sim.state.tick < target) tickOnce();
+    const elapsed = performance.now() - start;
+    console.log(
+      `[probe] tick=${sim.state.tick} hash=${formatHash(sim.hash())} ` +
+        `(${ran} ticks in ${elapsed.toFixed(0)} ms, ` +
+        `${(elapsed / ran).toFixed(3)} ms/tick, ${sim.state.enemies.length} enemies)`,
+    );
+  };
+
+  // Input.
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Tab') {
+    const action = {
+      Tab: () => cameras.toggle(),
+      F1: () => debug.toggleFields(),
+      F2: () => debug.toggleWaypoints(),
+      F4: () => debug.toggleReadout(),
+      F8: () => probe(),
+    }[e.key];
+    if (action) {
       e.preventDefault();
-      cameras.toggle();
+      action();
     }
   });
-
   let dragging = false;
   canvas.addEventListener('pointerdown', (e) => {
     dragging = true;
@@ -62,17 +121,16 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     if (dragging && cameras.activeView === 'commander') cameras.orbitBy(e.movementX * -0.005);
   });
 
-  // Exposed for console debugging and automated exploration; render-side only,
-  // never a path into sim state.
-  (window as unknown as Record<string, unknown>).__td = { renderer, cameras };
+  // Exposed for console debugging and automated exploration; read-only use.
+  (window as unknown as Record<string, unknown>).__td = { renderer, cameras, sim, stats, probe };
 
-  let last = performance.now();
-  const frame = (now: number): void => {
-    const dt = now - last;
-    last = now;
-    cameras.update(dt);
-    renderer.render(cameras.activeCamera);
-    requestAnimationFrame(frame);
-  };
-  requestAnimationFrame(frame);
+  startLoop({
+    tick: tickOnce,
+    render: (alpha, frameDt) => {
+      cameras.update(frameDt);
+      enemies.sync(sim.state.enemies, alpha, performance.now());
+      debug.update(stats.lastTickMs);
+      renderer.render(cameras.activeCamera);
+    },
+  });
 }

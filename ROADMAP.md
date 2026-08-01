@@ -33,7 +33,7 @@ round trip is not fun, nothing layered on top of it will be.
 ## Phase 1 — Foundation Spike
 
 > **Prove the groundwork.** A deterministic fixed-point simulation, a three.js pipeline rendering the
-> Kenney kit, both cameras, and the debug tooling to see inside all of it.
+> Kenney kit, the isometric camera, and the debug tooling to see inside all of it.
 
 ### Scope
 
@@ -57,7 +57,7 @@ round trip is not fun, nothing layered on top of it will be.
 - 600 ground tiles merged to a single draw call
 - Enemy meshes with procedural hover bob and yaw spin
 - `prevPos`/`pos` interpolation against the accumulator alpha
-- **Both cameras** — ortho architect and perspective commander — with the eased toggle
+- **The isometric camera** — fixed-yaw orthographic projection framing the whole board
 
 **Debug** (`render/debug.ts`)
 - `F1` flow-field arrows · `F2` enemy state and waypoints · `F4` tick / hash / ms-per-tick readout
@@ -74,8 +74,8 @@ reaching the treasury simply despawn.
 ### Deliverable
 
 A deployed link where enemies walk from spawn to treasury through a hand-authored maze. `F1` shows the
-flow field. `F2` shows each enemy's committed waypoint. Tab swaps between the architect and commander
-views. `F4` shows a state hash that is identical on every reload with the same seed.
+flow field. `F2` shows each enemy's committed waypoint. `F4` shows a state hash that is identical on
+every reload with the same seed.
 
 ### Gate
 
@@ -83,13 +83,13 @@ views. `F4` shows a state hash that is identical on every reload with the same s
 - [ ] `F1` shows zero diagonals cutting between two blocked tiles
 - [ ] Movement is smooth at 60 fps display against a 20 Hz sim — interpolation is doing its job
 - [ ] The kit renders correctly: one material, one atlas, no missing-texture warnings
-- [ ] **Both camera views are legible and feel meaningfully different** — the first real read on POC
-      goal #3
+- [ ] **The isometric view is legible** — 1-wide gaps, 2×2 footprints, and height differences all
+      read at a glance — the first real read on POC goal #3
 - [ ] Sim tick cost leaves ample headroom (target: well under 1 ms with 50 enemies)
 
 **If this gate fails:** the failure is almost certainly the camera criterion, not the technical ones.
-If the commander view adds nothing, cut it to a single ortho camera and reclaim the time — do not
-spend Phase 4 polishing a view nobody uses.
+If occlusion behind tall objects or the diamond framing hurts maze legibility, steepen the pitch
+toward top-down and re-judge — the isometric look is negotiable, legibility is not.
 
 ---
 
@@ -211,8 +211,8 @@ visibly grow, and watch each enemy type punish the archetype you left out.
 - [ ] **Do the counters read without explanation?** Does a swarm wave visibly punish missing AoE?
 - [ ] Does the sniper's carrier priority make treasury-side placement feel like a distinct role from
       spawn-side? This is the mechanic that gives the maze two meaningful ends
-- [ ] Is the upgrade-as-height read strong in the commander view, and is that view now earning its
-      keep?
+- [ ] Is the upgrade-as-height read strong in the isometric view — do taller towers read as more
+      powerful at a glance?
 - [ ] Do the four archetypes feel distinct, or do two of them collapse into "the damage tower"?
 - [ ] Is the maze still defending twice — do returning carriers actually die on the way out?
 
@@ -274,11 +274,12 @@ Mapped back to the README's four goals:
 |---|---|
 | 1. Dynamic maze-building with live re-pathing | Phase 2 gate |
 | 2. Treasury/theft economy — money is health | Phase 2 gate (feel), Phase 4 gate (balance) |
-| 3. Asymmetric camera views | Phase 1 gate (legibility), Phase 3 gate (does it earn its keep) |
+| 3. Isometric camera view | Phase 1 gate (legibility), Phase 3 gate (upgrade-as-height read) |
 | 4. Four towers vs three enemies, RPS pressure | Phase 3 gate |
 
-Note that goal #3 is judged twice and can be cut after either. It is the cheapest thing to abandon and
-the only goal the README itself already marks as cosmetic for now.
+Note that goal #3 is judged twice and is the cheapest goal to compromise on — if the isometric look
+ever conflicts with legibility, the pitch steepens and the look loses. It is the only goal the README
+itself already marks as cosmetic for now.
 
 ---
 
@@ -306,4 +307,3 @@ Answered by playing, not by argument. Full list in
 3. Does uncapped interest self-balance?
 4. Is a flat per-wave stipend needed against the death spiral? (Only if testing demands it — never by
    softening theft itself.)
-5. Does anyone actually use the commander camera?

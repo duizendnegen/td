@@ -21,8 +21,8 @@ maze from spawn to treasury on a deployed, shareable link.
 - Implement the render pipeline: GLB loading with the single shared `colormap.png` material, 600
   ground tiles merged to one draw call, enemy meshes with procedural hover bob and yaw spin,
   `prevPos`/`pos` interpolation against the accumulator alpha.
-- Implement both cameras — orthographic architect and perspective commander — with the eased Tab
-  toggle (POC goal #3's first read).
+- Implement the isometric camera — a single fixed-yaw orthographic projection framing the whole
+  board (POC goal #3's first read).
 - Implement the debug overlay: `F1` flow-field arrows, `F2` enemy state and waypoints, `F4`
   tick/hash/ms-per-tick readout.
 - **Scope additions over ROADMAP as written** (decided in the explore session): a fast-forward debug
@@ -51,8 +51,8 @@ debug readout. Enemies reaching the treasury despawn.
   time, waypoint-committed enemy steering, timed spawning and treasury despawn.
 - `render-pipeline`: GLB/atlas asset loading, single shared material, merged static ground,
   enemy meshes with render-only motion, sim→world interpolation.
-- `dual-cameras`: orthographic architect view and perspective commander view over one scene graph,
-  eased hotkey transition.
+- `isometric-camera`: a single fixed isometric orthographic view (45° yaw, ~30–35° pitch) framing
+  the whole board.
 - `debug-tooling`: F1/F2/F4 overlays, fast-forward N-tick key with hash log, `?seed=` URL override.
 - `level-data`: zod-validated level and balance schemas, load-time spawn→treasury reachability
   check, the hand-authored instrumented-gauntlet `level_01`.
@@ -71,6 +71,6 @@ None — this is the first change; no specs exist yet.
   the build, so the replay test guards every deploy from day one. GLB fetches must go through
   `import.meta.env.BASE_URL` to survive the `/td/` base path.
 - **Dependencies**: none added; uses the pinned three/zod/vite/vitest stack.
-- **Sequencing**: walking-skeleton order — tiles + both cameras deployed first, sim grows
-  underneath, so the deploy pipeline is proven on day one and the camera judgement (the gate's
-  predicted failure point) marinates for the whole phase.
+- **Sequencing**: walking-skeleton order — tiles + camera deployed first, sim grows underneath, so
+  the deploy pipeline is proven on day one and the camera judgement (the gate's predicted failure
+  point) marinates for the whole phase.

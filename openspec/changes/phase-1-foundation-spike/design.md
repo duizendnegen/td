@@ -81,12 +81,23 @@ data-loading path.
   404s under `/td/` on Pages; this is the classic first-deploy failure.
 - **ROADMAP line 42 says `base: '/peptd/'`** — stale; corrected to `'/td/'` in this change.
 
+### D-P1-7 — Scope correction: goal #3 reads "isometric", not "asymmetric"
+
+POC goal #3 was written as "asymmetric camera views" — a typo for "isometric camera view". The
+dual-camera design (ortho architect + perspective commander, Tab toggle, orbit, and the
+informational-asymmetry / co-op-seam rationale) was an elaboration of the mistyped word and is
+cut. The capability is renamed `dual-cameras` → `isometric-camera`: one fixed `OrthographicCamera`
+at 45° yaw and ~30–35° pitch (true isometric ≈ 35.26°), whole board framed. Tasks 1.5/1.6 were
+completed against the old reading; §6 reworks them. The upgrade-as-height read (formerly the
+commander view's job) now rides on the isometric pitch, and the Phase 3 "does the perspective
+camera earn its keep" gate is retired.
+
 ## Risks / Trade-offs
 
-- [Camera criterion fails at the gate — commander view adds nothing] → This is the roadmap's own
-  predicted failure; the walking-skeleton order maximizes exposure time before judgement, and the
-  documented fallback (cut to single ortho camera) is cheap because cameras are isolated in
-  `render/cameras.ts`.
+- [Camera criterion fails at the gate — occlusion behind tall objects or the diamond framing hurts
+  maze legibility] → This is the roadmap's own predicted failure; the walking-skeleton order
+  maximizes exposure time before judgement, and the documented fallback (steepen the pitch toward
+  top-down) is cheap because the camera is isolated in `render/cameras.ts`.
 - [Golden replay hash minted from a subtly wrong sim, blessing the bug] → RNG reference-vector
   tests plus fixed-point unit tests land *before* the golden is first generated; regenerating the
   golden is documented as a deliberate act.

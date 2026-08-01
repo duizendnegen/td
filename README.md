@@ -8,7 +8,7 @@ Demonstrate feasibility of:
 
 1. Dynamic maze-building on a grid with live re-pathing
 2. The treasury/theft economy loop (money = health)
-3. Asymmetric camera views (purely cosmetic in POC — toggled via hotkey between two camera/UI states)
+3. Isometric camera view (purely cosmetic in POC — a fixed orthographic isometric projection over the 3D kit)
 4. Four tower archetypes vs. three enemy types with rock-paper-scissors pressure
 
 ## Technical Foundation
@@ -146,4 +146,4 @@ Tower Defense Kit bundle from Kenney's Assets. Iconographic placeholders when as
 4. Full theft loop: carry, drop, pickup, flip-to-returning, end-of-wave return.
 5. Remaining towers, upgrades, slow + icons.
 6. Wave loader, interest, bankruptcy, two levels.
-7. Asymmetric view.
+7. Isometric view.

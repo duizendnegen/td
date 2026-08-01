@@ -15,8 +15,10 @@ tests, merging at enemy rendering.
       `mergeGeometries` (verify: one draw call in the renderer info)
 - [x] 1.5 `render/cameras.ts` — architect ortho (whole board, ~55–60° pitch, fixed yaw) and
       commander perspective (~45° FOV, ~25–35° pitch, treasury-framed, orbitable yaw); Tab toggle
-      with ~400 ms eased transition, safe under mid-transition re-toggle
-- [x] 1.6 `main.ts` + `app/game.ts` — boot enough to render the static board with camera toggle
+      with ~400 ms eased transition, safe under mid-transition re-toggle — *superseded by §6
+      (scope correction D-P1-7)*
+- [x] 1.6 `main.ts` + `app/game.ts` — boot enough to render the static board with camera toggle —
+      *toggle wiring superseded by §6 (scope correction D-P1-7)*
 - [x] 1.7 Push to `main`; verify Pages workflow deploys and all GLB/texture requests succeed under
       `/td/` (no 404s, no missing-texture warnings)
 
@@ -57,32 +59,41 @@ tests, merging at enemy rendering.
 
 ## 4. Enemies end-to-end — the halves merge
 
-- [ ] 4.1 `sim/enemy.ts` — waypoint-committed steering (commit tile centre, fixed-speed step via
+- [x] 4.1 `sim/enemy.ts` — waypoint-committed steering (commit tile centre, fixed-speed step via
       `normalize`, epsilon arrival, re-read field), timed spawning at active spawns, despawn at
       treasury
-- [ ] 4.2 `tests/replay.test.ts` — fixed seed, N ticks, golden hash; plus display-rate
+- [x] 4.2 `tests/replay.test.ts` — fixed seed, N ticks, golden hash; plus display-rate
       independence (1-tick steps vs 5-tick steps reach identical hash). Mint the golden only
       after 2.1–2.2 and 3.3 are green
-- [ ] 4.3 `render/enemies.ts` — enemy meshes (`enemy-ufo-b`), prev/pos interpolation against
+- [x] 4.3 `render/enemies.ts` — enemy meshes (`enemy-ufo-b`), prev/pos interpolation against
       accumulator alpha, frame-time hover bob + yaw spin (render-only)
 - [ ] 4.4 Wire the full loop in `app/game.ts`: load+validate data → build sim from seed → loop →
       render; verify smooth 60 fps motion against the 20 Hz sim on the deployed link
 
 ## 5. Debug tooling
 
-- [ ] 5.1 `render/debug.ts` — `F1` flow-field arrows (both fields colour-coded, blocked tiles,
+- [x] 5.1 `render/debug.ts` — `F1` flow-field arrows (both fields colour-coded, blocked tiles,
       unreachable marked), `F2` enemy waypoint lines + state, `F4` tick/hash/entity-count/ms-per-
       tick readout
-- [ ] 5.2 Fast-forward probe key — synchronously run 2 000 ticks through the normal tick path, log
-      tick + hash to console (design D-P1-3)
-- [ ] 5.3 `?seed=` URL override with hardcoded default; seed flows only through `Sim` construction
+- [x] 5.2 Fast-forward probe key — synchronously run 2 000 ticks through the normal tick path, log
+      tick + hash to console (design D-P1-3; runs TO the next 2 000-tick checkpoint so two
+      machines pressing it at different moments log comparable values)
+- [x] 5.3 `?seed=` URL override with hardcoded default; seed flows only through `Sim` construction
 
-## 6. Gate verification
+## 6. Scope correction — isometric camera (design D-P1-7)
 
-- [ ] 6.1 Deploy final state; run the two-machine check: same `?seed=` on two devices, probe key,
+- [ ] 6.1 Rework `render/cameras.ts` — single isometric `OrthographicCamera` (45° yaw, ~30–35°
+      pitch, whole board framed, resize re-fit); delete the commander perspective camera, the Tab
+      toggle, the eased transition, and orbit (spec: isometric-camera)
+- [ ] 6.2 Remove the Tab and orbit wiring from `app/game.ts`; drop the view-toggle note from
+      `ui/hud.ts`'s responsibility comment
+
+## 7. Gate verification
+
+- [ ] 7.1 Deploy final state; run the two-machine check: same `?seed=` on two devices, probe key,
       identical tick + hash
-- [ ] 6.2 Walk the ROADMAP Phase-1 gate checklist on the live link: F1 corner rule by eye, motion
+- [ ] 7.2 Walk the ROADMAP Phase-1 gate checklist on the live link: F1 corner rule by eye, motion
       smoothness, one-material rendering, camera legibility judgement, ms-per-tick headroom with
       ~50 enemies
-- [ ] 6.3 Record gate outcome (and the camera verdict specifically) — if the commander view adds
-      nothing, note the single-camera fallback decision per ROADMAP
+- [ ] 7.3 Record gate outcome (and the camera verdict specifically) — if occlusion or the diamond
+      framing hurts legibility, note the steeper-pitch fallback decision per ROADMAP

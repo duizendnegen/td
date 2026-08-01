@@ -12,7 +12,7 @@ rather than an accident.
 
 | # | Decision | Choice | Chief reason |
 |---|---|---|---|
-| D1 | Renderer | **three.js + GLB** | The bundled Kenney kit is 3D-only; asymmetric views need two real projections |
+| D1 | Renderer | **three.js + GLB** | The bundled Kenney kit is 3D-only; a true isometric projection comes free in 3D |
 | D2 | Determinism | **Full lockstep-grade** (fixed-point) | Co-op is the stated end goal; retrofitting bit-determinism is a rewrite |
 | D3 | HUD layer | **Plain DOM + TypeScript** | POC HUD is small; no framework lifecycle fighting a 20 Hz loop |
 | D4 | Testing | **Targeted sim tests (Vitest)** + one replay-hash test | Cover the invariants that are invisible by eye, nothing more |
@@ -37,14 +37,14 @@ properties that drove the call:
 - 24–730 triangles per model. The full 30×20 ground plane is ~14k triangles.
 - **Zero animations, zero skinning.** All static meshes.
 
-The palette atlas carries no surface detail, and nothing is animated, so both cameras must stay
+The palette atlas carries no surface detail, and nothing is animated, so the camera must stay
 elevated and mid-distance — ground-level views would expose static, featureless meshes. The enemies
 being UFOs is fortunate: a procedural hover-bob plus yaw spin is fully convincing where a walk cycle
 would have been required for ground units.
 
-The decisive argument: in Canvas 2D a second viewing angle means baking a sprite set per model per
-rotation and hand-writing a painter's-algorithm depth sorter. In three.js it is two camera objects
-and a hotkey.
+The decisive argument: in Canvas 2D an isometric view means baking a sprite set per model and
+hand-writing a painter's-algorithm depth sorter. In three.js it is one orthographic camera and a
+depth buffer.
 
 ---
 
@@ -133,11 +133,11 @@ src/
 │  ├─ ground.ts            merged static ground geometry
 │  ├─ towers.ts            modular tower composition
 │  ├─ enemies.ts           enemy meshes, hover, status icons
-│  ├─ cameras.ts           ortho ↔ perspective, transition easing
+│  ├─ cameras.ts           the fixed isometric camera
 │  ├─ fx.ts                tracers, impacts, gold sacks (render-only)
 │  └─ debug.ts             flow-field arrows, ranges, sim readout
 ├─ ui/
-│  ├─ hud.ts               treasury, wave, view toggle
+│  ├─ hud.ts               treasury, wave
 │  ├─ palette.ts           build menu
 │  ├─ inspector.ts         selected tower panel
 │  └─ input.ts             pointer → grid picking → command emission
@@ -429,29 +429,25 @@ segments become 1.0–1.2 units tall each:
 | 3 | `bottom-a` + `middle-a` + `middle-b` + `top-a` + `roof-a` + head | ~4.4 units |
 
 Upgrading literally makes the tower taller. Against 1-unit-wide walls and a 0.2-unit ground plane,
-that is a strong read — and it is the specific information the perspective camera exists to show.
+that is a strong read — and the isometric pitch is low enough to show it.
 
 The head is parented to the top segment and yaws toward its current target. Since damage is hitscan,
 the yaw is cosmetic and lives entirely in `render/`.
 
-### Cameras
+### Camera
 
-Two cameras over one scene graph, swapped by hotkey with a ~400 ms eased transition on position and
-target.
+One fixed isometric camera: an `OrthographicCamera` at 45° yaw and ~30–35° pitch (true isometric is
+arctan(1/√2) ≈ 35.26°; the exact pitch is tuned by eye), framing the whole 30×20 board.
 
-**Architect — `OrthographicCamera`.** Pitch ~55–60°, fixed yaw, whole 30×20 board framed. Orthographic
-is not a stylistic choice: with no perspective distortion, a 1-tile gap and a 2×2 footprint measure
-identically anywhere on the board, which is what makes maze planning legible. Overlays (grid, ranges,
-flow field) render as flat decals on the ground plane. The kit's `selection-a` / `selection-b` are
-1×1 decal quads 0.05 units tall, authored for exactly this.
+Orthographic is not a stylistic choice: with no perspective distortion, a 1-tile gap and a 2×2
+footprint measure identically anywhere on the board, which is what makes maze planning legible.
+Overlays (grid, ranges, flow field) render as flat decals on the ground plane. The kit's
+`selection-a` / `selection-b` are 1×1 decal quads 0.05 units tall, authored for exactly this.
 
-**Commander — `PerspectiveCamera`.** FOV ~45°, pitch ~25–35°, orbitable yaw, framed on the treasury or
-the selected tower at 12–18 units. Sells height and turns the maze into a canyon. It deliberately
-suffers occlusion — towers hide enemies behind them.
-
-The asymmetry is informational, not decorative: **the architect view shows layout truth, the commander
-view shows power truth.** Neither can see what the other sees. That is the seam that would later split
-between two co-op players, which is why it is built in Phase 1 rather than bolted on at the end.
+The low pitch is what sells height: tower levels read as silhouette differences, and walls turn the
+maze into shallow canyons. The cost is some occlusion of tiles directly behind tall towers —
+accepted, and re-judged at the Phase 1 legibility gate. If it hurts, the pitch steepens toward
+top-down: the isometric look is negotiable, legibility is not.
 
 ### Interpolation
 
@@ -479,8 +475,7 @@ driven by frame time and never touches the sim.
 
 An HTML overlay above the canvas, updated each frame from a read-only sim snapshot. No framework.
 
-- **HUD** — treasury (rendered from milli-gold), interest rate indicator, wave number and progress,
-  view toggle.
+- **HUD** — treasury (rendered from milli-gold), interest rate indicator, wave number and progress.
 - **Palette** — four towers plus wall, with costs, greyed out when unaffordable or when
   `balance < 0` (the README's no-spending-while-negative rule).
 - **Inspector** — selected tower: level, damage, rate, range, upgrade cost, sell/remove with the
@@ -602,5 +597,3 @@ To be answered by playtesting, not by argument:
 3. Does uncapped interest actually self-balance, or does hoarding dominate?
 4. Is a flat per-wave stipend needed to soften the death spiral? (Only if testing demands it — never
    by softening theft itself.)
-5. Does the perspective camera earn its keep, or does everyone play in ortho permanently? This is the
-   real test of POC goal #3.

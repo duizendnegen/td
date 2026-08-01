@@ -36,14 +36,19 @@ export function tileCentre(t: number): number {
 }
 
 /**
- * Scale the offset (dx, dy) to length `len`, in integer units.
+ * Integer length of the offset (dx, dy).
  *
  * The single place a float appears inside sim/: IEEE-754 requires sqrt to be
  * correctly rounded, so the intermediate is exact and portable, and it is
  * re-quantised to an integer before it leaves.
  */
+export function length(dx: number, dy: number): number {
+  return Math.trunc(Math.sqrt(dx * dx + dy * dy));
+}
+
+/** Scale the offset (dx, dy) to length `len`, in integer units. */
 export function normalize(dx: number, dy: number, len: number): [number, number] {
-  const d = Math.trunc(Math.sqrt(dx * dx + dy * dy));
+  const d = length(dx, dy);
   if (d === 0) return [0, 0];
   return [Math.trunc((dx * len) / d), Math.trunc((dy * len) / d)];
 }
