@@ -1,0 +1,10 @@
+{
+  "$note": "STRUCTURE ONLY — terrain and waves are placeholders. Level authoring is P1/P4 work.",
+  "id": "level_01",
+  "grid": { "width": 30, "height": 20 },
+  "treasury": { "x": 27, "y": 10 },
+  "spawns": [{ "id": "west", "x": 0, "y": 10, "activeFromWave": 1 }],
+  "terrain": { "blocked": [], "prebuilt": [] },
+  "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0004 },
+  "waves": []
+}

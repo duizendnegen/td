@@ -1,0 +1,15 @@
+{
+  "$schema": "./schema.ts",
+  "$note": "STRUCTURE ONLY — all values are placeholders. Balance authoring is P3/P4 work.",
+  "towers": {
+    "rapid": { "role": "Single-target DPS baseline", "priority": "first", "levels": [] },
+    "sniper": { "role": "Anti-armour, long range", "priority": "carriersFirstThenStrongest", "levels": [] },
+    "area": { "role": "Anti-swarm", "priority": "first", "levels": [] },
+    "slow": { "role": "Force multiplier, no kill power", "priority": "first", "levels": [] }
+  },
+  "enemies": {
+    "swarm": { "punishes": "no AoE", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false },
+    "tank": { "punishes": "no sniper", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false },
+    "runner": { "punishes": "no slow", "hp": 0, "speed": 0, "carryCapacity": 0, "bounty": 0, "slowImmune": false }
+  }
+}

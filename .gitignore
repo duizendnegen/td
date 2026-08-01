@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.vite/
+*.local
+.DS_Store
+Thumbs.db
+
+# Kenney Tower Defense Kit — source bundle, re-downloadable.
+# The ~28 models actually used are committed under public/models/.
+# https://kenney.nl/assets/tower-defense-kit
+assets/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Test output
+coverage/
