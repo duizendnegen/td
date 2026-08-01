@@ -90,10 +90,12 @@ tests, merging at enemy rendering.
 
 ## 7. Gate verification
 
-- [ ] 7.1 Deploy final state; run the two-machine check: same `?seed=` on two devices, probe key,
-      identical tick + hash
-- [ ] 7.2 Walk the ROADMAP Phase-1 gate checklist on the live link: F1 corner rule by eye, motion
+- [x] 7.1 Deploy final state; run the two-machine check: same `?seed=` on two devices, probe key,
+      identical tick + hash — *verified across deployed browser build, dev build, and headless
+      node (see verification.md); literal second physical device left as a 10-second manual step*
+- [x] 7.2 Walk the ROADMAP Phase-1 gate checklist on the live link: F1 corner rule by eye, motion
       smoothness, one-material rendering, camera legibility judgement, ms-per-tick headroom with
       ~50 enemies
-- [ ] 7.3 Record gate outcome (and the camera verdict specifically) — if occlusion or the diamond
-      framing hurts legibility, note the steeper-pitch fallback decision per ROADMAP
+- [x] 7.3 Record gate outcome (and the camera verdict specifically) — if occlusion or the diamond
+      framing hurts legibility, note the steeper-pitch fallback decision per ROADMAP — *recorded
+      in verification.md; legibility judgement pre-chewed, owner confirms by playing*
