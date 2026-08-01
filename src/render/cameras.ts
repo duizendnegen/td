@@ -2,7 +2,7 @@
 // See ARCHITECTURE.md §8 and design D-P1-7
 //
 // Responsibilities:
-//   - One fixed OrthographicCamera: 45° yaw, ~35° pitch (true isometric),
+//   - One fixed OrthographicCamera: 45° yaw, 30° pitch (2:1 dimetric),
 //     whole board framed, re-fit on resize
 //   - Orthographic so a 1-tile gap measures identically anywhere on screen;
 //     the low pitch is what lets height read by silhouette
@@ -10,7 +10,9 @@
 import * as THREE from 'three';
 
 const YAW = (45 * Math.PI) / 180; // viewed from the south-east
-const PITCH = Math.atan(1 / Math.SQRT2); // ≈ 35.26°, the true isometric pitch
+// A ground tile projects as a diamond of width:height = 1/sin(pitch); 30°
+// gives the exact 2:1 diamond of RCT-era dimetric games.
+const PITCH = Math.PI / 6;
 const DIST = 60;
 const MARGIN = 1.2;
 /** Tallest thing the frustum must keep on screen (Phase-3 towers reach ~4.4). */
