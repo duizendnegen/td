@@ -128,6 +128,13 @@ and thresholds versioned as test data. Thresholds are authored during tuning; th
 each assertion is the contract. This is the same move golden replay hashes made for
 determinism, applied to balance.
 
+Two small sim surfaces exist for the harness. Escapes emit a render-only `goldLeaked` event
+(the exact leak measure — no fragile inference from enemy snapshots; also a future UI hook),
+riding the ordinary event channel outside the hash. And `Sim` takes a construction option
+`timerSpawns: false` so harness runs face only the authored burst; like the seed, the option is
+fixed at construction and part of a run's replay setup — the shipped game always runs with
+timer spawns on.
+
 ### D10 — Migration and hash sequencing
 
 Tower state gains `archetype` and `level`; enemies gain `type` and `slowUntil`; all enter the

@@ -29,6 +29,17 @@ enemy to it) and its state.
 - **THEN** a line connects the enemy to exactly one committed waypoint, advancing tile-by-tile as
   it moves
 
+### Requirement: Combat overlay (F3)
+
+Pressing `F3` SHALL toggle an overlay showing each tower's range boundary and a line from each
+tower to its current target while it has one.
+
+#### Scenario: Targeting is visually verifiable
+
+- **WHEN** `F3` is active while a sniper and a carrier are on the board
+- **THEN** the sniper's range is drawn and a line connects it to the carrier it is targeting,
+  matching the simulation's actual target selection
+
 ### Requirement: Simulation readout (F4)
 
 Pressing `F4` SHALL toggle a readout showing the current tick, the canonical state hash, the live
@@ -72,3 +83,23 @@ URL parameter, so any seed can be tested on the deployed site without a redeploy
 
 - **WHEN** the page is opened without a seed parameter
 - **THEN** the fixed default seed is used, and reloads reproduce identical runs
+
+### Requirement: Debug spawn panel with typed burst presets
+
+A debug spawn panel SHALL offer per-type single spawns and authored burst presets — including at
+least one burst per enemy type and one mixed-pressure preset — defined as groups of
+`{type, count, spawnInterval}`. Triggering a preset SHALL schedule ordinary typed spawn commands
+at the corresponding tick boundaries; the panel SHALL have no effect on simulation state beyond
+the commands it issues.
+
+#### Scenario: A swarm check on demand
+
+- **WHEN** the swarm burst preset is triggered
+- **THEN** the configured count of swarm enemies spawns at the configured tick interval through
+  the ordinary command queue
+
+#### Scenario: Presets leave no trace beyond commands
+
+- **WHEN** a session's command stream is recorded while presets fire and replayed without the
+  panel
+- **THEN** both runs produce identical state hashes at every tick

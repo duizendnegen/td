@@ -7,7 +7,7 @@ punishing a missing tower archetype — plus typed spawning, debug burst presets
 gate-judgeable pressure on demand, and the counter-matrix balance contract enforced by a headless
 harness.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Enemy types are stat blocks in balance data
 
@@ -58,7 +58,9 @@ SHALL leak a substantial fraction of stolen gold against the enemy type that pun
 vs no area, tank vs no sniper, runner vs no slow), and a defense including the countering
 archetype SHALL reduce that leakage below the harness's threshold. The harness's scripted
 defenses, bursts, and thresholds SHALL live in versioned test data so a rebalance cannot
-silently break the contract.
+silently break the contract. Each spawn escape SHALL emit a render-only `goldLeaked` event
+carrying the escaped amount — excluded from the state hash like all render events — which is
+the harness's exact leak measure (and a hook for future leak feedback in the UI).
 
 #### Scenario: Mono-archetype defense leaks against its punisher
 
