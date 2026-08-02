@@ -13,8 +13,10 @@ result deterministic.
 The system SHALL maintain two flow fields over the level grid: an **inbound** field with the
 treasury tiles as sources, and a **returning** field with all currently active spawn tiles as
 simultaneous sources (yielding nearest-active-spawn routing without per-enemy target selection).
-Both fields SHALL be rebuilt whenever the blocked mask changes and SHALL be available for display
-at all times.
+Both fields SHALL be rebuilt whenever the blocked mask changes **or the active spawn set
+changes** and SHALL be available for display at all times. A spawn activation SHALL NOT force
+an immediate waypoint re-read: no tile changed walkability, so enemies pick up the new field at
+their next waypoint as usual.
 
 #### Scenario: Inbound field reaches the treasury
 
@@ -25,6 +27,12 @@ at all times.
 
 - **WHEN** the returning field is built with multiple active spawns
 - **THEN** each tile's cost equals the cheapest path cost to any active spawn
+
+#### Scenario: Activation redraws the exits
+
+- **WHEN** a second spawn activates at a wave start while a carrier is walking toward the first
+- **THEN** the returning field is rebuilt with both spawns as sources that tick, and the carrier
+  adopts the new routing at its next waypoint re-read
 
 ### Requirement: 8-connected movement with integer costs
 
@@ -89,16 +97,3 @@ in the same tick as the mask change, before any movement that tick.
   the two orthogonal tiles flanking that diagonal
 - **THEN** the enemy re-commits from the rebuilt field in the same tick and its path never clips
   the new wall's corner
-
-### Requirement: Timed spawning and treasury despawn
-
-Enemies SHALL spawn at active spawn tiles on a fixed tick interval and path inbound toward the
-treasury. On reaching the treasury an enemy SHALL NOT despawn: it SHALL be handed to the theft
-state machine (grab and flip to returning, per `theft-economy`), after which it steers by the
-returning field. Despawning at the treasury was Phase-1 placeholder behavior and is removed.
-
-#### Scenario: Spawn-to-treasury handoff
-
-- **WHEN** the spawn interval elapses and the spawned enemy walks the maze to the treasury
-- **THEN** the enemy is still alive at the treasury, flips to the returning state, and begins
-  steering by the returning field

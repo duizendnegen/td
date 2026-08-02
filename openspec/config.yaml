@@ -30,3 +30,11 @@ schema: spec-driven
 #     archive:
 #       guidance:
 #         - Summarize the archive outcome before finishing
+
+operations:
+  explore:
+    guidance:
+      - Write a summary of exploration decisions in the /openspec/explorations folder, date-stamped.
+  apply:
+    guidance:
+      - Do exploratory testing with the Playwright plugin while implementing.

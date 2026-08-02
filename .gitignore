@@ -21,6 +21,3 @@ coverage/
 # Playwright MCP exploration artifacts
 .playwright-mcp/
 /*.png
-
-# Local planning notes
-openspec/phase-3-exploration.md
