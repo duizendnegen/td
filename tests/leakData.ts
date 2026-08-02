@@ -31,8 +31,8 @@ export interface LeakScenario {
 
 /**
  * The harness board: an open 20×7 corridor, spawn west, treasury east.
- * Towers flank the centre row; timer spawns are off, so the authored burst
- * is the only pressure.
+ * Towers flank the centre row; no wave is ever started, so the authored
+ * burst's spawn commands are the only pressure.
  */
 export function corridorLevel(): Record<string, unknown> {
   return {
@@ -40,11 +40,15 @@ export function corridorLevel(): Record<string, unknown> {
     grid: { width: 20, height: 7 },
     treasury: { x: 19, y: 3 },
     spawns: [{ id: 'west', x: 0, y: 3, activeFromWave: 1 }],
-    terrain: { blocked: [], prebuilt: [] },
+    terrain: {
+      legend: { '.': 'dirt' },
+      map: Array.from({ length: 7 }, () => '.'.repeat(20)),
+    },
     // Ample treasury: every thief that arrives leaves with full capacity, so
     // leak numbers measure the defense, not treasury exhaustion.
     economy: { startingTreasury: 10_000, interestRatePerTick: 0 },
-    waves: [],
+    // Never started; present only to satisfy the waves-required validation.
+    waves: [{ groups: [{ spawn: 'west', type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] }],
   };
 }
 

@@ -3,7 +3,7 @@
 //
 // Responsibilities:
 //   - The ONLY input path into the sim
-//   - Place / StartRemoval / Upgrade / Spawn
+//   - Place / StartRemoval / Upgrade / Spawn / StartWave / Concede
 //   - Applied at tick boundaries in stable order
 
 // The drain order (command type, then issue sequence) is part of the
@@ -14,6 +14,10 @@ import type { StructureKind } from './types';
 
 export type CommandBody =
   | { kind: 'noop' }
+  /** Start the next wave (run-lifecycle spec: solvency-gated, build phase only). */
+  | { kind: 'startWave' }
+  /** End the run as lost, from any live phase (run-lifecycle spec). */
+  | { kind: 'concede' }
   /** Typed debug/preset spawn: enemy type key, index into the active spawns. */
   | { kind: 'spawn'; type: string; spawn: number }
   | { kind: 'place'; structure: StructureKind; archetype?: TowerArchetype; tx: number; ty: number }
@@ -25,10 +29,12 @@ export type Command = CommandBody & { seq: number };
 /** Drain sort key per kind; lower drains first. */
 const KIND_ORDER: Record<Command['kind'], number> = {
   noop: 0,
-  spawn: 1,
-  place: 2,
-  upgrade: 3,
-  remove: 4,
+  startWave: 1,
+  spawn: 2,
+  place: 3,
+  upgrade: 4,
+  remove: 5,
+  concede: 6,
 };
 
 export class CommandQueue {

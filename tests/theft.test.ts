@@ -1,43 +1,64 @@
-// See ARCHITECTURE.md §12 and the phase-2 theft-economy spec
+// See ARCHITECTURE.md §12 and the phase-4 theft-economy spec
 import { describe, expect, it } from 'vitest';
 import { effectiveSpeed } from '../src/sim/enemy';
+import { returnSacks } from '../src/sim/economy';
 import { tileCentre } from '../src/sim/fixed';
-import { injectEnemy, makeSim, openLevel, testBalance } from './helpers';
+import { injectEnemy, makeSim, openLevel, spawnCmd, testBalance } from './helpers';
 
 // A short straight corridor: spawn (0,1) → treasury (6,1).
 const corridor = () => openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 });
 
 describe('treasury grab', () => {
-  it('grabs min(capacity, balance) and flips to returning', () => {
+  it('grabs full capacity from a rich treasury and flips to returning', () => {
     const { sim } = makeSim(corridor());
     const e = injectEnemy(sim, 6, 1); // parked on the treasury
     sim.tick([]);
     expect(sim.state.treasuryMg).toBe(175_000);
     expect(e.carriedMg).toBe(25_000);
     expect(e.mode).toBe('returning');
+    expect(sim.state.stolenMg).toBe(25_000);
   });
 
-  it('grabs only what a poor treasury holds', () => {
+  it('overdraws a poor treasury: the grab is always full capacity', () => {
     const { sim } = makeSim(corridor());
     sim.state.treasuryMg = 20_000;
     const e = injectEnemy(sim, 6, 1);
     sim.tick([]);
-    expect(sim.state.treasuryMg).toBe(0);
-    expect(e.carriedMg).toBe(20_000);
+    expect(sim.state.treasuryMg).toBe(-5000);
+    expect(e.carriedMg).toBe(25_000);
     expect(e.mode).toBe('returning');
   });
 
-  it('still flips on an empty or negative treasury, carrying nothing', () => {
-    for (const balance of [0, -5000]) {
+  it('an empty or negative treasury still bleeds the full grab', () => {
+    for (const [balance, after] of [
+      [0, -25_000],
+      [-50_000, -75_000],
+    ] as const) {
       const { sim } = makeSim(corridor());
       sim.state.treasuryMg = balance;
       const e = injectEnemy(sim, 6, 1);
       sim.tick([]);
-      expect(sim.state.treasuryMg).toBe(balance);
-      expect(e.carriedMg).toBe(0);
+      expect(sim.state.treasuryMg).toBe(after);
+      expect(e.carriedMg).toBe(25_000);
       expect(e.mode).toBe('returning');
       expect(e.alive).toBe(true); // never a despawn at the treasury
     }
+  });
+
+  it('intercepting an overdrawing carrier makes the raid recoverable', () => {
+    const { sim } = makeSim(corridor());
+    sim.state.treasuryMg = 10_000;
+    const e = injectEnemy(sim, 6, 1);
+    sim.tick([]); // grab: treasury −15 000, carrier holds 25 000
+    expect(sim.state.treasuryMg).toBe(-15_000);
+    e.hp = 0; // intercepted before escaping
+    sim.tick([]);
+    expect(sim.state.sacks).toHaveLength(1);
+    expect(sim.state.sacks[0]!.amountMg).toBe(25_000);
+    // Settlement's sack return recovers the raid (minus nothing here).
+    const bounty = 6000; // the kill credited the runner bounty
+    returnSacks(sim.state);
+    expect(sim.state.treasuryMg).toBe(-15_000 + bounty + 25_000);
   });
 });
 
@@ -50,18 +71,10 @@ describe('carrier speed', () => {
     expect(effectiveSpeed(empty, sim.state.tick, 55)).toBe(128);
   });
 
-  it('a zero-grab returner keeps full speed', () => {
-    const { sim } = makeSim(corridor(), testBalance({ speed: 128 }));
-    sim.state.treasuryMg = 0;
-    const e = injectEnemy(sim, 6, 1, { speed: 128 });
-    sim.tick([]);
-    expect(e.mode).toBe('returning');
-    expect(effectiveSpeed(e, sim.state.tick, 55)).toBe(128);
-  });
-
   it('a full round trip: steal at the treasury, walk back slower, escape at the spawn', () => {
     const { sim } = makeSim(corridor(), testBalance({ speed: 128 }));
-    // Walk the first spawned enemy to the treasury.
+    // March one commanded spawn to the treasury (the debug timer is gone).
+    sim.tick([spawnCmd('runner')]);
     let guard = 0;
     while (sim.state.enemies.every((e) => e.mode === 'inbound') && guard++ < 500) sim.tick([]);
     const carrier = sim.state.enemies.find((e) => e.mode === 'returning')!;
@@ -79,7 +92,8 @@ describe('carrier speed', () => {
     guard = 0;
     while (sim.state.enemies.some((e) => e.id === carrier.id) && guard++ < 500) sim.tick([]);
     expect(sim.state.enemies.some((e) => e.id === carrier.id)).toBe(false);
-    expect(sim.state.treasuryMg).toBeLessThanOrEqual(stolen);
+    expect(sim.state.escapedMg).toBe(25_000);
+    expect(sim.state.treasuryMg).toBe(stolen);
   });
 });
 

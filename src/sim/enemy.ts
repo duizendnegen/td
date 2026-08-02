@@ -131,22 +131,3 @@ export function spawnEnemy(
   return enemy;
 }
 
-/**
- * Tick step 4 (debug-timer stand-in for the Phase-4 wave scheduler): spawn
- * one enemy of the named type per spawn point whenever its absolute-tick
- * timer comes due.
- */
-export function spawnDueEnemies(
-  state: SimState,
-  spawns: readonly { x: number; y: number }[],
-  typeId: number,
-  speed: number,
-  hp: number,
-  intervalTicks: number,
-): void {
-  spawns.forEach((spawn, i) => {
-    if (state.tick < state.nextSpawnTicks[i]!) return;
-    state.nextSpawnTicks[i] = state.tick + intervalTicks;
-    spawnEnemy(state, spawn, typeId, speed, hp);
-  });
-}

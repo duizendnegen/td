@@ -1,11 +1,12 @@
-// Treasury, theft, bounties
-// See ARCHITECTURE.md §5 and the phase-2 theft-economy spec
+// Treasury, theft, bounties, interest, settlement
+// See ARCHITECTURE.md §5 and the phase-4 theft-economy spec
 //
 // Responsibilities:
 //   - Balance held in milli-gold; spending gated at 0, not at cost
-//   - Treasury grab-and-flip, spawn escape, gold sacks
+//   - Treasury grab-and-flip (full-capacity overdraw), spawn escape, sacks
 //   - Deaths: bounty credit and carrier sack drops
-//   - (Interest and bankruptcy are Phase 4)
+//   - Interest in integer ppm (design D3); end-of-wave sack return
+//   - Run summary counters accumulate where the gold moves
 
 import type { RenderEvent } from './events';
 import { tileCentre, toTile } from './fixed';
@@ -64,10 +65,13 @@ export function resolveArrivals(
       }
     }
 
-    // Treasury: clamped grab, unconditional flip — never a despawn.
+    // Treasury: full-capacity grab (phase-4 theft-economy spec — the balance
+    // overdraws when the treasury holds less), unconditional flip — never a
+    // despawn.
     if (e.mode === 'inbound' && e.pos.x === treasuryX && e.pos.y === treasuryY) {
-      const grab = Math.min(carryMg - e.carriedMg, Math.max(0, state.treasuryMg));
+      const grab = carryMg - e.carriedMg;
       state.treasuryMg -= grab;
+      state.stolenMg += grab;
       e.carriedMg += grab;
       e.mode = 'returning';
     }
@@ -78,6 +82,7 @@ export function resolveArrivals(
       for (const s of activeSpawns) {
         if (e.pos.x === tileCentre(s.x) && e.pos.y === tileCentre(s.y)) {
           e.alive = false;
+          state.escapedMg += e.carriedMg;
           events.push({ kind: 'goldLeaked', enemyId: e.id, amountMg: e.carriedMg });
           break;
         }
@@ -99,10 +104,44 @@ export function resolveDeaths(state: SimState, bountyMgByType: readonly number[]
   for (const e of state.enemies) {
     if (!e.alive || e.hp > 0) continue;
     e.alive = false;
+    state.kills++;
     state.treasuryMg += bountyMgByType[e.typeId]!;
     dropSack(state, toTile(e.pos.x), toTile(e.pos.y), e.carriedMg);
     e.carriedMg = 0;
   }
+}
+
+/**
+ * Step-9 interest accrual (design D3): integer ppm, floor-truncated, only on
+ * a positive balance — the wave/build gating lives in the tick's step 9.
+ */
+export function accrueInterest(state: SimState, ratePpm: number): void {
+  if (state.treasuryMg > 0) {
+    state.treasuryMg += Math.floor((state.treasuryMg * ratePpm) / 1_000_000);
+  }
+}
+
+/**
+ * Settlement's sack return: every unclaimed sack credits in full, in
+ * insertion order (theft-economy spec).
+ */
+export function returnSacks(state: SimState): void {
+  for (const s of state.sacks) state.treasuryMg += s.amountMg;
+  state.sacks = [];
+}
+
+/**
+ * Total refund value of every standing structure, in milli-gold — the
+ * liquidation query behind the impossible-recovery notice (design D8).
+ * Derived on demand, never stored.
+ */
+export function liquidationTotalMg(
+  structures: readonly { paidMg: number }[],
+  refundPer1000: number,
+): number {
+  let total = 0;
+  for (const s of structures) total += Math.floor((s.paidMg * refundPer1000) / 1000);
+  return total;
 }
 
 /** Remaining carry capacity, for pickup and UI display. */

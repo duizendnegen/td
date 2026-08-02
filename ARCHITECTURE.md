@@ -119,7 +119,7 @@ src/
 │  ├─ placement.ts         validation, removal timers
 │  ├─ enemy.ts             steering, state machine, theft
 │  ├─ tower.ts             targeting, firing, upgrades
-│  ├─ economy.ts           treasury, interest, bounties, bankruptcy
+│  ├─ economy.ts           treasury, interest, bounties, settlement
 │  ├─ waves.ts             wave scheduling and spawn activation
 │  ├─ commands.ts          command types and application
 │  └─ sim.ts               Sim class — the tick entry point
@@ -207,9 +207,9 @@ const tx = Math.trunc(x / TILE);
 **Money** is held in **milli-gold** — integer thousandths.
 
 ```ts
-balance = 200_000;                              // 200.000 gold
-interest = Math.floor(balance * 4 / 10_000);    // rate 0.0004/tick → 80 mg/tick
-                                                // = 0.08 g/tick = 1.6 g/sec at 200 g
+balance = 200_000;                                    // 200.000 gold
+ratePpm = Math.round(0.0004 * 1_000_000);             // authored float → 400 ppm, once, at load
+interest = Math.floor(balance * ratePpm / 1_000_000); // 80 mg/tick = 1.6 g/sec at 200 g
 ```
 
 Whole-gold integers were rejected precisely here: per-tick interest below 1 gold truncates to zero,
@@ -217,7 +217,11 @@ which silently deletes the mechanic. Milli-gold makes the accrual exact without 
 accumulator. The HUD renders `balance / 1000`.
 
 Interest accrues **only while a wave is active** and **only on a positive balance** — a negative
-treasury does not compound the death spiral.
+treasury does not compound the death spiral. It stops the tick the wave drains: settlement (unclaimed
+sacks returning, then the run-progression judgement) runs in that same step 9 slot, after the field
+empties, with no interest on the settlement tick. There is no bankruptcy threshold — theft may
+overdraw the balance arbitrarily far below zero, and the only consequences are the spending block
+below 0 and the solvency gate on starting the next wave.
 
 **HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `removalCompleteTick`,
 `nextFireTick`) are absolute tick numbers, never countdowns, so they need no per-tick decrement and
@@ -293,12 +297,14 @@ Fixed and documented, because order is part of the determinism contract:
 1. Snapshot `prevPos` for every entity
 2. Apply commands (sorted by type, then by issue sequence)
 3. Advance removal timers; rebuild flow fields if the blocked mask changed
-4. Wave scheduler — spawn due enemies
+4. Wave scheduler — the active wave's group cursors spawn due enemies
 5. Enemy movement and waypoint re-evaluation
-6. Enemy arrival: theft at treasury, escape at spawn, gold pickup
+6. Enemy arrival: theft at treasury (full-capacity overdraw), escape at spawn, gold pickup
 7. Tower targeting and firing (damage applies this tick)
 8. Deaths, bounties, gold-sack drops
-9. Economy: interest accrual, bankruptcy check
+9. Run progression: interest accrual while the wave is live; end-of-wave settlement (sack
+   return, then the won / wave-locked / build judgement) the tick it drains; refund-driven
+   win checks from the post-final-wave locked state
 10. Compact tombstones; increment tick
 
 ### Entity storage
@@ -509,7 +515,10 @@ const LevelSchema = z.object({
   grid: z.object({ width: z.int().positive(), height: z.int().positive() }),
   treasury: TileSchema,
   spawns: z.array(SpawnSchema).min(1),
-  terrain: z.object({ blocked: z.array(TileSchema), prebuilt: z.array(PrebuiltSchema) }),
+  terrain: z.object({
+    legend: z.record(z.string().length(1), z.enum(['dirt', 'grass', 'rock', 'socket'])),
+    map: z.array(z.string()),          // one row string per grid row, one char per tile
+  }),
   economy: z.object({ startingTreasury: z.int(), interestRatePerTick: z.number() }),
   waves: z.array(WaveSchema).min(1),
 });
@@ -518,9 +527,10 @@ export type Level = z.infer<typeof LevelSchema>;
 
 Validation goes beyond shape, and this is the main reason it is worth a dependency:
 
-- Every `groups[].spawn` references a declared spawn id.
-- Every `groups[].type` exists in `balance.json`.
-- Treasury and spawns are inside the grid and not on blocked terrain.
+- The char-map matches the declared grid size and every character appears in the legend.
+- Every `groups[].spawn` references a declared spawn id that is active by that group's wave.
+- Every `groups[].type` exists in `balance.json`, and at least one wave is declared.
+- Treasury and spawns are inside the grid and on dirt terrain.
 - **Every spawn can reach the treasury on the level's starting terrain** — a graph check, run at load,
   that catches an unwinnable level before it ever renders.
 
@@ -558,7 +568,7 @@ Vitest, `sim/` only. No render or UI tests.
 | `flowfield.test.ts` | Reachability; no diagonal between two blocked tiles; costs monotonic toward source |
 | `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal keeps tile blocked for 80 ticks |
 | `theft.test.ts` | Full round trip: steal → carry at 80% → killed → sack drops → picked up → flip to returning → escape |
-| `economy.test.ts` | Interest only during waves and only on positive balance; bounties; no spending below 0; loss at −100 |
+| `economy.test.ts` | Interest only during waves and only on positive balance; settlement order; the solvency gate lock and refund-driven unlock; solvent-to-win |
 | `fixed.test.ts` | Normalisation exactness; no float leaks; division rounding at negatives |
 | `level.test.ts` | Schema rejects bad spawn refs, unknown enemy types, unreachable treasury |
 | `replay.test.ts` | Seed + recorded commands → state hash matches golden after N ticks |

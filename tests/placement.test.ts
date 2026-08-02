@@ -1,7 +1,7 @@
-// See ARCHITECTURE.md §12 and the phase-2 structure-placement spec
+// See ARCHITECTURE.md §12 and the phase-2/phase-4 structure-placement specs
 import { describe, expect, it } from 'vitest';
 import { REMOVAL_TICKS, tileCentre, toTile } from '../src/sim/fixed';
-import { injectEnemy, makeSim, openLevel, place, remove, testBalance } from './helpers';
+import { injectEnemy, makeSim, openLevel, place, remove, spawnCmd, testBalance } from './helpers';
 
 describe('placement validation', () => {
   it('rejects a placement that seals every spawn from the treasury', () => {
@@ -132,7 +132,8 @@ describe('placement validation', () => {
       openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }),
       testBalance({ speed: 128 }),
     );
-    // Walk the first spawned enemy until it has committed to (3,1) from (2,1).
+    // Walk one commanded spawn until it has committed to (3,1) from (2,1).
+    sim.tick([spawnCmd('runner')]);
     let guard = 0;
     const committedTo = (tx: number, ty: number): boolean => {
       const e = sim.state.enemies[0];
@@ -166,7 +167,8 @@ describe('placement validation', () => {
       openLevel(4, 4, { x: 0, y: 0 }, { x: 3, y: 3 }),
       testBalance({ speed: 64 }),
     );
-    // Wait for the first enemy to be mid-way through its (0,0) → (1,1) diagonal.
+    // Wait for one commanded spawn to be mid-way through its (0,0) → (1,1) diagonal.
+    sim.tick([spawnCmd('runner')]);
     let guard = 0;
     const midDiagonal = (): boolean => {
       const e = sim.state.enemies[0];
@@ -195,5 +197,106 @@ describe('placement validation', () => {
       }
       sim.tick([]);
     }
+  });
+});
+
+// A 7×3 corridor with a socket at (3,0), grass at (5,0), rock at (1,0):
+// the middle lane (y=1) stays the only spawn→treasury path.
+const paletteLevel = () =>
+  openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
+    map: ['.r.o.g.', '.......', '.......'],
+  });
+
+describe('terrain buildability (phase-4)', () => {
+  it('grass and rock refuse every structure as not-buildable', () => {
+    const { sim } = makeSim(paletteLevel());
+    expect(sim.previewPlacement('wall', 5, 0)).toBe('not-buildable'); // grass
+    expect(sim.previewPlacement('tower', 5, 0)).toBe('not-buildable');
+    expect(sim.previewPlacement('wall', 1, 0)).toBe('not-buildable'); // rock
+    expect(sim.previewPlacement('tower', 1, 0)).toBe('not-buildable');
+    sim.tick([place('wall', 5, 0), place('tower', 1, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(200_000);
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(2);
+  });
+
+  it('a wall on a socket is rejected; a tower is accepted', () => {
+    const { sim } = makeSim(paletteLevel());
+    expect(sim.previewPlacement('wall', 3, 0)).toBe('not-buildable');
+    expect(sim.previewPlacement('tower', 3, 0)).toBe('ok');
+    sim.tick([place('wall', 3, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    sim.tick([place('tower', 3, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(sim.state.treasuryMg).toBe(150_000);
+  });
+
+  it('a socket tower skips path checks entirely and rebuilds no field (D6)', () => {
+    // Wall off the whole corridor except the middle lane, then park an
+    // enemy: any dirt placement in the lane would seal or strand, but the
+    // socket tower is validation-free because its tile was never navigable.
+    const { sim } = makeSim(paletteLevel());
+    injectEnemy(sim, 2, 1);
+    const inboundBefore = sim.inbound;
+    const costsBefore = Array.from(sim.inbound.cost);
+    sim.tick([place('tower', 3, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+    // No swap, no rebuild: the live field object and its costs are untouched.
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
+    expect(sim.grid.isBlocked(3, 0)).toBe(true); // terrain-blocked as ever
+  });
+
+  it('an occupied socket rejects a second tower', () => {
+    const { sim } = makeSim(paletteLevel());
+    sim.tick([place('tower', 3, 0)]);
+    expect(sim.previewPlacement('tower', 3, 0)).toBe('occupied');
+    sim.tick([place('tower', 3, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+  });
+
+  it('socket removal refunds without unblocking the tile or rebuilding fields (D6)', () => {
+    const { sim } = makeSim(paletteLevel());
+    sim.tick([place('tower', 3, 0)]);
+    const afterBuildMg = sim.state.treasuryMg;
+    sim.tick([remove(3, 0)]);
+    const removalIssuedTick = sim.state.tick - 1;
+    while (sim.state.tick <= removalIssuedTick + REMOVAL_TICKS) {
+      expect(sim.grid.isBlocked(3, 0)).toBe(true);
+      sim.tick([]);
+    }
+    // Removed and refunded — and the tile is still terrain-blocked.
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg + 25_000);
+    expect(sim.grid.isBlocked(3, 0)).toBe(true);
+    // The socket is placeable again.
+    expect(sim.previewPlacement('tower', 3, 0)).toBe('ok');
+  });
+
+  it('rejects a placement that seals a dormant spawn (D4)', () => {
+    // The dormant north spawn (0,0) exits only east through (1,0): the rocks
+    // at (0,1)/(1,1) block both the southern step and the diagonal.
+    const level = {
+      id: 'test',
+      grid: { width: 7, height: 3 },
+      treasury: { x: 6, y: 1 },
+      spawns: [
+        { id: 'main', x: 0, y: 2, activeFromWave: 1 },
+        { id: 'north', x: 0, y: 0, activeFromWave: 2 },
+      ],
+      terrain: { legend: { '.': 'dirt', r: 'rock' }, map: ['.......', 'rr.....', '.......'] },
+      economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      waves: [
+        { groups: [{ spawn: 'main', type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] },
+        { groups: [{ spawn: 'north', type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] },
+      ],
+    };
+    const { sim } = makeSim(level);
+    expect(sim.previewPlacement('wall', 1, 0)).toBe('seals-spawn');
+    sim.tick([place('wall', 1, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    // A placement that seals nobody is still fine.
+    sim.tick([place('wall', 3, 2)]);
+    expect(sim.state.structures).toHaveLength(1);
   });
 });

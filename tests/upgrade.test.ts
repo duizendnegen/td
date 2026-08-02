@@ -9,7 +9,7 @@ import { injectEnemy, makeSim, openLevel, place, remove, testBalance, upgrade } 
 const board = () => openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 });
 
 function withTower(): Sim {
-  const { sim } = makeSim(board(), testBalance(), 42, { timerSpawns: false });
+  const { sim } = makeSim(board(), testBalance(), 42);
   sim.tick([place('tower', 3, 0)]);
   return sim;
 }
@@ -31,7 +31,7 @@ describe('tower upgrades', () => {
   it('upgrade stats come from balance data with no code change', () => {
     const tuned = testBalance();
     (tuned as { towers: { rapid: { levels: { damage: number }[] } } }).towers.rapid.levels[1]!.damage = 99;
-    const { sim } = makeSim(board(), tuned, 42, { timerSpawns: false });
+    const { sim } = makeSim(board(), tuned, 42);
     sim.tick([place('tower', 3, 0)]);
     sim.tick([upgrade(3, 0)]);
     const e = injectEnemy(sim, 5, 2);
@@ -41,7 +41,7 @@ describe('tower upgrades', () => {
 
   it('debt blocks upgrades atomically: post-tick hash equals the run without the attempt', () => {
     const build = () => {
-      const { sim } = makeSim(board(), testBalance(), 42, { timerSpawns: false });
+      const { sim } = makeSim(board(), testBalance(), 42);
       // 200g start: three towers and a wall leave 46g; the fourth tower dives
       // into debt at −4g, where every further purchase is blocked.
       sim.tick([place('tower', 3, 0), place('tower', 5, 0), place('tower', 7, 0), place('wall', 1, 0)]);

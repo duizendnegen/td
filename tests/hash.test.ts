@@ -33,7 +33,13 @@ function makeState(): SimState {
     nextStructureId: 2,
     sacks: [{ id: 0, tx: 6, ty: 5, amountMg: 25_000 }],
     nextSackId: 1,
-    nextSpawnTicks: [40],
+    runPhase: 'wave',
+    waveIndex: 1,
+    waveStartTick: 4,
+    groupCursors: [2, 0],
+    stolenMg: 25_000,
+    escapedMg: 0,
+    kills: 3,
   };
 }
 
@@ -51,7 +57,6 @@ describe('state hash', () => {
       (s) => s.tick++,
       (s) => s.treasuryMg--,
       (s) => s.nextEnemyId++,
-      (s) => s.nextSpawnTicks[0]!++,
       (s) => s.enemies[1]!.pos.x++,
       (s) => s.enemies[1]!.pos.y--,
       (s) => s.enemies[0]!.waypoint.x++,
@@ -80,6 +85,15 @@ describe('state hash', () => {
       (s) => s.sacks[0]!.tx++,
       (s) => s.sacks[0]!.ty++,
       (s) => s.sacks[0]!.amountMg--,
+      // Phase-4 fields: the run state machine and the summary counters.
+      (s) => (s.runPhase = 'build'),
+      (s) => s.waveIndex++,
+      (s) => s.waveStartTick++,
+      (s) => s.groupCursors[0]!++,
+      (s) => s.groupCursors.pop(),
+      (s) => (s.stolenMg += 1000),
+      (s) => (s.escapedMg += 1000),
+      (s) => s.kills++,
     ];
     for (const mutate of mutations) {
       const state = makeState();

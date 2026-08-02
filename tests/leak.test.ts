@@ -23,7 +23,7 @@ interface LeakResult {
 
 function runDefense(layout: LayoutItem[], burst: LeakScenarioBurst): LeakResult {
   const data = loadGameData(corridorLevel(), balanceJson);
-  const sim = new Sim(data, 1, { timerSpawns: false });
+  const sim = new Sim(data, 1);
 
   // Build the whole defense on tick 0; every placement must succeed, or the
   // scenario silently measures a different defense than it authored.

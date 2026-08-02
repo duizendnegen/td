@@ -20,6 +20,22 @@ export type EnemyMode = 'inbound' | 'returning';
 
 export const ENEMY_STATE_ID: Record<EnemyMode, number> = { inbound: 0, returning: 1 };
 
+/**
+ * The run state machine (phase-4 design D1). 'settled-locked' is the
+ * post-final-wave debt state: every earlier negative settlement returns to
+ * 'build', where locked-ness is just the startWave validation reading the
+ * balance. Hashed as an integer via RUN_PHASE_ID.
+ */
+export type RunPhase = 'build' | 'wave' | 'settled-locked' | 'won' | 'lost';
+
+export const RUN_PHASE_ID: Record<RunPhase, number> = {
+  build: 0,
+  wave: 1,
+  'settled-locked': 2,
+  won: 3,
+  lost: 4,
+};
+
 export interface Enemy {
   id: number;
   /** Index into the balance file's enemy table (canonical key order at load). */
@@ -90,6 +106,16 @@ export interface SimState {
   nextStructureId: number;
   sacks: GoldSack[];
   nextSackId: number;
-  /** Absolute tick of the next debug-timer spawn, one slot per level spawn. */
-  nextSpawnTicks: number[];
+  /** The run state machine (design D1). */
+  runPhase: RunPhase;
+  /** Waves started so far; 0 before the first startWave. 1-based wave number. */
+  waveIndex: number;
+  /** Absolute tick the active wave started, or -1 outside waves. */
+  waveStartTick: number;
+  /** Enemies spawned so far per group of the active wave; empty outside waves. */
+  groupCursors: number[];
+  /** Run summary counters (run-lifecycle spec): totals over the whole run. */
+  stolenMg: number;
+  escapedMg: number;
+  kills: number;
 }

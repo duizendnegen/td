@@ -1,20 +1,23 @@
 // Merged static ground geometry
-// See ARCHITECTURE.md §8
+// See ARCHITECTURE.md §8 and phase-4 design D10
 //
 // Responsibilities:
 //   - 600 tiles merged into one draw call via mergeGeometries
-//   - Rebuilt only when terrain changes
+//   - Terrain kinds map to distinct tile templates: dirt / grass / rock /
+//     socket (grass plus a masonry socket base merged on top)
+//   - Built once at level load; player structures never repaint the ground
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { TERRAIN } from '../sim/grid';
 import type { Assets } from './assets';
-import { tileToWorld } from './renderer';
+import { GROUND_TOP_Y, tileToWorld } from './renderer';
 
 export interface GroundLayout {
   width: number;
   height: number;
-  /** tile-index lookup: true = blocked terrain */
-  isBlocked: (tx: number, ty: number) => boolean;
+  /** Terrain kind id per tile (sim TERRAIN values). */
+  kindAt: (tx: number, ty: number) => number;
   spawns: readonly { x: number; y: number }[];
 }
 
@@ -42,17 +45,25 @@ export function buildGround(assets: Assets, layout: GroundLayout): THREE.Mesh {
     return t;
   };
 
+  // Kind → tile template (D10): navigable ground is dirt, scenery is the
+  // grass or rock tile, and a socket is a grass tile wearing a masonry base.
+  const TILE_FOR: Record<number, string> = {
+    [TERRAIN.dirt]: 'tile-dirt',
+    [TERRAIN.grass]: 'tile',
+    [TERRAIN.rock]: 'tile-rock',
+    [TERRAIN.socket]: 'tile',
+  };
   const spawnKeys = new Set(layout.spawns.map((s) => `${s.x},${s.y}`));
   const parts: THREE.BufferGeometry[] = [];
   for (let ty = 0; ty < layout.height; ty++) {
     for (let tx = 0; tx < layout.width; tx++) {
-      const name = layout.isBlocked(tx, ty)
-        ? 'tile-rock'
-        : spawnKeys.has(`${tx},${ty}`)
-          ? 'tile-spawn'
-          : 'tile';
+      const kind = layout.kindAt(tx, ty);
+      const name = spawnKeys.has(`${tx},${ty}`) ? 'tile-spawn' : TILE_FOR[kind]!;
       const { x, z } = tileToWorld(tx, ty);
       parts.push(templateFor(name).clone().translate(x, 0, z));
+      if (kind === TERRAIN.socket) {
+        parts.push(templateFor('tower-square-bottom-b').clone().translate(x, GROUND_TOP_Y, z));
+      }
     }
   }
 

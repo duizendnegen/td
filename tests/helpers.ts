@@ -3,25 +3,53 @@
 import { loadGameData, type GameData, type TowerArchetype } from '../src/data/schema';
 import type { Command } from '../src/sim/commands';
 import { tileCentre } from '../src/sim/fixed';
-import { Sim, type SimOptions } from '../src/sim/sim';
+import { Sim } from '../src/sim/sim';
 import type { Enemy, EnemyMode, StructureKind } from '../src/sim/types';
 
-/** An empty rectangular level with one spawn and no terrain. */
+/** Char-map rows for a grid where `blocked` tiles are rock and the rest dirt. */
+export function terrainRows(
+  width: number,
+  height: number,
+  blocked: { x: number; y: number }[] = [],
+): string[] {
+  const rows: string[][] = Array.from({ length: height }, () => Array(width).fill('.'));
+  for (const t of blocked) rows[t.y]![t.x] = 'r';
+  return rows.map((r) => r.join(''));
+}
+
+/** The full four-kind legend, shared by every test level. */
+export const LEGEND = { '.': 'dirt', g: 'grass', r: 'rock', o: 'socket' };
+
+/** One-runner wave so a fixture passes the waves-required validation. */
+export function trivialWave(spawn = 'main'): Record<string, unknown> {
+  return { groups: [{ spawn, type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] };
+}
+
+export interface OpenLevelOptions {
+  /** Terrain rows override; defaults to all-dirt plus `blocked` as rock. */
+  map?: string[];
+  /** Waves override; defaults to a single one-runner wave. */
+  waves?: Record<string, unknown>[];
+  economy?: { startingTreasury: number; interestRatePerTick: number };
+}
+
+/** An empty rectangular level with one spawn and (by default) all-dirt terrain. */
 export function openLevel(
   width: number,
   height: number,
   spawn: { x: number; y: number },
   treasury: { x: number; y: number },
   blocked: { x: number; y: number }[] = [],
+  options: OpenLevelOptions = {},
 ): Record<string, unknown> {
   return {
     id: 'test',
     grid: { width, height },
     treasury,
     spawns: [{ id: 'main', ...spawn, activeFromWave: 1 }],
-    terrain: { blocked, prebuilt: [] },
-    economy: { startingTreasury: 200, interestRatePerTick: 0 },
-    waves: [],
+    terrain: { legend: LEGEND, map: options.map ?? terrainRows(width, height, blocked) },
+    economy: options.economy ?? { startingTreasury: 200, interestRatePerTick: 0 },
+    waves: options.waves ?? [trivialWave()],
   };
 }
 
@@ -95,10 +123,9 @@ export function makeSim(
   level: Record<string, unknown>,
   balance: Record<string, unknown> = testBalance(),
   seed = 42,
-  options: SimOptions = {},
 ): { sim: Sim; data: GameData } {
   const data = loadGameData(level, balance);
-  return { sim: new Sim(data, seed, options), data };
+  return { sim: new Sim(data, seed), data };
 }
 
 export interface InjectOptions {
@@ -151,4 +178,12 @@ export function remove(tx: number, ty: number): Command {
 
 export function spawnCmd(type: string, spawn = 0): Command {
   return { kind: 'spawn', type, spawn, seq: seq++ };
+}
+
+export function startWave(): Command {
+  return { kind: 'startWave', seq: seq++ };
+}
+
+export function concede(): Command {
+  return { kind: 'concede', seq: seq++ };
 }

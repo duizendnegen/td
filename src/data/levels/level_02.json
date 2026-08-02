@@ -1,0 +1,101 @@
+{
+  "$note": "The two-front finale: the west lane squeezes through the x=8 ridge gap at y=10..11; the north lane opens at wave 6 through the y=6 wall gap at x=14..15. Sockets sit in both walls — (8,5) covers the west choke, (20,6) the north gap — plus a field socket at (14,12) over the shared treasury approach. Rocks at (21..22, 12/16) half-ring the treasury. The slow-immune brute debuts at wave 7 and anchors the back half.",
+  "id": "level_02",
+  "grid": { "width": 30, "height": 20 },
+  "treasury": { "x": 24, "y": 14 },
+  "spawns": [
+    { "id": "west", "x": 0, "y": 10, "activeFromWave": 1 },
+    { "id": "north", "x": 15, "y": 0, "activeFromWave": 6 }
+  ],
+  "terrain": {
+    "legend": { ".": "dirt", "g": "grass", "r": "rock", "o": "socket" },
+    "map": [
+      "gg..........................gg",
+      "g............................g",
+      "........r.....................",
+      "........r.....................",
+      "........r.....................",
+      "........o.....................",
+      "........r...rr..rrrrorrrrr....",
+      "........r.....................",
+      "........r.....................",
+      "........r.....................",
+      "..............................",
+      "..............................",
+      "........r.....o......rr.......",
+      "........r.....................",
+      "........r.....................",
+      "........r.....................",
+      "........r............rr.......",
+      "........r.....................",
+      "g............................g",
+      "gg..........................gg"
+    ]
+  },
+  "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0004 },
+  "waves": [
+    { "groups": [{ "spawn": "west", "type": "swarm", "count": 8, "spawnInterval": 8, "delay": 40 }] },
+    {
+      "groups": [
+        { "spawn": "west", "type": "swarm", "count": 12, "spawnInterval": 8, "delay": 40 },
+        { "spawn": "west", "type": "tank", "count": 1, "spawnInterval": 1, "delay": 120 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "west", "type": "swarm", "count": 8, "spawnInterval": 10, "delay": 40 },
+        { "spawn": "west", "type": "runner", "count": 3, "spawnInterval": 100, "delay": 60 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "west", "type": "tank", "count": 2, "spawnInterval": 90, "delay": 40 },
+        { "spawn": "west", "type": "swarm", "count": 10, "spawnInterval": 7, "delay": 100 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "west", "type": "tank", "count": 3, "spawnInterval": 80, "delay": 40 },
+        { "spawn": "west", "type": "runner", "count": 3, "spawnInterval": 90, "delay": 80 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "north", "type": "swarm", "count": 10, "spawnInterval": 6, "delay": 40 },
+        { "spawn": "west", "type": "swarm", "count": 8, "spawnInterval": 8, "delay": 60 },
+        { "spawn": "north", "type": "runner", "count": 2, "spawnInterval": 100, "delay": 120 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "north", "type": "brute", "count": 2, "spawnInterval": 100, "delay": 40 },
+        { "spawn": "west", "type": "swarm", "count": 15, "spawnInterval": 5, "delay": 60 },
+        { "spawn": "west", "type": "runner", "count": 2, "spawnInterval": 100, "delay": 100 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "north", "type": "brute", "count": 2, "spawnInterval": 90, "delay": 40 },
+        { "spawn": "west", "type": "brute", "count": 1, "spawnInterval": 1, "delay": 200 },
+        { "spawn": "west", "type": "tank", "count": 2, "spawnInterval": 90, "delay": 60 },
+        { "spawn": "north", "type": "swarm", "count": 12, "spawnInterval": 6, "delay": 120 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "west", "type": "tank", "count": 3, "spawnInterval": 80, "delay": 40 },
+        { "spawn": "north", "type": "brute", "count": 3, "spawnInterval": 90, "delay": 80 },
+        { "spawn": "west", "type": "runner", "count": 4, "spawnInterval": 80, "delay": 60 },
+        { "spawn": "north", "type": "swarm", "count": 10, "spawnInterval": 6, "delay": 200 }
+      ]
+    },
+    {
+      "groups": [
+        { "spawn": "north", "type": "brute", "count": 4, "spawnInterval": 80, "delay": 40 },
+        { "spawn": "west", "type": "tank", "count": 4, "spawnInterval": 70, "delay": 60 },
+        { "spawn": "west", "type": "swarm", "count": 20, "spawnInterval": 4, "delay": 120 },
+        { "spawn": "north", "type": "runner", "count": 4, "spawnInterval": 90, "delay": 100 }
+      ]
+    }
+  ]
+}

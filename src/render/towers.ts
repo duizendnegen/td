@@ -16,8 +16,10 @@ import type { Enemy, Structure } from '../sim/types';
 import type { Assets } from './assets';
 import { GROUND_TOP_Y } from './renderer';
 
-const WALL_COLOR = 0x9aa4b2;
 const COUNTDOWN_COLOR = '#ff6b5e';
+
+/** Walls are kit masonry from the tower-base family (render-pipeline spec). */
+const WALL_MODEL = 'tower-square-bottom-a';
 
 /** Base and per-level middle segments, plus the weapon head, per archetype. */
 const KIT: Record<TowerArchetype, { base: string; middle: string; head: string }> = {
@@ -81,8 +83,6 @@ function stack(group: THREE.Group, parts: THREE.Object3D[]): number {
 export class StructureRenderer {
   private readonly scene: THREE.Scene;
   private readonly assets: Assets;
-  private readonly wallGeometry = new THREE.BoxGeometry(0.92, 0.55, 0.92);
-  private readonly wallMaterial = new THREE.MeshLambertMaterial({ color: WALL_COLOR });
   private readonly meshes = new Map<number, THREE.Group>();
   private readonly labels = new Map<number, CountdownLabel>();
   private readonly heights = new Map<number, number>();
@@ -99,10 +99,8 @@ export class StructureRenderer {
   private build(s: Structure): THREE.Group {
     const group = new THREE.Group();
     if (s.kind === 'wall') {
-      const mesh = new THREE.Mesh(this.wallGeometry, this.wallMaterial);
-      mesh.position.y = 0.275;
-      group.add(mesh);
-      this.heights.set(s.id, 0.55);
+      const height = stack(group, [this.assets.instance(WALL_MODEL)]);
+      this.heights.set(s.id, height);
     } else {
       // One middle segment per level above 1: level legibility is height.
       const kit = KIT[ARCHETYPES[s.archetypeId]!];

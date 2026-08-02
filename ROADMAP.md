@@ -251,39 +251,51 @@ visibly grow, and watch each enemy type punish the archetype you left out.
 
 ## Phase 4 — The Run
 
-> **A complete session.** Hand-authored waves, interest, bankruptcy, two levels, win and lose states.
-> Everything already exists; this phase composes it into something you can sit down and play.
+> **A complete session.** Hand-authored waves, interest, the solvency gate, two levels, win and lose
+> states. Everything already exists; this phase composes it into something you can sit down and play.
 
 ### Scope
 
 **Waves** (`sim/waves.ts`)
 - Wave loader from JSON: groups with `spawn`, `type`, `count`, `spawnInterval`, `delay`
+- **Strictly sequential**: a wave is active until every enemy it spawned is dead or escaped
+  (fleeing carriers included); the next starts only by player command
 - 10 hand-authored waves per level, curve-designed to teach the counters — runners introduced around
   wave 3, a tank check around wave 5, a swarm check around wave 7
-- Multi-spawn activation by wave: a second front opening mid-run reshapes the maze problem
+- Multi-spawn activation by wave: a second front opening mid-run reshapes the maze problem;
+  placement validation protects dormant spawns' paths from tick 0
 - Build phase with **no timer**; building during waves allowed and instant
 
 **Economy completion**
+- Theft **overdraws** the treasury: a grab is always full carry capacity, so raids drive the
+  balance negative — killing the carrier and settling the wave brings the gold home
 - Interest accrual — during waves only, on positive balance only
-- Unclaimed sacks return to the treasury at end of wave
-- Bankruptcy: cannot spend below 0, **lose at −100**
-- Win: survive all 10 waves
+- End-of-wave settlement: unclaimed sacks return, interest stops, progression is judged
+- **Solvency gate instead of a bankruptcy threshold**: starting the next wave requires balance ≥ 0;
+  wave-locked recovery runs on structure refunds alone; **no automatic loss** — the player concedes,
+  and the UI flags when liquidation cannot cover the debt
+- Win: survive all 10 waves **and end solvent** — an indebted finish must liquidate to ≥ 0 to claim it
+
+**Terrain palette**
+- Four authored kinds via char-map: dirt (navigable, buildable), grass and rock (scenery),
+  socket (towers only, validation-free — a level-authoring balance knob)
 
 **Levels**
 - `level_01` — one spawn, teaches the loop
-- `level_02` — two spawns with the second activating mid-run
+- `level_02` — two spawns with the second activating mid-run, slow-immune brute in the back half
 
 **UI**
-- Wave counter and preview of what is coming
-- Start-wave control
+- Wave counter and preview of what is coming, marking newly activating spawns
+- Start-wave control with the solvency lock; concede control with the impossible-recovery notice
 - Win / lose screens with a run summary — gold stolen, gold escaped, kills, final balance
 
-**Tests** — `economy.test.ts`, `level.test.ts`, wave scheduling
+**Tests** — `economy.test.ts`, `waves.test.ts`, `level.test.ts`, placement terrain cases,
+regenerated golden replays
 
 ### Deliverable
 
 The complete POC. A shareable link where someone who has never seen it can play two levels of ten
-waves each, from first wall to victory or bankruptcy.
+waves each, from first wall to victory or concession.
 
 ### Gate
 

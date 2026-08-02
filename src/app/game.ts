@@ -7,7 +7,8 @@
 //     commands here, never inside the sim (design D8)
 
 import balanceJson from '../data/balance.json';
-import levelJson from '../data/levels/level_01.json';
+import level01Json from '../data/levels/level_01.json';
+import level02Json from '../data/levels/level_02.json';
 import { loadGameData } from '../data/schema';
 import { CommandQueue } from '../sim/commands';
 import { Sim } from '../sim/sim';
@@ -24,16 +25,20 @@ import { TreasuryHud } from '../ui/hud';
 import { buildHintLine, InputController } from '../ui/input';
 import { InspectorUI } from '../ui/inspector';
 import { PaletteUI } from '../ui/palette';
+import { RunScreens } from '../ui/screens';
 import { SpawnPanelUI } from '../ui/spawnpanel';
+import { WaveHud } from '../ui/wavehud';
 import { startLoop } from './loop';
 import { SpawnScheduler } from './presets';
 
-// The kit subset grows as phases land; Phase 3 adds the full tower kit,
-// weapon heads, and the per-type enemy models.
+// The kit subset grows as phases land; Phase 4 adds the terrain palette
+// tiles and the socket base.
 const MODELS = [
   'tile',
+  'tile-dirt',
   'tile-rock',
   'tile-spawn',
+  'tower-square-bottom-b',
   'enemy-ufo-a',
   'enemy-ufo-b',
   'enemy-ufo-c',
@@ -56,6 +61,13 @@ export const DEFAULT_SEED = 0xc0ffee;
 /** The fast-forward probe's tick count matches the gate check (design D-P1-3). */
 export const PROBE_TICKS = 2000;
 
+/** ?level=2 plays level_02; anything else (or nothing) plays level_01. */
+function levelFromUrl(): unknown {
+  return new URLSearchParams(window.location.search).get('level') === '2'
+    ? level02Json
+    : level01Json;
+}
+
 function seedFromUrl(): number {
   const raw = new URLSearchParams(window.location.search).get('seed');
   if (raw === null) return DEFAULT_SEED;
@@ -69,7 +81,7 @@ function seedFromUrl(): number {
 
 export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   // Load + validate data — a bad level stops the boot here, before rendering.
-  const data = loadGameData(levelJson, balanceJson);
+  const data = loadGameData(levelFromUrl(), balanceJson);
   const assets = await Assets.load(MODELS);
 
   // Sim: the seed flows only through Sim construction.
@@ -85,7 +97,7 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     buildGround(assets, {
       width: data.level.grid.width,
       height: data.level.grid.height,
-      isBlocked: (tx, ty) => data.grid.isBlocked(tx, ty),
+      kindAt: (tx, ty) => data.grid.terrainAt(tx, ty),
       spawns: data.level.spawns,
     }),
   );
@@ -118,6 +130,8 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   const inspector = new InspectorUI(hud, data, commands);
   const input = new InputController(canvas, camera.camera, sim, commands, palette, inspector, ghost, fx);
   new SpawnPanelUI(hud, data, sim, commands, scheduler);
+  const waveHud = new WaveHud(hud, data, commands);
+  const screens = new RunScreens(hud);
   buildHintLine(hud);
 
   // App-side instrumentation for the F4 readout; the sim never reads the clock.
@@ -190,6 +204,8 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
       input.update();
       treasuryHud.update(sim.state.treasuryMg);
       palette.refresh(sim.state.treasuryMg);
+      waveHud.update(sim.state, sim.totalWaves);
+      screens.update(sim.state);
       inspector.refresh(sim.state);
       debug.update(stats.lastTickMs);
       renderer.render(camera.camera);

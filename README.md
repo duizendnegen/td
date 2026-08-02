@@ -45,14 +45,14 @@ typeRef           // stat block reference
 
 Treasury and build-gold are **one pool**. Spending on towers lowers the same balance thieves attack. There is no abstract life counter.
 
-- **Theft:** each enemy type has a `carryCapacity`. On reaching the treasury it grabs `min(capacity, balance)` and flips to `returning`, pathing toward the **nearest active spawn**.
+- **Theft:** each enemy type has a `carryCapacity`. On reaching the treasury it grabs its **full capacity** — overdrawing the balance below zero when the treasury holds less — and flips to `returning`, pathing toward the **nearest active spawn**.
 - **Carriers** move at **80% speed** and display a gold-sack status icon.
 - **Returning carriers take the maze back** through the gauntlet — walls block both directions, so every kill near the treasury gets a second chance on the way out. The maze defends twice.
 - **Dropped gold:** killing a carrier drops its sack on its tile. Any enemy (inbound or outbound) walking over it picks it up, up to remaining capacity — a swarm can distribute a large sack. An inbound enemy that picks up gold **immediately flips to returning**.
 - Unclaimed sacks return to the treasury at end of wave. Gold that escapes through a spawn is **gone** — no mercy.
 - **Kill bounties** go straight to the treasury and are meaningful (primary income).
 - **Interest** accrues **only during waves** (build phase earns nothing), as a percentage of held balance per tick. No cap initially — the system self-balances: hoarding earns interest but leaves you undertowered against thieves. Interest is a skill-expression lever that rewards restraint and punishes overspending.
-- **Bankruptcy:** you **lose when the treasury hits −100**. You **cannot spend on towers while below 0**. Going negative via theft is survivable; it's a death spiral warning, not instant death.
+- **Bankruptcy is a solvency gate, not a threshold:** starting the next wave requires **balance ≥ 0**. You **cannot spend on towers while below 0**; while wave-locked, the only income is selling structures at their 50% refund — recovery weakens the defense, and that *is* the death spiral. There is **no automatic loss**: the run ends only when the player concedes, and the UI states plainly when liquidating everything could not clear the debt. Winning requires the same solvency — after the final wave settles, victory fires the moment the balance is ≥ 0.
 - Death-spiral mitigation, if testing demands it: a small flat per-wave stipend — never a softening of theft itself.
 
 ## Towers
@@ -93,7 +93,9 @@ Three types for the POC, each designed to punish a missing tower:
 ## Waves & Levels
 
 - **Waves are hand-authored data, not formulas.** The wave curve teaches the rock-paper-scissors: e.g. wave 3 introduces runners, wave 5 is a tank check, wave 7 a swarm check.
-- **Multiple spawn points**, each with an activation wave — a second front opening mid-run reshapes the maze problem. POC ships with levels using one and two spawns.
+- **Waves are strictly sequential**: a wave is active from start until every enemy it spawned is dead or has escaped (fleeing carriers included). Between waves the game sits in the untimed build phase; the next wave starts only by player command, gated on solvency.
+- **Multiple spawn points**, each with an activation wave — a second front opening mid-run reshapes the maze problem. POC ships with levels using one and two spawns. Placement validation protects every declared spawn's path from tick 0, dormant ones included.
+- **Terrain is a four-kind palette**, authored as a char-map: `dirt` (navigable, buildable), `grass` and `rock` (scenery, neither), `socket` (never navigable, towers only — a free tower platform that skips path validation entirely). Socket count and position are a level-balance knob.
 - **10 waves** per POC level.
 - Enemy stat blocks and tower definitions live in a **shared balance file**; level files are pure composition referencing them by `type`.
 
@@ -108,26 +110,27 @@ Three types for the POC, each designed to punish a missing tower:
     { "id": "west", "x": 0, "y": 10, "activeFromWave": 1 },
     { "id": "north", "x": 15, "y": 0, "activeFromWave": 6 }
   ],
-  "terrain": { "blocked": [[5,5],[5,6]], "prebuilt": [] },
+  "terrain": {
+    "legend": { ".": "dirt", "g": "grass", "r": "rock", "o": "socket" },
+    "map": ["gg...r......", ".....o......", ".....r......"]
+  },
   "economy": {
     "startingTreasury": 200,
     "interestRatePerTick": 0.0004
   },
   "waves": [
     {
-      "wave": 1,
       "groups": [
         { "spawn": "west", "type": "swarm", "count": 8,
-          "spawnInterval": 0.8, "delay": 0 }
+          "spawnInterval": 16, "delay": 0 }
       ]
     },
     {
-      "wave": 6,
       "groups": [
         { "spawn": "west", "type": "tank", "count": 3,
-          "spawnInterval": 2.0, "delay": 0 },
+          "spawnInterval": 40, "delay": 0 },
         { "spawn": "north", "type": "runner", "count": 6,
-          "spawnInterval": 0.5, "delay": 3.0 }
+          "spawnInterval": 10, "delay": 60 }
       ]
     }
   ]
@@ -145,5 +148,5 @@ Tower Defense Kit bundle from Kenney's Assets. Iconographic placeholders when as
 3. Towers (rapid fire first), damage, bounties.
 4. Full theft loop: carry, drop, pickup, flip-to-returning, end-of-wave return.
 5. Remaining towers, upgrades, slow + icons.
-6. Wave loader, interest, bankruptcy, two levels.
+6. Wave loader, interest, the solvency gate, two levels.
 7. Isometric view.

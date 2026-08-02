@@ -103,7 +103,7 @@ export class InputController {
       // when invalid (build-ui spec). A valid verdict may still lose the
       // race at the applying tick — then the sim's own reject event plays
       // the identical flash.
-      const verdict = this.sim.previewPlacement(tile.tx, tile.ty);
+      const verdict = this.sim.previewPlacement(structure.kind, tile.tx, tile.ty);
       if (verdict === 'ok') {
         this.commands.issue({
           kind: 'place',
@@ -165,7 +165,7 @@ export class InputController {
       if (tick !== this.lastEvalTick || key !== this.lastEvalTile) {
         this.lastEvalTick = tick;
         this.lastEvalTile = key;
-        this.lastVerdictOk = this.sim.previewPlacement(tile.tx, tile.ty) === 'ok';
+        this.lastVerdictOk = this.sim.previewPlacement(structure.kind, tile.tx, tile.ty) === 'ok';
       }
       this.ghost.show(structure.kind, tile.tx, tile.ty, this.tint(tool!), this.toolRangeUnits(tool!));
       this.ghost.showPreviewRingAt(null);

@@ -9,7 +9,7 @@
 // types.ts gets a line here in the same commit. prevPos is deliberately
 // absent: it is the renderer's interpolation snapshot, not sim state.
 
-import { ENEMY_STATE_ID, STRUCTURE_KIND_ID, type SimState } from './types';
+import { ENEMY_STATE_ID, RUN_PHASE_ID, STRUCTURE_KIND_ID, type SimState } from './types';
 
 const FNV_OFFSET = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
@@ -28,9 +28,15 @@ export function hashState(state: SimState, rngState: readonly number[]): number 
   h = mix(h, state.tick);
   for (const s of rngState) h = mix(h, s);
   h = mix(h, state.treasuryMg);
+  h = mix(h, RUN_PHASE_ID[state.runPhase]);
+  h = mix(h, state.waveIndex);
+  h = mix(h, state.waveStartTick);
+  h = mix(h, state.groupCursors.length);
+  for (const c of state.groupCursors) h = mix(h, c);
+  h = mix(h, state.stolenMg);
+  h = mix(h, state.escapedMg);
+  h = mix(h, state.kills);
   h = mix(h, state.nextEnemyId);
-  h = mix(h, state.nextSpawnTicks.length);
-  for (const t of state.nextSpawnTicks) h = mix(h, t);
   h = mix(h, state.enemies.length);
   for (const e of state.enemies) {
     h = mix(h, e.id);

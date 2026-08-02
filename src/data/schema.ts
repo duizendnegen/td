@@ -3,7 +3,8 @@
 //
 // Responsibilities:
 //   - Shape validation plus semantic checks
-//   - Every group.spawn references a declared spawn id
+//   - Terrain as a char-map over the four-kind palette (phase-4 design D5)
+//   - Every group.spawn references a declared spawn id that is active by then
 //   - Every group.type exists in balance.json
 //   - Every spawn reaches the treasury on the starting terrain
 //   - Per-archetype level tables: exactly three hand-authored rows, with each
@@ -13,7 +14,7 @@
 import { z } from 'zod';
 import { GOLD, TILE } from '../sim/fixed';
 import { buildField } from '../sim/flowfield';
-import { Grid } from '../sim/grid';
+import { Grid, TERRAIN } from '../sim/grid';
 
 const TileSchema = z.object({ x: z.int().nonnegative(), y: z.int().nonnegative() });
 
@@ -23,16 +24,20 @@ const SpawnSchema = TileSchema.extend({
 });
 
 const WaveSchema = z.object({
-  groups: z.array(
-    z.object({
-      spawn: z.string(),
-      type: z.string(),
-      count: z.int().positive(),
-      spawnInterval: z.int().nonnegative(),
-      delay: z.int().nonnegative(),
-    }),
-  ),
+  groups: z
+    .array(
+      z.object({
+        spawn: z.string(),
+        type: z.string(),
+        count: z.int().positive(),
+        spawnInterval: z.int().nonnegative(),
+        delay: z.int().nonnegative(),
+      }),
+    )
+    .min(1),
 });
+
+const TERRAIN_KINDS = ['dirt', 'grass', 'rock', 'socket'] as const;
 
 export const LevelSchema = z.object({
   id: z.string().min(1),
@@ -40,16 +45,16 @@ export const LevelSchema = z.object({
   treasury: TileSchema,
   spawns: z.array(SpawnSchema).min(1),
   terrain: z.object({
-    blocked: z.array(TileSchema),
-    // Prebuilt walls/towers get a real shape in Phase 2.
-    prebuilt: z.array(z.unknown()),
+    /** Character → terrain kind; every map character must appear here. */
+    legend: z.record(z.string().length(1), z.enum(TERRAIN_KINDS)),
+    /** One string row per grid row, one character per tile. */
+    map: z.array(z.string()),
   }),
   economy: z.object({
     startingTreasury: z.int().nonnegative(),
     interestRatePerTick: z.number().nonnegative(),
   }),
-  // Allowed empty until Phase 4 introduces the wave loader (design D-P1-5).
-  waves: z.array(WaveSchema),
+  waves: z.array(WaveSchema).min(1),
 });
 export type Level = z.infer<typeof LevelSchema>;
 
@@ -141,8 +146,11 @@ export interface GameData {
   balance: Balance;
   grid: Grid;
   startingTreasuryMg: number;
-  /** interestRatePerTick × 10 000, rounded — accrual is balance*rate/10000 per tick. */
-  interestRatePer10k: number;
+  /**
+   * interestRatePerTick in integer parts-per-million (design D3) — accrual is
+   * floor(balance × ratePpm / 1 000 000) per wave tick on positive balances.
+   */
+  interestRatePpm: number;
   /** Sorted by key so typeId assignment ignores authoring order. */
   enemyTypes: EnemyType[];
   wallCostMg: number;
@@ -199,19 +207,31 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
 
   const { width, height } = level.grid;
   const grid = new Grid(width, height);
-  for (const t of level.terrain.blocked) {
-    if (t.x >= width || t.y >= height) {
-      throw new Error(`level ${level.id}: blocked tile (${t.x}, ${t.y}) is out of bounds`);
-    }
-    grid.setBlocked(t.x, t.y, true);
+  const { legend, map } = level.terrain;
+  if (map.length !== height) {
+    throw new Error(`level ${level.id}: terrain map has ${map.length} rows, grid height is ${height}`);
   }
+  map.forEach((row, y) => {
+    if (row.length !== width) {
+      throw new Error(
+        `level ${level.id}: terrain map row ${y} has ${row.length} tiles, grid width is ${width}`,
+      );
+    }
+    for (let x = 0; x < width; x++) {
+      const kind = legend[row[x]!];
+      if (kind === undefined) {
+        throw new Error(`level ${level.id}: terrain map row ${y} has unmapped character "${row[x]}"`);
+      }
+      grid.setTerrain(x, y, TERRAIN[kind]);
+    }
+  });
 
   const placed = (name: string, t: { x: number; y: number }): void => {
     if (t.x >= width || t.y >= height) {
       throw new Error(`level ${level.id}: ${name} (${t.x}, ${t.y}) is out of bounds`);
     }
-    if (grid.isBlocked(t.x, t.y)) {
-      throw new Error(`level ${level.id}: ${name} (${t.x}, ${t.y}) is on blocked terrain`);
+    if (grid.terrainAt(t.x, t.y) !== TERRAIN.dirt) {
+      throw new Error(`level ${level.id}: ${name} (${t.x}, ${t.y}) is not on dirt terrain`);
     }
   };
   placed('treasury', level.treasury);
@@ -221,6 +241,7 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
   if (spawnIds.size !== level.spawns.length) {
     throw new Error(`level ${level.id}: duplicate spawn ids`);
   }
+  const activeFromByid = new Map(level.spawns.map((s) => [s.id, s.activeFromWave]));
   level.waves.forEach((wave, i) => {
     for (const g of wave.groups) {
       if (!spawnIds.has(g.spawn)) {
@@ -228,6 +249,11 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
       }
       if (!balance.enemies[g.type]) {
         throw new Error(`level ${level.id}: wave ${i + 1} references unknown enemy type "${g.type}"`);
+      }
+      if (activeFromByid.get(g.spawn)! > i + 1) {
+        throw new Error(
+          `level ${level.id}: wave ${i + 1} spawns at "${g.spawn}", which is dormant until wave ${activeFromByid.get(g.spawn)}`,
+        );
       }
     }
   });
@@ -248,7 +274,7 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
     balance,
     grid,
     startingTreasuryMg: level.economy.startingTreasury * GOLD,
-    interestRatePer10k: Math.round(level.economy.interestRatePerTick * 10_000),
+    interestRatePpm: Math.round(level.economy.interestRatePerTick * 1_000_000),
     enemyTypes: Object.keys(balance.enemies)
       .sort()
       .map((key) => {

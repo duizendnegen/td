@@ -100,7 +100,7 @@ describe('rapid-fire tower', () => {
 
 describe('sniper cascade (design D5)', () => {
   const sniperBoard = () => {
-    const { sim } = makeSim(board(), testBalance({}, { tank: TANK }), 42, { timerSpawns: false });
+    const { sim } = makeSim(board(), testBalance({}, { tank: TANK }), 42);
     sim.tick([place('tower', 3, 0, 'sniper')]);
     return sim;
   };
@@ -155,7 +155,7 @@ describe('sniper cascade (design D5)', () => {
 
 describe('area burst (design D6)', () => {
   it('flat damage to every enemy within the burst radius of the target position', () => {
-    const { sim } = makeSim(board(), testBalance(), 42, { timerSpawns: false });
+    const { sim } = makeSim(board(), testBalance(), 42);
     sim.tick([place('tower', 3, 0, 'area')]);
     // Target = first along path = (5,2); radius 1.2 tiles around its centre.
     const target = injectEnemy(sim, 5, 2);
@@ -170,7 +170,7 @@ describe('area burst (design D6)', () => {
   });
 
   it('simultaneous carrier deaths credit both bounties and merge sacks per tile', () => {
-    const { sim } = makeSim(board(), testBalance(), 42, { timerSpawns: false });
+    const { sim } = makeSim(board(), testBalance(), 42);
     sim.tick([place('tower', 3, 0, 'area')]);
     const before = sim.state.treasuryMg;
     injectEnemy(sim, 5, 2, { hp: 10, mode: 'returning', carriedMg: 9000 });
@@ -185,7 +185,7 @@ describe('area burst (design D6)', () => {
 
 describe('slow (design D4)', () => {
   const slowBoard = () => {
-    const { sim } = makeSim(board(), testBalance(), 42, { timerSpawns: false });
+    const { sim } = makeSim(board(), testBalance(), 42);
     sim.tick([place('tower', 3, 0, 'slow')]);
     return sim;
   };
@@ -230,7 +230,7 @@ describe('slow (design D4)', () => {
   it('slowImmune stat blocks short-circuit application', () => {
     const brute = { hp: 260, speed: 0, carryCapacity: 40, bounty: 15, slowImmune: true };
     // Sorted keys: brute 0, runner 1.
-    const { sim } = makeSim(board(), testBalance({}, { brute }), 42, { timerSpawns: false });
+    const { sim } = makeSim(board(), testBalance({}, { brute }), 42);
     sim.tick([place('tower', 3, 0, 'slow')]);
     const e = injectEnemy(sim, 5, 2, { typeId: 0, hp: 260 });
     sim.tick([]);
@@ -241,7 +241,7 @@ describe('slow (design D4)', () => {
 
 describe('within-tick firing order (design D7)', () => {
   it('a later tower never shoots an enemy killed earlier in the tick and holds its fire tick', () => {
-    const { sim } = makeSim(board(), testBalance(), 42, { timerSpawns: false });
+    const { sim } = makeSim(board(), testBalance(), 42);
     sim.tick([place('tower', 3, 0, 'area')]); // earlier: kills the swarm enemy
     sim.tick([place('tower', 6, 0, 'rapid')]); // later: only that enemy in range
     injectEnemy(sim, 5, 2, { hp: 10 }); // dies to the 12-damage burst
@@ -254,7 +254,7 @@ describe('within-tick firing order (design D7)', () => {
 
   it('build order pins same-tick resolution: the earlier-built tower fires first', () => {
     const run = (first: 'rapid' | 'sniper') => {
-      const { sim } = makeSim(board(), testBalance(), 42, { timerSpawns: false });
+      const { sim } = makeSim(board(), testBalance(), 42);
       const second = first === 'rapid' ? 'sniper' : 'rapid';
       sim.tick([place('tower', 3, 0, first), place('tower', 6, 0, second)]);
       injectEnemy(sim, 5, 2, { hp: 8 }); // dies to either tower's first shot
