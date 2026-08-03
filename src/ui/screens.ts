@@ -23,12 +23,21 @@ const LEDGER_ROW = 'flex items-baseline justify-between gap-8';
 const LEDGER_LABEL = 'font-mono text-label-caps uppercase text-on-surface-variant';
 const LEDGER_VALUE = 'font-mono text-[15px] font-bold text-primary';
 
+const NEXT_LEVEL =
+  'btn-mech bevel-panel mt-5 inline-flex items-center gap-2 rounded-xl border-2 ' +
+  'border-tertiary-container bg-surface-container-high px-6 py-3 font-headline text-[16px] ' +
+  'font-bold uppercase tracking-widest text-tertiary-container ' +
+  'shadow-[0_0_20px_rgba(101,242,181,0.15)]';
+
 export class RunScreens {
   private readonly slot: HTMLElement;
+  /** URL that starts the successor level (level-progression spec), or null. */
+  private readonly nextLevelUrl: string | null;
   private shown = false;
 
-  constructor(slot: HTMLElement) {
+  constructor(slot: HTMLElement, nextLevelUrl: string | null = null) {
     this.slot = slot;
+    this.nextLevelUrl = nextLevelUrl;
   }
 
   /** Per-frame check; builds the overlay once when the run ends. */
@@ -56,6 +65,17 @@ export class RunScreens {
       row('Final balance', g(state.treasuryMg)) +
       '</div>' +
       '<div class="mt-5 font-mono text-label-caps uppercase text-on-surface-variant/60">Reload to play again</div>';
+    // Winning a level with a successor opens the door to it (level-progression
+    // spec): navigation reboots the app, so the next run starts fully fresh.
+    if (won && this.nextLevelUrl !== null) {
+      const next = document.createElement('button');
+      next.className = NEXT_LEVEL;
+      next.innerHTML =
+        '<span class="material-symbols-outlined text-2xl">arrow_forward</span><span>Next level</span>';
+      const url = this.nextLevelUrl;
+      next.addEventListener('click', () => window.location.assign(url));
+      card.appendChild(next);
+    }
     overlay.appendChild(card);
     this.slot.appendChild(overlay);
   }

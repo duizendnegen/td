@@ -118,4 +118,6 @@ export interface SimState {
   stolenMg: number;
   escapedMg: number;
   kills: number;
+  /** The most recent settlement's speed bonus (run-lifecycle spec); 0 before any. */
+  lastWaveBonusMg: number;
 }

@@ -1,38 +1,28 @@
 {
-  "$note": "The two-front finale: the west lane squeezes through the x=8 ridge gap at y=10..11; the north lane opens at wave 6 through the y=6 wall gap at x=14..15. Sockets sit in both walls — (8,5) covers the west choke, (20,6) the north gap — plus a field socket at (14,12) over the shared treasury approach. Rocks at (21..22, 12/16) half-ring the treasury. The slow-immune brute debuts at wave 7 and anchors the back half.",
+  "$note": "The two-front finale, compressed to 20×10 (balance-ux-tweaks design D8): the west lane squeezes through the x=5 ridge gap at y=3..4; the north lane opens at wave 6 through the y=3 wall gap at x=12..13. Sockets sit in both walls — (5,6) covers the west choke, (14,3) the north gap — plus a field socket at (11,6) over the shared treasury approach. Rocks at (13,7)/(14,8)/(16,8) half-ring the treasury (15,7) so it takes fire from the north and east approaches only. The slow-immune brute debuts at wave 7 and anchors the back half.",
   "id": "level_02",
-  "grid": { "width": 30, "height": 20 },
-  "treasury": { "x": 24, "y": 14 },
+  "grid": { "width": 20, "height": 10 },
+  "treasury": { "x": 15, "y": 7 },
   "spawns": [
-    { "id": "west", "x": 0, "y": 10, "activeFromWave": 1 },
-    { "id": "north", "x": 15, "y": 0, "activeFromWave": 6 }
+    { "id": "west", "x": 0, "y": 4, "activeFromWave": 1 },
+    { "id": "north", "x": 10, "y": 0, "activeFromWave": 6 }
   ],
   "terrain": {
     "legend": { ".": "dirt", "g": "grass", "r": "rock", "o": "socket" },
     "map": [
-      "gg..........................gg",
-      "g............................g",
-      "........r.....................",
-      "........r.....................",
-      "........r.....................",
-      "........o.....................",
-      "........r...rr..rrrrorrrrr....",
-      "........r.....................",
-      "........r.....................",
-      "........r.....................",
-      "..............................",
-      "..............................",
-      "........r.....o......rr.......",
-      "........r.....................",
-      "........r.....................",
-      "........r.....................",
-      "........r............rr.......",
-      "........r.....................",
-      "g............................g",
-      "gg..........................gg"
+      "g....r.............g",
+      ".....r..............",
+      ".....r..............",
+      "........rrrr..orrr..",
+      "....................",
+      ".....r..............",
+      ".....o.....o........",
+      ".....r.......r......",
+      ".....r........r.r...",
+      "g....r.............g"
     ]
   },
-  "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0004 },
+  "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0002 },
   "waves": [
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 8, "spawnInterval": 8, "delay": 40 }] },
     {
@@ -93,7 +83,7 @@
       "groups": [
         { "spawn": "north", "type": "brute", "count": 4, "spawnInterval": 80, "delay": 40 },
         { "spawn": "west", "type": "tank", "count": 4, "spawnInterval": 70, "delay": 60 },
-        { "spawn": "west", "type": "swarm", "count": 20, "spawnInterval": 4, "delay": 120 },
+        { "spawn": "west", "type": "swarm", "count": 20, "spawnInterval": 5, "delay": 120 },
         { "spawn": "north", "type": "runner", "count": 4, "spawnInterval": 90, "delay": 100 }
       ]
     }

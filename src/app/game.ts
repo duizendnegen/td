@@ -7,9 +7,8 @@
 //     commands here, never inside the sim (design D8)
 
 import balanceJson from '../data/balance.json';
-import level01Json from '../data/levels/level_01.json';
-import level02Json from '../data/levels/level_02.json';
 import { loadGameData } from '../data/schema';
+import { levelForParam, nextLevelUrl } from './levels';
 import { CommandQueue } from '../sim/commands';
 import { Sim } from '../sim/sim';
 import { formatHash } from '../sim/hash';
@@ -24,7 +23,7 @@ import { StructureRenderer } from '../render/towers';
 import { TreasuryHud } from '../ui/hud';
 import { buildHintLine, PointerDriver } from '../ui/input';
 import { InputCore } from '../ui/inputcore';
-import { TouchDriver } from '../ui/touch';
+import { TouchCameraController, TouchDriver } from '../ui/touch';
 import { InspectorUI } from '../ui/inspector';
 import { PaletteUI } from '../ui/palette';
 import { RunScreens } from '../ui/screens';
@@ -63,12 +62,6 @@ export const DEFAULT_SEED = 0xc0ffee;
 /** The fast-forward probe's tick count matches the gate check (design D-P1-3). */
 export const PROBE_TICKS = 2000;
 
-/** ?level=2 plays level_02; anything else (or nothing) plays level_01. */
-function levelFromUrl(): unknown {
-  return new URLSearchParams(window.location.search).get('level') === '2'
-    ? level02Json
-    : level01Json;
-}
 
 function seedFromUrl(): number {
   const raw = new URLSearchParams(window.location.search).get('seed');
@@ -83,7 +76,8 @@ function seedFromUrl(): number {
 
 export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   // Load + validate data — a bad level stops the boot here, before rendering.
-  const data = loadGameData(levelFromUrl(), balanceJson);
+  const levelEntry = levelForParam(new URLSearchParams(window.location.search).get('level'));
+  const data = loadGameData(levelEntry.json, balanceJson);
   const assets = await Assets.load(MODELS);
 
   // Sim: the seed flows only through Sim construction.
@@ -143,13 +137,21 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   const input = pointerCapable
     ? new PointerDriver(canvas, inputCore)
     : new TouchDriver(canvas, inputCore, camera, hud);
+  // Hybrid (touch screen alongside the fine pointer): touch still drives the
+  // camera (isometric-camera spec) while the mouse keeps the one-click model.
+  if (pointerCapable && navigator.maxTouchPoints > 0) {
+    new TouchCameraController(canvas, camera);
+  }
   new SpawnPanelUI(hud, data, sim, commands, scheduler);
   const waveHud = new WaveHud(
     { topbarLeft: slot('topbar-left'), topbarCenter: slot('topbar-center'), bottom: slot('bottom') },
     data,
     commands,
   );
-  const screens = new RunScreens(slot('overlay'));
+  const screens = new RunScreens(
+    slot('overlay'),
+    nextLevelUrl(levelEntry.next, window.location.search, window.location.pathname),
+  );
   buildHintLine(hud);
 
   // App-side instrumentation for the F4 readout; the sim never reads the clock.

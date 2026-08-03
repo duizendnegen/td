@@ -40,6 +40,7 @@ function makeState(): SimState {
     stolenMg: 25_000,
     escapedMg: 0,
     kills: 3,
+    lastWaveBonusMg: 12_000,
   };
 }
 
@@ -94,6 +95,8 @@ describe('state hash', () => {
       (s) => (s.stolenMg += 1000),
       (s) => (s.escapedMg += 1000),
       (s) => s.kills++,
+      // Balance-ux-tweaks field: the settlement speed bonus.
+      (s) => (s.lastWaveBonusMg += 1000),
     ];
     for (const mutate of mutations) {
       const state = makeState();

@@ -93,6 +93,16 @@ export const BalanceSchema = z.object({
     wallCost: z.int().nonnegative(),
     removalRefundFraction: z.number().min(0).max(1),
   }),
+  /**
+   * Settlement speed bonus (balance-ux-tweaks design D4): full baseGold when a
+   * wave settles within graceTicks of its last scheduled spawn, then decaying
+   * linearly to zero over decayTicks.
+   */
+  waveBonus: z.object({
+    baseGold: z.int().nonnegative(),
+    graceTicks: z.int().nonnegative(),
+    decayTicks: z.int().positive(),
+  }),
   towers: z.object({
     rapid: TowerSchema,
     sniper: TowerSchema,
@@ -156,6 +166,8 @@ export interface GameData {
   wallCostMg: number;
   /** removalRefundFraction × 1000, rounded — refund is paidMg*frac/1000, floored. */
   refundPer1000: number;
+  /** Settlement speed bonus, integer-converted (design D4). */
+  waveBonus: { baseMg: number; graceTicks: number; decayTicks: number };
   /** Indexed by archetypeId (canonical ARCHETYPES order). */
   towers: TowerDef[];
   /** The single global slow multiplier: slowed speed = speed × this / 100. */
@@ -290,6 +302,11 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
       }),
     wallCostMg: balance.build.wallCost * GOLD,
     refundPer1000: Math.round(balance.build.removalRefundFraction * 1000),
+    waveBonus: {
+      baseMg: balance.waveBonus.baseGold * GOLD,
+      graceTicks: balance.waveBonus.graceTicks,
+      decayTicks: balance.waveBonus.decayTicks,
+    },
     towers: ARCHETYPES.map((archetype) => {
       const t = balance.towers[archetype];
       return {

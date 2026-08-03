@@ -44,6 +44,15 @@ const BAR =
 const SEG_EMPTY = 'flex-1 rounded-[1px]';
 const SEG_FILLED = 'flex-1 rounded-[1px] bg-tertiary-container shadow-[inset_0_1px_1px_rgba(255,255,255,0.35)]';
 
+const BONUS_TOAST =
+  'bevel-panel absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg ' +
+  'border border-tertiary-container/60 bg-surface-container-high/95 px-4 py-2 text-center ' +
+  'font-mono text-label-caps uppercase text-tertiary-container ' +
+  'shadow-[0_0_12px_rgba(101,242,181,0.2)]';
+
+/** How long the settlement bonus toast stays up, in ms (render-side only). */
+const BONUS_TOAST_MS = 2500;
+
 const CONCEDE =
   'btn-mech pointer-events-auto whitespace-nowrap rounded border border-outline bg-surface-container ' +
   'px-3 py-1 font-mono text-label-caps uppercase text-secondary-fixed-dim hover:bg-surface-container-high';
@@ -64,6 +73,9 @@ export class WaveHud {
   private readonly segments: HTMLDivElement[] = [];
   private lastFilled = -1;
   private readonly preview: HTMLDivElement;
+  private readonly bonusToast: HTMLDivElement;
+  private bonusToastTimer: number | undefined;
+  private lastPhaseWasWave = false;
   private readonly startButton: HTMLButtonElement;
   private readonly debtNote: HTMLDivElement;
   private readonly concedeButton: HTMLButtonElement;
@@ -88,7 +100,10 @@ export class WaveHud {
     this.preview = document.createElement('div');
     this.preview.className = PREVIEW;
     this.preview.style.display = 'none';
-    slots.topbarCenter.append(this.counter, this.bar, this.preview);
+    this.bonusToast = document.createElement('div');
+    this.bonusToast.className = BONUS_TOAST;
+    this.bonusToast.style.display = 'none';
+    slots.topbarCenter.append(this.counter, this.bar, this.preview, this.bonusToast);
 
     this.startButton = document.createElement('button');
     this.startButton.className = START_READY;
@@ -151,6 +166,19 @@ export class WaveHud {
       this.lastFilled = -1;
     }
 
+    // Settlement toast: fires on the wave → settled transition when the speed
+    // bonus paid out (run-lifecycle spec). Render-side only; auto-hides.
+    if (this.lastPhaseWasWave && !inWave && state.runPhase !== 'lost' && state.lastWaveBonusMg > 0) {
+      this.bonusToast.textContent = `Wave bonus +${Math.floor(state.lastWaveBonusMg / GOLD)}g`;
+      this.bonusToast.style.display = 'block';
+      window.clearTimeout(this.bonusToastTimer);
+      this.bonusToastTimer = window.setTimeout(() => {
+        this.bonusToast.style.display = 'none';
+        this.lastKey = ''; // re-render so the wave preview returns to the slot
+      }, BONUS_TOAST_MS);
+    }
+    this.lastPhaseWasWave = inWave;
+
     const key = [state.runPhase, state.waveIndex, solvent, wavesLeft, dead, state.treasuryMg < 0 ? state.treasuryMg : 0].join(':');
     if (key === this.lastKey) return;
     this.lastKey = key;
@@ -179,7 +207,9 @@ export class WaveHud {
       : `All ${totalWaves} waves cleared`;
     const previewHtml = wavesLeft ? this.previewLines(state.waveIndex) : '';
     this.preview.innerHTML = previewHtml;
-    this.preview.style.display = previewHtml ? 'block' : 'none';
+    // The toast borrows the preview's anchor; the preview returns when it hides.
+    this.preview.style.display =
+      previewHtml && this.bonusToast.style.display === 'none' ? 'block' : 'none';
     this.startButton.style.display = inBuild && wavesLeft ? 'flex' : 'none';
     this.startButton.disabled = !solvent;
     this.startButton.className = solvent ? START_READY : START_BLOCKED;

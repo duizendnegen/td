@@ -1,9 +1,14 @@
 {
   "$schema": "./schema.ts",
-  "$note": "Phase-3 blocks: four archetypes × three hand-authored levels (design D2: dual axes per archetype, ~1.3× per stat per level, cost matched to the compounded ~1.7× power so gold-per-output stays flat), real swarm/tank/runner stat blocks, and the reserved slow-immune brute (unused until Phase 4). Rows tuned against the leak-rate harness (tests/leak.test.ts): the rapid range came down from phase-2's 3.5 so one archetype can no longer cover both maze ends, and each enemy type's punisher pressure is asserted directionally there, not by feel.",
+  "$note": "Phase-3 blocks: four archetypes × three hand-authored levels (design D2: dual axes per archetype, ~1.3× per stat per level, cost matched to the compounded ~1.7× power so gold-per-output stays flat), real swarm/tank/runner stat blocks, and the reserved slow-immune brute (unused until Phase 4). Rows tuned against the leak-rate harness (tests/leak.test.ts): the rapid range came down from phase-2's 3.5 so one archetype can no longer cover both maze ends, and each enemy type's punisher pressure is asserted directionally there, not by feel. Balance-ux-tweaks pass: area damage down one step (L1 now 3-shots a 50hp swarm instead of 2), slow row rescaled from 60 and wall up to 20 so mazing itself carries real cost, waveBonus pays settlement gold that decays once a wave runs past its last scheduled spawn + grace (design D4) — replacing interest as the tempo incentive.",
   "build": {
-    "wallCost": 4,
+    "wallCost": 20,
     "removalRefundFraction": 0.5
+  },
+  "waveBonus": {
+    "baseGold": 40,
+    "graceTicks": 150,
+    "decayTicks": 600
   },
   "towers": {
     "rapid": {
@@ -32,9 +37,9 @@
       "axes": "range+damage",
       "burstRadiusTiles": 1.5,
       "levels": [
-        { "cost": 80, "damage": 26, "rangeTiles": 2.5, "fireIntervalTicks": 15 },
-        { "cost": 135, "damage": 34, "rangeTiles": 3.0, "fireIntervalTicks": 15 },
-        { "cost": 230, "damage": 44, "rangeTiles": 3.5, "fireIntervalTicks": 15 }
+        { "cost": 80, "damage": 20, "rangeTiles": 2.5, "fireIntervalTicks": 15 },
+        { "cost": 135, "damage": 26, "rangeTiles": 3.0, "fireIntervalTicks": 15 },
+        { "cost": 230, "damage": 34, "rangeTiles": 3.5, "fireIntervalTicks": 15 }
       ]
     },
     "slow": {
@@ -43,9 +48,9 @@
       "axes": "range+duration",
       "slowSpeedPercent": 45,
       "levels": [
-        { "cost": 40, "damage": 0, "rangeTiles": 2.5, "fireIntervalTicks": 10, "slowDurationTicks": 40 },
-        { "cost": 70, "damage": 0, "rangeTiles": 3.0, "fireIntervalTicks": 10, "slowDurationTicks": 54 },
-        { "cost": 120, "damage": 0, "rangeTiles": 3.5, "fireIntervalTicks": 10, "slowDurationTicks": 70 }
+        { "cost": 60, "damage": 0, "rangeTiles": 2.5, "fireIntervalTicks": 10, "slowDurationTicks": 40 },
+        { "cost": 100, "damage": 0, "rangeTiles": 3.0, "fireIntervalTicks": 10, "slowDurationTicks": 54 },
+        { "cost": 170, "damage": 0, "rangeTiles": 3.5, "fireIntervalTicks": 10, "slowDurationTicks": 70 }
       ]
     }
   },

@@ -1,6 +1,7 @@
 // See the aether-ui-redesign isometric-camera spec and design D5
 import { describe, expect, it } from 'vitest';
 import { IsometricCamera, MAX_ZOOM } from '../src/render/cameras';
+import { TouchCameraController } from '../src/ui/touch';
 
 const BOARD = { width: 30, height: 20 };
 
@@ -70,6 +71,48 @@ describe('isometric camera zoom + pan', () => {
     const viewY2 = (after.top + after.bottom) / 2 + (ndc.y * (after.top - after.bottom)) / 2;
     expect(viewX2).toBeCloseTo(viewX);
     expect(viewY2).toBeCloseTo(viewY);
+  });
+
+  it('hybrid touch camera: touch pinch zooms, touch drag pans, mouse is ignored', () => {
+    // Regression for the balance-ux-tweaks mobile-camera fix: on a device
+    // with a fine pointer AND a touch screen, touch must still drive the
+    // camera (isometric-camera spec) without routing through PointerDriver.
+    const handlers = new Map<string, (e: unknown) => void>();
+    const canvas = {
+      addEventListener: (t: string, h: (e: unknown) => void) => handlers.set(t, h),
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+      clientWidth: 1280,
+      clientHeight: 720,
+    } as unknown as HTMLCanvasElement;
+    const cam = new IsometricCamera(16 / 9, BOARD);
+    new TouchCameraController(canvas, cam);
+    const fire = (
+      type: string,
+      e: { pointerId: number; clientX: number; clientY: number; pointerType: string },
+    ): void => handlers.get(type)!({ ...e, timeStamp: 0 });
+
+    // A mouse "pinch" is ignored entirely — that pointer belongs to PointerDriver.
+    fire('pointerdown', { pointerId: 9, clientX: 500, clientY: 300, pointerType: 'mouse' });
+    fire('pointermove', { pointerId: 9, clientX: 700, clientY: 300, pointerType: 'mouse' });
+    fire('pointerup', { pointerId: 9, clientX: 700, clientY: 300, pointerType: 'mouse' });
+    expect(cam.zoom).toBe(1);
+
+    // Two touch pointers spreading apart zoom in about their midpoint.
+    fire('pointerdown', { pointerId: 1, clientX: 500, clientY: 300, pointerType: 'touch' });
+    fire('pointerdown', { pointerId: 2, clientX: 700, clientY: 300, pointerType: 'touch' });
+    fire('pointermove', { pointerId: 1, clientX: 400, clientY: 300, pointerType: 'touch' });
+    fire('pointermove', { pointerId: 2, clientX: 800, clientY: 300, pointerType: 'touch' });
+    expect(cam.zoom).toBeGreaterThan(1);
+    fire('pointerup', { pointerId: 1, clientX: 400, clientY: 300, pointerType: 'touch' });
+    fire('pointerup', { pointerId: 2, clientX: 800, clientY: 300, pointerType: 'touch' });
+
+    // A one-finger touch drag pans the zoomed view.
+    const before = bounds(cam);
+    fire('pointerdown', { pointerId: 3, clientX: 600, clientY: 300, pointerType: 'touch' });
+    fire('pointermove', { pointerId: 3, clientX: 700, clientY: 340, pointerType: 'touch' }); // drag-start
+    fire('pointermove', { pointerId: 3, clientX: 800, clientY: 380, pointerType: 'touch' }); // drag-move
+    fire('pointerup', { pointerId: 3, clientX: 800, clientY: 380, pointerType: 'touch' });
+    expect(bounds(cam)).not.toEqual(before);
   });
 
   it('a resize while zoomed preserves the view centre and re-clamps', () => {

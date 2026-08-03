@@ -10,7 +10,14 @@
 import type { GameData, TowerArchetype } from '../data/schema';
 import { ARCHETYPES } from '../data/schema';
 import type { Command } from './commands';
-import { accrueInterest, canSpend, resolveArrivals, resolveDeaths, returnSacks } from './economy';
+import {
+  accrueInterest,
+  canSpend,
+  resolveArrivals,
+  resolveDeaths,
+  returnSacks,
+  waveBonusMg,
+} from './economy';
 import type { RenderEvent } from './events';
 import { invalidateCommitments, spawnEnemy, stepEnemies } from './enemy';
 import type { FlowField } from './flowfield';
@@ -23,7 +30,7 @@ import type { PlacementVerdict } from './placement';
 import { footprintFor, structureAt, tickRemovals, validatePlacement } from './placement';
 import { fireTowers, selectTarget } from './tower';
 import { Rng } from './rng';
-import { cursorsExhausted, resolveWaves, stepWaveSpawns, type ResolvedGroup } from './waves';
+import { cursorsExhausted, lastSpawnOffset, resolveWaves, stepWaveSpawns, type ResolvedGroup } from './waves';
 import type { Enemy, SimState, Structure, StructureKind } from './types';
 
 /** Towers may only upgrade to this level; the level-3 inspector reads maxed. */
@@ -92,6 +99,7 @@ export class Sim {
       stolenMg: 0,
       escapedMg: 0,
       kills: 0,
+      lastWaveBonusMg: 0,
     };
   }
 
@@ -157,9 +165,15 @@ export class Sim {
         accrueInterest(s, this.data.interestRatePpm);
         return;
       }
-      // Settlement: sack return first, then the progression judgement on the
-      // post-return balance (run-lifecycle spec).
+      // Settlement: sack return, then the speed bonus, then the progression
+      // judgement on the post-return, post-bonus balance (run-lifecycle spec).
       returnSacks(s);
+      s.lastWaveBonusMg = waveBonusMg(
+        s.tick - s.waveStartTick,
+        lastSpawnOffset(this.waves[s.waveIndex - 1]!),
+        this.data.waveBonus,
+      );
+      s.treasuryMg += s.lastWaveBonusMg;
       s.waveStartTick = -1;
       s.groupCursors = [];
       if (s.waveIndex >= this.waves.length) {

@@ -21,7 +21,7 @@ import { GROUND_TOP_Y } from './renderer';
 const TYPE_MODELS: Record<string, { model: string; scale: number }> = {
   runner: { model: 'enemy-ufo-b', scale: 0.7 },
   swarm: { model: 'enemy-ufo-c', scale: 0.6 },
-  tank: { model: 'enemy-ufo-a', scale: 1.0 },
+  tank: { model: 'enemy-ufo-a', scale: 0.8 },
   brute: { model: 'enemy-ufo-d', scale: 0.8 },
 };
 const FALLBACK = TYPE_MODELS['runner']!;
@@ -33,6 +33,17 @@ const SLOW_COLOR = 0x6fd9ff;
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
+
+// Grounding shadow (render-pipeline spec): a translucent disc pinned to the
+// terrain under the hover-bob, so the occupied tile reads at a glance.
+const SHADOW_BASE_RADIUS = 0.32;
+const SHADOW_LIFT = 0.02; // above the ground plane, below everything else
+const shadowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x000000,
+  transparent: true,
+  opacity: 0.35,
+  depthWrite: false,
+});
 
 const goldMaterial = new THREE.MeshLambertMaterial({
   color: GOLD_COLOR,
@@ -49,12 +60,14 @@ export class EnemyRenderer {
   /** typeId → type key, in the sim's canonical order. */
   private readonly typeKeys: readonly string[];
   private readonly meshes = new Map<number, THREE.Group>();
+  private readonly shadows = new Map<number, THREE.Mesh>();
   private readonly indicators = new Map<number, THREE.Mesh>();
   private readonly slowIcons = new Map<number, THREE.Mesh>();
   // The gold indicator is a small octahedron floating above the model; the
   // slowed icon a flattened cyan one beside it.
   private readonly indicatorGeometry = new THREE.OctahedronGeometry(0.16);
   private readonly slowGeometry = new THREE.OctahedronGeometry(0.14, 0);
+  private readonly shadowGeometry = new THREE.CircleGeometry(SHADOW_BASE_RADIUS, 24);
 
   constructor(scene: THREE.Scene, assets: Assets, typeKeys: readonly string[]) {
     this.scene = scene;
@@ -78,6 +91,11 @@ export class EnemyRenderer {
         mesh.scale.setScalar(def.scale);
         this.meshes.set(e.id, mesh);
         this.scene.add(mesh);
+        const shadow = new THREE.Mesh(this.shadowGeometry, shadowMaterial);
+        shadow.rotation.x = -Math.PI / 2;
+        shadow.scale.setScalar(def.scale);
+        this.shadows.set(e.id, shadow);
+        this.scene.add(shadow);
       }
       // Desync phases per enemy so a swarm doesn't bob in unison.
       const phase = e.id * 1.7;
@@ -86,6 +104,8 @@ export class EnemyRenderer {
       const y = GROUND_TOP_Y + HOVER_BASE + Math.sin(timeMs / 400 + phase) * BOB_AMPLITUDE;
       mesh.position.set(x, y, z);
       mesh.rotation.y = timeMs / 900 + phase;
+      // The shadow tracks board position only — never the bob height.
+      this.shadows.get(e.id)!.position.set(x, GROUND_TOP_Y + SHADOW_LIFT, z);
 
       // Carried-gold indicator: visible whenever the enemy holds any gold.
       let indicator = this.indicators.get(e.id);
@@ -123,6 +143,11 @@ export class EnemyRenderer {
       if (!live.has(id)) {
         this.scene.remove(mesh);
         this.meshes.delete(id);
+        const shadow = this.shadows.get(id);
+        if (shadow) {
+          this.scene.remove(shadow);
+          this.shadows.delete(id);
+        }
         const indicator = this.indicators.get(id);
         if (indicator) {
           this.scene.remove(indicator);

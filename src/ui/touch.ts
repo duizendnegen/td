@@ -34,6 +34,52 @@ const BTN_CANCEL =
 const AFFORDANCE_LIFT_PX = 64;
 const AFFORDANCE_EDGE_PX = 8;
 
+/** Pinch step applied to the camera about the gesture midpoint, in NDC. */
+function applyPinch(
+  ev: Extract<GestureEvent, { kind: 'pinch-move' }>,
+  canvas: HTMLCanvasElement,
+  camera: IsometricCamera,
+): void {
+  const rect = canvas.getBoundingClientRect();
+  const ndcX = ((ev.centerX - rect.left) / rect.width) * 2 - 1;
+  const ndcY = -((ev.centerY - rect.top) / rect.height) * 2 + 1;
+  camera.pinch(ev.scale, ndcX, ndcY);
+  camera.panByPixels(ev.dx, ev.dy, canvas.clientWidth, canvas.clientHeight);
+}
+
+/**
+ * Camera-only touch gestures for hybrid devices (touch screen + fine
+ * pointer): the mouse keeps the one-click PointerDriver model while touch
+ * drags pan and pinches zoom (isometric-camera spec). Only `touch` pointers
+ * are tracked; taps are deliberately ignored — building stays with the mouse.
+ */
+export class TouchCameraController {
+  private readonly tracker = new GestureTracker();
+
+  constructor(canvas: HTMLCanvasElement, camera: IsometricCamera) {
+    const route = (ev: GestureEvent | null): void => {
+      if (!ev) return;
+      if (ev.kind === 'drag-move') {
+        camera.panByPixels(ev.dx, ev.dy, canvas.clientWidth, canvas.clientHeight);
+      } else if (ev.kind === 'pinch-move') {
+        applyPinch(ev, canvas, camera);
+      }
+    };
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') route(this.tracker.down(e.pointerId, e.clientX, e.clientY, e.timeStamp));
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') route(this.tracker.move(e.pointerId, e.clientX, e.clientY, e.timeStamp));
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'touch') route(this.tracker.up(e.pointerId, e.clientX, e.clientY, e.timeStamp));
+    });
+    canvas.addEventListener('pointercancel', (e) => {
+      if (e.pointerType === 'touch') route(this.tracker.cancel(e.pointerId));
+    });
+  }
+}
+
 export class TouchDriver {
   private readonly core: InputCore;
   private readonly camera: IsometricCamera;
@@ -120,11 +166,7 @@ export class TouchDriver {
       }
       case 'pinch-move': {
         // Two fingers always drive the camera, build tool or not.
-        const rect = this.canvas.getBoundingClientRect();
-        const ndcX = ((ev.centerX - rect.left) / rect.width) * 2 - 1;
-        const ndcY = -((ev.centerY - rect.top) / rect.height) * 2 + 1;
-        this.camera.pinch(ev.scale, ndcX, ndcY);
-        this.camera.panByPixels(ev.dx, ev.dy, this.canvas.clientWidth, this.canvas.clientHeight);
+        applyPinch(ev, this.canvas, this.camera);
         return;
       }
       case 'drag-end':

@@ -17,10 +17,15 @@ export class PointerDriver {
 
   constructor(canvas: HTMLCanvasElement, core: InputCore) {
     this.core = core;
+    // Touch pointers never reach this driver: on hybrid devices (touch screen
+    // + mouse) they belong to the TouchCameraController, and letting them
+    // through would insta-place on a tap with no confirm step.
     canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
       this.hovered = core.pickTile(e.clientX, e.clientY);
     });
     canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') return;
       if (e.button === 0) this.onClick();
       if (e.button === 2) core.palette.select(null);
     });

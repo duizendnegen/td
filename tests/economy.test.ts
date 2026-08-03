@@ -1,6 +1,6 @@
 // See ARCHITECTURE.md §5/§12, the phase-4 theft-economy and run-lifecycle specs
 import { describe, expect, it } from 'vitest';
-import { liquidationTotalMg } from '../src/sim/economy';
+import { liquidationTotalMg, waveBonusMg } from '../src/sim/economy';
 import { REMOVAL_TICKS } from '../src/sim/fixed';
 import {
   concede,
@@ -106,6 +106,60 @@ describe('end-of-wave settlement (design D2)', () => {
     expect(sim.state.treasuryMg).toBe(26_000);
     sim.tick([startWave()]);
     expect(sim.state.waveIndex).toBe(2);
+  });
+});
+
+describe('wave speed bonus (run-lifecycle spec, design D4)', () => {
+  const BONUS = { baseGold: 40, graceTicks: 10, decayTicks: 100 };
+
+  /** Two-wave corridor with a zero-bounty runner so only the bonus moves gold. */
+  const bonusSim = () =>
+    makeSim(corridor([{ groups: [group()] }, trivialWave()]), testBalance({ bounty: 0 }, {}, BONUS));
+
+  it('pays the full base within the grace window and less after it', () => {
+    const fast = bonusSim().sim;
+    fast.tick([startWave()]); // runner spawns; lastSpawnOffset = 0
+    fast.state.enemies[0]!.hp = 0;
+    fast.tick([]); // settles at duration 1, inside the 10-tick grace
+    expect(fast.state.lastWaveBonusMg).toBe(40_000);
+    expect(fast.state.treasuryMg).toBe(240_000);
+
+    const slow = bonusSim().sim;
+    slow.tick([startWave()]);
+    for (let t = 0; t < 50; t++) slow.tick([]);
+    slow.state.enemies[0]!.hp = 0;
+    slow.tick([]); // duration 51 → 41 over grace → floor(40000 × 59 / 100)
+    expect(slow.state.lastWaveBonusMg).toBe(23_600);
+    expect(slow.state.lastWaveBonusMg).toBeLessThan(fast.state.lastWaveBonusMg);
+  });
+
+  it('pays zero once the wave outlives the decay window', () => {
+    const { sim } = bonusSim();
+    sim.tick([startWave()]);
+    for (let t = 0; t < 200; t++) sim.tick([]); // 110+ ticks past grace
+    sim.state.enemies[0]!.hp = 0;
+    sim.tick([]);
+    expect(sim.state.lastWaveBonusMg).toBe(0);
+    expect(sim.state.treasuryMg).toBe(200_000);
+  });
+
+  it('is credited before the solvency judgement and can rescue it', () => {
+    const { sim } = bonusSim();
+    sim.tick([startWave()]);
+    sim.state.treasuryMg = -10_000;
+    sim.state.enemies[0]!.hp = 0;
+    sim.tick([]); // −10 000 + 40 000 bonus = +30 000: unlocked
+    expect(sim.state.runPhase).toBe('build');
+    expect(sim.state.treasuryMg).toBe(30_000);
+    sim.tick([startWave()]);
+    expect(sim.state.waveIndex).toBe(2);
+  });
+
+  it('anchors par to the wave last scheduled spawn, per the pure formula', () => {
+    const cfg = { baseMg: 40_000, graceTicks: 10, decayTicks: 100 };
+    expect(waveBonusMg(60, 50, cfg)).toBe(40_000); // inside grace of a late schedule
+    expect(waveBonusMg(60, 0, cfg)).toBe(20_000); // 50 over → half decayed
+    expect(waveBonusMg(110, 0, cfg)).toBe(0); // over === decayTicks boundary
   });
 });
 

@@ -1,35 +1,25 @@
 {
-  "$note": "Instrumented gauntlet (design D-P1-4): rock wall at x=5 gapped south and rock wall at x=10 gapped north force an S-curve; corner-to-corner pairs at (15,6)/(16,7) and (19,9)/(20,10) make the corner rule visible in F1; the run from wall B's gap to the treasury favours diagonals; dead-end pocket interior (21..23, 3..6) opens at (22,7). Phase 4: sockets replace the wall tiles (5,7) and (10,12) — blocked mask unchanged — and grass frames dead-space corners. The 10 waves teach the counters in order: swarm basics, runners ~3, tank check ~5, swarm check ~7, mixed ramp to the finale.",
+  "$note": "Instrumented gauntlet, compressed to 20×10 (balance-ux-tweaks design D8). Rock wall A at x=4 gapped south (y=8..9) and wall B at x=8 gapped north (y=0..1) force the S-curve; corner-to-corner pairs at (11,2)/(12,3) and (14,6)/(15,7) make the corner rule visible in F1; the run from wall B's north gap to the treasury (17,5) favours diagonals; the dead-end pocket (15..17, 9) sits under a rock lid, sealed west at (14,9), entered only from (18,9). Sockets replace one tile of each wall — (4,4) and (8,6) — blocked mask unchanged; grass marks the dead top corners. The 10 waves teach the counters in order: swarm basics, runners ~3, tank check ~5, swarm check ~7, mixed ramp to the finale.",
   "id": "level_01",
-  "grid": { "width": 30, "height": 20 },
-  "treasury": { "x": 27, "y": 10 },
-  "spawns": [{ "id": "west", "x": 0, "y": 10, "activeFromWave": 1 }],
+  "grid": { "width": 20, "height": 10 },
+  "treasury": { "x": 17, "y": 5 },
+  "spawns": [{ "id": "west", "x": 0, "y": 5, "activeFromWave": 1 }],
   "terrain": {
     "legend": { ".": "dirt", "g": "grass", "r": "rock", "o": "socket" },
     "map": [
-      "ggg..r......................gg",
-      "gg...r.......................g",
-      "g....r..............rrrrr.....",
-      ".....r..............r...r.....",
-      ".....r..............r...r.....",
-      ".....r....r.........r...r.....",
-      ".....r....r....r....r...r.....",
-      ".....o....r.....r...rr.rr.....",
-      ".....r....r...................",
-      ".....r....r........r..........",
-      ".....r....r.........r.........",
-      ".....r....r...................",
-      ".....r....o...................",
-      ".....r....r...................",
-      ".....r....r...................",
-      "..........r...................",
-      "..........r...................",
-      "..........r...................",
-      "..........r..................g",
-      "..........r.................gg"
+      "g...r..............g",
+      "....r...............",
+      "....r...r..r........",
+      "....r...r...r.......",
+      "....o...r...........",
+      "....r...r...........",
+      "....r...o.....r.....",
+      "....r...r......r....",
+      "........r......rrr..",
+      "........r.....r....."
     ]
   },
-  "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0004 },
+  "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0002 },
   "waves": [
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 6, "spawnInterval": 10, "delay": 40 }] },
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 12, "spawnInterval": 8, "delay": 40 }] },
@@ -57,17 +47,17 @@
         { "spawn": "west", "type": "runner", "count": 3, "spawnInterval": 90, "delay": 80 }
       ]
     },
-    { "groups": [{ "spawn": "west", "type": "swarm", "count": 30, "spawnInterval": 3, "delay": 40 }] },
+    { "groups": [{ "spawn": "west", "type": "swarm", "count": 30, "spawnInterval": 4, "delay": 40 }] },
     {
       "groups": [
         { "spawn": "west", "type": "tank", "count": 3, "spawnInterval": 70, "delay": 40 },
-        { "spawn": "west", "type": "swarm", "count": 12, "spawnInterval": 6, "delay": 100 },
+        { "spawn": "west", "type": "swarm", "count": 12, "spawnInterval": 7, "delay": 100 },
         { "spawn": "west", "type": "runner", "count": 2, "spawnInterval": 120, "delay": 60 }
       ]
     },
     {
       "groups": [
-        { "spawn": "west", "type": "swarm", "count": 20, "spawnInterval": 4, "delay": 40 },
+        { "spawn": "west", "type": "swarm", "count": 20, "spawnInterval": 5, "delay": 40 },
         { "spawn": "west", "type": "runner", "count": 4, "spawnInterval": 80, "delay": 60 },
         { "spawn": "west", "type": "tank", "count": 2, "spawnInterval": 120, "delay": 200 }
       ]
@@ -75,7 +65,7 @@
     {
       "groups": [
         { "spawn": "west", "type": "tank", "count": 4, "spawnInterval": 70, "delay": 40 },
-        { "spawn": "west", "type": "swarm", "count": 20, "spawnInterval": 4, "delay": 120 },
+        { "spawn": "west", "type": "swarm", "count": 20, "spawnInterval": 5, "delay": 120 },
         { "spawn": "west", "type": "runner", "count": 4, "spawnInterval": 90, "delay": 80 }
       ]
     }

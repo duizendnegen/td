@@ -122,6 +122,21 @@ export function accrueInterest(state: SimState, ratePpm: number): void {
 }
 
 /**
+ * Settlement's wave speed bonus (balance-ux-tweaks design D4): full base
+ * within graceTicks of the wave's last scheduled spawn, then a linear
+ * integer-mg decay to zero over decayTicks. Pure — the caller credits it.
+ */
+export function waveBonusMg(
+  durationTicks: number,
+  lastSpawnOffsetTicks: number,
+  cfg: { baseMg: number; graceTicks: number; decayTicks: number },
+): number {
+  const over = Math.max(0, durationTicks - (lastSpawnOffsetTicks + cfg.graceTicks));
+  if (over >= cfg.decayTicks) return 0;
+  return Math.floor((cfg.baseMg * (cfg.decayTicks - over)) / cfg.decayTicks);
+}
+
+/**
  * Settlement's sack return: every unclaimed sack credits in full, in
  * insertion order (theft-economy spec).
  */

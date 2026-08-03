@@ -68,3 +68,15 @@ export function stepWaveSpawns(state: SimState, groups: readonly ResolvedGroup[]
 export function cursorsExhausted(state: SimState, groups: readonly ResolvedGroup[]): boolean {
   return groups.every((g, i) => state.groupCursors[i]! >= g.count);
 }
+
+/**
+ * Ticks after wave start at which the wave's last enemy is scheduled to
+ * spawn — the wave-bonus par anchor (balance-ux-tweaks design D4).
+ */
+export function lastSpawnOffset(groups: readonly ResolvedGroup[]): number {
+  let last = 0;
+  for (const g of groups) {
+    last = Math.max(last, g.delay + (g.count - 1) * g.spawnInterval);
+  }
+  return last;
+}

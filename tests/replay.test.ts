@@ -11,6 +11,9 @@
 // complete level_01 run: 10 waves started by command, every archetype and
 // upgrades in play, a theft overdraw that drives the balance negative
 // mid-wave, interceptions whose sacks settle home, and a solvent win.
+// Balance-ux-tweaks note: goldens re-minted once more — the 20×10 level_01,
+// the retuned costs, and the wave speed bonus (new hashed field) all change
+// the trajectory, so the script was re-derived against the new board.
 import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import levelJson from '../src/data/levels/level_01.json';
@@ -20,50 +23,82 @@ import { formatHash } from '../src/sim/hash';
 import { Sim } from '../src/sim/sim';
 
 const SEED = 0xc0ffee;
-/** Past the scripted win at tick 6232, at a round checkpoint. */
-const TICKS = 6300;
+/** Past the scripted win at tick 5558, at a round checkpoint. */
+const TICKS = 5600;
 /** Empty-command run: an inert build phase — nothing spawns without a wave. */
-const GOLDEN_IDLE_HASH = '4af647ce';
+const GOLDEN_IDLE_HASH = '69d49af9';
 /** Scripted full-run session (see script below). */
-const GOLDEN_SCRIPT_HASH = 'e940caa1';
+const GOLDEN_SCRIPT_HASH = '172e0ed3';
 
 function makeSim(): Sim {
   return new Sim(loadGameData(levelJson, balanceJson), SEED);
 }
 
-// The full-run session against level_01. The opening trio (rapid/area/slow)
-// holds the wall-B gap cluster — every enemy passes (10, 0..4) twice. The
-// sniper deliberately arrives only after wave 4, so wave 3's runners grab
-// from a thin treasury (the overdraw dips the balance below zero mid-wave)
-// before dying on the way out. Upgrades ride the mid-run bounty income; wave
-// 10 settles solvent and wins.
+// The full-run session against the 20×10 level_01. The opening trio
+// (rapid/area/slow) holds wall B's north-gap exit — every enemy passes
+// (8..10, 0..2) twice. The 4th rapid and the sniper land right before wave 3,
+// draining the treasury to 9g. After wave 4 the player over-invests in maze
+// walls across the top-right field and enters the tank wave nearly broke;
+// wave 6's second runner grab then overdraws the treasury below zero
+// mid-wave. Upgrades ride the bounty and wave-bonus income; the sniper hits
+// level 3 before the finale, and wave 10 settles solvent and wins.
 let seq = 0;
 const cmd = (body: CommandBody): Command => ({ ...body, seq: seq++ });
 
 function script(): ReadonlyMap<number, Command[]> {
   seq = 0;
   return new Map<number, Command[]>([
-    [10, [cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 9, ty: 2 })]],
-    [11, [cmd({ kind: 'place', structure: 'tower', archetype: 'area', tx: 9, ty: 4 })]],
-    [12, [cmd({ kind: 'place', structure: 'tower', archetype: 'slow', tx: 8, ty: 3 })]],
-    [62, [cmd({ kind: 'startWave' })]],
-    [396, [cmd({ kind: 'startWave' })]],
-    [738, [cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 11, ty: 1 })]],
-    [788, [cmd({ kind: 'startWave' })]],
-    [1489, [cmd({ kind: 'startWave' })]],
-    [2180, [cmd({ kind: 'place', structure: 'tower', archetype: 'sniper', tx: 11, ty: 3 })]],
-    [2230, [cmd({ kind: 'startWave' })]],
-    [2949, [cmd({ kind: 'place', structure: 'tower', archetype: 'area', tx: 8, ty: 1 })]],
-    [2999, [cmd({ kind: 'startWave' })]],
-    [3659, [cmd({ kind: 'upgrade', tx: 9, ty: 2 })]],
-    [3709, [cmd({ kind: 'startWave' })]],
-    [4032, [cmd({ kind: 'upgrade', tx: 9, ty: 4 })]],
-    [4082, [cmd({ kind: 'startWave' })]],
-    [4717, [cmd({ kind: 'upgrade', tx: 11, ty: 3 })]],
-    [4718, [cmd({ kind: 'upgrade', tx: 8, ty: 3 })]],
-    [4768, [cmd({ kind: 'startWave' })]],
-    [5475, [cmd({ kind: 'place', structure: 'tower', archetype: 'sniper', tx: 7, ty: 4 })]],
-    [5525, [cmd({ kind: 'startWave' })]],
+    [
+      50,
+      [
+        cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 10, ty: 1 }),
+        cmd({ kind: 'place', structure: 'tower', archetype: 'area', tx: 9, ty: 2 }),
+        cmd({ kind: 'place', structure: 'tower', archetype: 'slow', tx: 10, ty: 2 }),
+      ],
+    ],
+    [100, [cmd({ kind: 'startWave' })]],
+    [439, [cmd({ kind: 'startWave' })]],
+    [
+      775,
+      [
+        cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 11, ty: 1 }),
+        cmd({ kind: 'place', structure: 'tower', archetype: 'sniper', tx: 9, ty: 3 }),
+      ],
+    ],
+    [825, [cmd({ kind: 'startWave' })]],
+    [1250, [cmd({ kind: 'startWave' })]],
+    [
+      1678,
+      [
+        cmd({ kind: 'place', structure: 'wall', tx: 13, ty: 0 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 14, ty: 0 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 15, ty: 0 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 16, ty: 0 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 17, ty: 0 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 18, ty: 0 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 13, ty: 1 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 14, ty: 1 }),
+      ],
+    ],
+    [1728, [cmd({ kind: 'startWave' })]],
+    [
+      2351,
+      [
+        cmd({ kind: 'upgrade', tx: 9, ty: 3 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 15, ty: 1 }),
+      ],
+    ],
+    [2401, [cmd({ kind: 'startWave' })]],
+    [3009, [cmd({ kind: 'startWave' })]],
+    [3380, [cmd({ kind: 'upgrade', tx: 9, ty: 2 })]],
+    [3430, [cmd({ kind: 'startWave' })]],
+    [
+      4034,
+      [cmd({ kind: 'upgrade', tx: 10, ty: 1 }), cmd({ kind: 'upgrade', tx: 10, ty: 2 })],
+    ],
+    [4084, [cmd({ kind: 'startWave' })]],
+    [4735, [cmd({ kind: 'upgrade', tx: 9, ty: 3 })]],
+    [4785, [cmd({ kind: 'startWave' })]],
   ]);
 }
 

@@ -72,6 +72,9 @@ const MONO_RAPID: LayoutItem[] = [
   { build: 'rapid', tx: 14, ty: 4 },
 ];
 
+// Balance-ux-tweaks re-derivation: wall 20g and slow 60g re-solve every
+// spend-parity equation. Each scenario's mono/counter pair is re-balanced to
+// EXACT parity at the new prices; the directions are unchanged.
 export const SCENARIOS: LeakScenario[] = [
   {
     // Runners punish the missing slow: each one crosses a window too fast
@@ -79,16 +82,18 @@ export const SCENARIOS: LeakScenario[] = [
     // pressure is per-enemy exposure, not train throughput.
     name: 'runner burst vs rapid-only → slow closes the leak',
     burst: [{ type: 'runner', count: 3, spawnInterval: 250 }],
-    mono: MONO_RAPID, // 200g
+    // 4 rapid + 3 padding walls = 260g: same rapids as the counter side, so
+    // the slow tower versus dead walls IS the experiment.
+    mono: [...MONO_RAPID, ...padding(3)],
     counter: [
-      // 3 rapid clustered inside the slow zone + 1 slow + 2 walls = 198g.
+      // 4 rapid clustered inside the slow zone + 1 slow = 260g.
       { build: 'rapid', tx: 8, ty: 2 },
       { build: 'rapid', tx: 9, ty: 2 },
       { build: 'slow', tx: 9, ty: 4 },
       { build: 'rapid', tx: 10, ty: 2 },
-      ...padding(2),
+      { build: 'rapid', tx: 10, ty: 4 },
     ],
-    // Tuned 2026-08: observed ≈75k vs ≈25k.
+    // Tuned 2026-08 (balance-ux-tweaks): observed 75k vs 0.
     monoMinLeakMg: 60_000,
     counterMaxLeakMg: 40_000,
   },
@@ -98,28 +103,30 @@ export const SCENARIOS: LeakScenario[] = [
     burst: [{ type: 'swarm', count: 50, spawnInterval: 2 }],
     mono: MONO_RAPID, // 200g
     counter: [
-      // 2 area + 10 padding walls = 200g.
+      // 2 area + 2 padding walls = 200g at the new wall price.
       { build: 'area', tx: 8, ty: 2 },
       { build: 'area', tx: 10, ty: 4 },
-      ...padding(10),
+      ...padding(2),
     ],
-    // Tuned 2026-08: observed ≈208k vs 0.
+    // Tuned 2026-08 (balance-ux-tweaks): observed 208k vs 0 — even at the
+    // nerfed L1 damage (3-shots a swarm), two areas still hold the corridor.
     monoMinLeakMg: 100_000,
     counterMaxLeakMg: 40_000,
   },
   {
-    // Tanks punish the missing sniper: rapid chip damage never breaks 420 hp.
+    // Tanks punish the missing sniper: rapid chip damage never breaks tank hp.
     name: 'tank burst vs rapid-only → sniper closes the leak',
     burst: [{ type: 'tank', count: 3, spawnInterval: 30 }],
-    mono: MONO_RAPID, // 200g
+    // 4 rapid + 2 padding walls = 240g.
+    mono: [...MONO_RAPID, ...padding(2)],
     counter: [
-      // 2 sniper + 1 rapid + 2 padding walls = 198g.
+      // 2 sniper + 2 rapid = 240g.
       { build: 'sniper', tx: 8, ty: 2 },
       { build: 'sniper', tx: 11, ty: 4 },
       { build: 'rapid', tx: 9, ty: 4 },
-      ...padding(2),
+      { build: 'rapid', tx: 12, ty: 2 },
     ],
-    // Tuned 2026-08: observed ≈120k vs 0.
+    // Tuned 2026-08 (balance-ux-tweaks): observed 120k vs 0.
     monoMinLeakMg: 80_000,
     counterMaxLeakMg: 40_000,
   },

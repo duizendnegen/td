@@ -69,9 +69,16 @@ export interface RunnerOverrides {
 export function testBalance(
   runner: RunnerOverrides = {},
   extraEnemies: Record<string, unknown> = {},
+  waveBonus: { baseGold: number; graceTicks: number; decayTicks: number } = {
+    // Zero bonus by default so pre-existing settlement arithmetic still holds.
+    baseGold: 0,
+    graceTicks: 0,
+    decayTicks: 1,
+  },
 ): Record<string, unknown> {
   return {
     build: { wallCost: 4, removalRefundFraction: 0.5 },
+    waveBonus,
     towers: {
       rapid: {
         levels: [
