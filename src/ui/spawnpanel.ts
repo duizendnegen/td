@@ -12,10 +12,14 @@ import { expandPreset, PRESETS, type SpawnScheduler } from '../app/presets';
 import type { CommandQueue } from '../sim/commands';
 import type { Sim } from '../sim/sim';
 
-const BUTTON_STYLE =
-  'display:block;width:100%;margin-top:4px;padding:5px 8px;border-radius:6px;' +
-  'border:1px solid #3a4354;background:#1b2230;color:#e8eaed;' +
-  'font:600 12px system-ui;cursor:pointer;text-align:left';
+// Dev-only surface: surface-container reskin, hidden below the breakpoint.
+const PANEL =
+  'pointer-events-auto absolute left-32 top-28 hidden w-40 rounded-lg border border-outline/30 ' +
+  'bg-surface-container/95 px-3 py-2 text-on-surface desktop:block';
+
+const BUTTON =
+  'btn-mech mt-1 block w-full rounded border border-surface-bright bg-surface-container-high ' +
+  'px-2 py-1 text-left font-mono text-label-xs uppercase text-on-surface hover:bg-surface-bright';
 
 export class SpawnPanelUI {
   constructor(
@@ -26,13 +30,11 @@ export class SpawnPanelUI {
     scheduler: SpawnScheduler,
   ) {
     const panel = document.createElement('div');
-    panel.style.cssText =
-      'position:absolute;top:140px;left:12px;width:150px;padding:8px 10px;background:#141a26cc;' +
-      'border:1px solid #3a4354;border-radius:10px;color:#e8eaed;font:12px/1.4 system-ui;user-select:none';
+    panel.className = PANEL;
     hud.appendChild(panel);
 
     const header = document.createElement('div');
-    header.style.cssText = 'font-weight:700;cursor:pointer';
+    header.className = 'cursor-pointer font-mono text-label-caps uppercase text-on-surface-variant';
     const body = document.createElement('div');
     let open = true;
     const setOpen = (v: boolean): void => {
@@ -45,13 +47,13 @@ export class SpawnPanelUI {
 
     const section = (label: string): void => {
       const el = document.createElement('div');
-      el.style.cssText = 'margin-top:8px;opacity:.65;font-weight:600';
+      el.className = 'mt-2 font-mono text-label-xs uppercase text-on-surface-variant/70';
       el.textContent = label;
       body.appendChild(el);
     };
     const button = (label: string, onClick: () => void): void => {
       const el = document.createElement('button');
-      el.style.cssText = BUTTON_STYLE;
+      el.className = BUTTON;
       el.textContent = label;
       el.addEventListener('click', onClick);
       body.appendChild(el);

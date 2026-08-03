@@ -490,18 +490,29 @@ driven by frame time and never touches the sim.
 
 ## 9. UI
 
-An HTML overlay above the canvas, updated each frame from a read-only sim snapshot. No framework.
+An HTML overlay above the canvas, updated each frame from a read-only sim snapshot. The DOM
+stays framework-free vanilla TS; **Tailwind (v4, `@tailwindcss/vite`) is the styling layer** —
+build-time CSS generation only, no runtime framework. Theme tokens live in `src/ui/hud.css`
+(`@theme`, ported from STYLEGUIDE.md); state changes swap whole literal class-string constants
+so Tailwind's scanner sees every class verbatim.
 
-- **HUD** — treasury (rendered from milli-gold), interest rate indicator, wave number and progress.
-- **Palette** — four towers plus wall, with costs, greyed out when unaffordable or when
-  `balance < 0` (the README's no-spending-while-negative rule).
+`index.html` carries a static **slot skeleton** — `#topbar`, `#rail`, `#inspector`, `#bottom`,
+`#overlay` — that components mount into once; desktop vs. mobile placement is pure CSS
+(responsive variants at one breakpoint: ≥768px wide and ≥480px tall is desktop).
+
+- **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar.
+- **Palette** — four towers plus wall and remove, with costs, greyed out when unaffordable or
+  when `balance < 0` (the README's no-spending-while-negative rule).
 - **Inspector** — selected tower: level, damage, rate, range, upgrade cost, sell/remove with the
-  removal-delay countdown.
-- **Input** — pointer → raycast against the ground plane → tile coordinate → **command**. The UI never
-  writes sim state.
+  removal-delay countdown. Right panel on desktop; bottom sheet on mobile.
+- **Input** — two thin drivers over one shared core (`InputCore`: ground-plane raycast → tile,
+  ghost verdict loop, selection, **command** emission). `PointerDriver` (hover + fine pointer):
+  hover ghost, one-click commit. `TouchDriver` (everything else): tap anchors a pending ghost,
+  ✓/✕ confirm/cancel, tap-select, and pinch-zoom/pan camera gestures that stay render-side.
+  The UI never writes sim state.
 
 Placement preview (ghost mesh, valid/invalid tint) runs the real validation function through a
-`dryRun` flag, so the preview and the commit can never disagree.
+`dryRun` flag, so the preview and the commit can never disagree — on both drivers.
 
 ---
 

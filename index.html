@@ -2,38 +2,84 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Maze Tower Defense — POC</title>
     <link rel="icon" href="data:," />
+    <!-- Aether-Industrial fonts (CDN accepted by decision; hud.css declares
+         system-font fallback stacks so the HUD stays legible without them). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@700;800&family=Inter:wght@400&family=JetBrains+Mono:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+      rel="stylesheet"
+    />
     <style>
+      /* Boot-only CSS: everything HUD-related lives in src/ui/hud.css. */
       html,
       body {
         margin: 0;
         height: 100%;
         overflow: hidden;
-        background: #12161c;
-        font-family: system-ui, sans-serif;
-        color: #e8eaed;
+        background: #091421;
       }
       #game {
         display: block;
         width: 100%;
         height: 100%;
-      }
-      /* HUD is a DOM overlay above the WebGL canvas — ARCHITECTURE.md §9 */
-      #hud {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-      }
-      #hud > * {
-        pointer-events: auto;
+        touch-action: none;
       }
     </style>
   </head>
   <body>
     <canvas id="game"></canvas>
-    <div id="hud"></div>
+    <!-- HUD slot skeleton — components mount into named slots; desktop/mobile
+         placement is pure CSS (ARCHITECTURE.md §9, aether-ui-redesign D2). -->
+    <div id="hud">
+      <header
+        id="topbar"
+        class="pointer-events-auto absolute inset-x-0 top-0 z-40 flex h-14 items-center justify-between gap-gutter border-b-2 border-outline bg-surface-dim px-3 shadow-[inset_0_-2px_4px_rgba(0,0,0,0.5)] desktop:h-20 desktop:px-margin-safe"
+      >
+        <div class="rivet rivet-tl mobile:hidden"></div>
+        <div class="rivet rivet-bl mobile:hidden"></div>
+        <div class="rivet rivet-tr mobile:hidden"></div>
+        <div class="rivet rivet-br mobile:hidden"></div>
+        <div id="topbar-left" class="relative flex min-w-0 items-center gap-2"></div>
+        <div id="topbar-center" class="relative flex min-w-0 flex-1 flex-col items-center justify-center"></div>
+        <div id="topbar-right" class="flex items-center gap-2"></div>
+      </header>
+      <aside
+        id="rail"
+        class="absolute z-30 mobile:inset-x-0 mobile:bottom-0 desktop:left-margin-safe desktop:top-28"
+      ></aside>
+      <aside
+        id="inspector"
+        class="absolute z-30 mobile:inset-x-0 mobile:bottom-0 desktop:right-margin-safe desktop:top-28 desktop:w-80"
+      ></aside>
+      <div
+        id="bottom"
+        class="absolute right-4 z-30 flex flex-col items-end gap-2 mobile:bottom-32 desktop:bottom-margin-safe desktop:right-margin-safe"
+      ></div>
+      <div id="overlay" class="absolute inset-0 z-50">
+        <!-- Rotate prompt: shown purely by CSS on portrait + coarse pointer
+             (touch-input spec); the sim keeps running underneath. -->
+        <div
+          id="rotate-prompt"
+          class="pointer-events-auto absolute inset-0 flex-col items-center justify-center gap-3 bg-surface-dim/95 text-center"
+        >
+          <span class="material-symbols-outlined text-6xl text-primary-fixed">screen_rotation</span>
+          <div class="font-headline text-[20px] font-bold uppercase tracking-widest text-primary">
+            Rotate your device
+          </div>
+          <div class="font-mono text-label-caps uppercase text-on-surface-variant">
+            This game is played in landscape
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

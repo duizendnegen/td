@@ -137,9 +137,37 @@ Three types for the POC, each designed to punish a missing tower:
 }
 ```
 
-## Visuals
+## Visual Design & HUD
 
-Tower Defense Kit bundle from Kenney's Assets. Iconographic placeholders when assets are missing.
+The world uses the Tower Defense Kit bundle from Kenney's Assets (iconographic placeholders
+when assets are missing). The HUD speaks the **Aether-Industrial** design language: a heavy
+control-console aesthetic of forged iron, brass, and slate — beveled panels, recessed readouts,
+riveted corners, and mechanical buttons that physically depress. [STYLEGUIDE.md](STYLEGUIDE.md)
+is the canonical token source (colors, type scale, spacing, material rules); `mockups/` holds
+the layout reference the shipped HUD follows.
+
+**Layout per form factor** (one breakpoint: viewport ≥ 768px wide *and* ≥ 480px tall is
+"desktop"; anything smaller — including landscape phones — is "mobile"):
+
+- **Desktop**: top app bar (concede + impossible-recovery notice left, wave counter/progress
+  center, treasury readout right), build palette as a left rail, tower inspector as a right
+  panel, START WAVE bottom-right. Debug spawn panel and the hotkey hint line are desktop-only.
+- **Mobile**: compact top bar (same counter and treasury), build palette as a bottom menu,
+  inspector as a bottom sheet that swaps with the build menu while a tower is selected,
+  START WAVE above the menu. Portrait shows a rotate prompt — the game is landscape-first.
+
+**Interaction models** split on capability, not user agent (`(hover: hover) and
+(pointer: fine)`):
+
+- **Pointer**: hover drives the placement ghost, one click commits, right-click/Esc cancels —
+  no confirm step.
+- **Touch**: tap anchors the ghost as a *pending placement*; drag or tap moves it; a floating
+  ✓/✕ pair commits or dismisses. Tap selects towers. One-finger drag pans (no tool) or adjusts
+  the ghost (build tool); two-finger gestures always drive the camera (pinch-zoom about the
+  gesture, pan, clamped to the board).
+
+Both models run the same authoritative validation and command path; ghosts and camera motion
+are render-side only and never touch simulation state.
 
 ## Build Order
 

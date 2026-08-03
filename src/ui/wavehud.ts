@@ -1,38 +1,68 @@
 // Wave counter, upcoming-wave preview, start-wave and concede controls
-// See ARCHITECTURE.md §9 and the phase-4 build-ui spec
+// See ARCHITECTURE.md §9 and the aether-ui-redesign build-ui spec
 //
 // Responsibilities:
-//   - Wave N/M counter, always visible during a run
+//   - Wave N/M counter in the top-bar centre, always visible during a run
 //   - Build phase: the next wave's composition (type × count per spawn), with
 //     a clear signal when that wave activates a new spawn
-//   - Start-wave control: enabled build-phase-solvent only; the debt state
-//     names the balance and points at selling; hidden during active waves
-//   - Concede control with the impossible-recovery notice, driven by the
-//     liquidation-total query (design D8) — reads state, emits commands only
+//   - Start-wave control: large emerald bevel button, bottom-right; enabled
+//     build-phase-solvent only; the debt state names the balance and points
+//     at selling; hidden during active waves
+//   - Concede: quiet bronze top-bar control, with the impossible-recovery
+//     notice as an error-container card beneath it (liquidation query, D8)
+//   - Reads state, emits commands only
 
 import type { GameData } from '../data/schema';
 import type { CommandQueue } from '../sim/commands';
 import { liquidationTotalMg } from '../sim/economy';
 import { GOLD } from '../sim/fixed';
 import type { SimState } from '../sim/types';
+import { waveProgress } from './waveprogress';
 
-const PANEL_STYLE =
-  'position:absolute;top:10px;left:50%;transform:translateX(-50%);min-width:230px;' +
-  'padding:10px 14px;background:#141a26cc;border:1px solid #3a4354;border-radius:10px;' +
-  'color:#e8eaed;font:13px/1.5 system-ui;user-select:none;text-align:center';
+/** Segment count of the wave progress bar (design D6; density open question). */
+const SEGMENTS = 10;
 
-const START_STYLE =
-  'margin-top:8px;padding:8px 18px;border-radius:8px;border:1px solid #3a7a54;' +
-  'background:#1d3a2a;color:#c9f0d6;font:700 14px system-ui;cursor:pointer';
+const COUNTER =
+  'whitespace-nowrap font-headline text-[14px] font-bold uppercase tracking-wider text-primary desktop:text-[17px]';
 
-const CONCEDE_STYLE =
-  'position:absolute;top:10px;left:12px;padding:6px 12px;border-radius:8px;' +
-  'border:1px solid #5a3a3a;background:#2a1d1d;color:#f0c9c9;' +
-  'font:600 12px system-ui;cursor:pointer;user-select:none';
+const PREVIEW =
+  'bevel-panel absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg ' +
+  'border border-outline/40 bg-surface-container-high/95 px-4 py-2 text-center font-mono ' +
+  'text-label-caps uppercase text-on-surface-variant';
+
+const START_READY =
+  'btn-mech bevel-panel pointer-events-auto flex flex-col items-center gap-1 rounded-xl border-2 ' +
+  'border-tertiary-container bg-surface-container-high px-6 py-3 text-tertiary-container ' +
+  'shadow-[0_0_20px_rgba(101,242,181,0.15)]';
+const START_BLOCKED =
+  'btn-mech bevel-panel pointer-events-auto flex cursor-not-allowed flex-col items-center gap-1 rounded-xl ' +
+  'border-2 border-tertiary-container/40 bg-surface-container-high px-6 py-3 text-tertiary-container opacity-40';
+
+const BAR =
+  'recessed-slot mt-1 flex h-2.5 w-44 gap-px rounded-sm border border-surface-bright/60 ' +
+  'bg-surface-container-lowest p-px desktop:w-64';
+const SEG_EMPTY = 'flex-1 rounded-[1px]';
+const SEG_FILLED = 'flex-1 rounded-[1px] bg-tertiary-container shadow-[inset_0_1px_1px_rgba(255,255,255,0.35)]';
+
+const CONCEDE =
+  'btn-mech pointer-events-auto whitespace-nowrap rounded border border-outline bg-surface-container ' +
+  'px-3 py-1 font-mono text-label-caps uppercase text-secondary-fixed-dim hover:bg-surface-container-high';
+
+const NOTE_CARD =
+  'pointer-events-none rounded border border-error/50 bg-error-container/95 px-3 py-2 text-left ' +
+  'font-body text-[12px] leading-snug text-on-error-container';
+
+export interface WaveHudSlots {
+  topbarLeft: HTMLElement;
+  topbarCenter: HTMLElement;
+  bottom: HTMLElement;
+}
 
 export class WaveHud {
-  private readonly panel: HTMLDivElement;
   private readonly counter: HTMLDivElement;
+  private readonly bar: HTMLDivElement;
+  private readonly segments: HTMLDivElement[] = [];
+  private lastFilled = -1;
   private readonly preview: HTMLDivElement;
   private readonly startButton: HTMLButtonElement;
   private readonly debtNote: HTMLDivElement;
@@ -41,36 +71,45 @@ export class WaveHud {
   private readonly data: GameData;
   private lastKey = '';
 
-  constructor(hud: HTMLElement, data: GameData, commands: CommandQueue) {
+  constructor(slots: WaveHudSlots, data: GameData, commands: CommandQueue) {
     this.data = data;
-    this.panel = document.createElement('div');
-    this.panel.style.cssText = PANEL_STYLE;
-    hud.appendChild(this.panel);
 
     this.counter = document.createElement('div');
-    this.counter.style.cssText = 'font-weight:700;font-size:15px';
+    this.counter.className = COUNTER;
+    this.bar = document.createElement('div');
+    this.bar.className = BAR;
+    this.bar.style.display = 'none';
+    for (let i = 0; i < SEGMENTS; i++) {
+      const seg = document.createElement('div');
+      seg.className = SEG_EMPTY;
+      this.segments.push(seg);
+      this.bar.appendChild(seg);
+    }
     this.preview = document.createElement('div');
-    this.preview.style.cssText = 'margin-top:4px;opacity:.85';
-    this.debtNote = document.createElement('div');
-    this.debtNote.style.cssText = 'margin-top:6px;color:#ffa02e';
+    this.preview.className = PREVIEW;
+    this.preview.style.display = 'none';
+    slots.topbarCenter.append(this.counter, this.bar, this.preview);
+
     this.startButton = document.createElement('button');
-    this.startButton.style.cssText = START_STYLE;
-    this.startButton.textContent = 'Start wave';
+    this.startButton.className = START_READY;
+    this.startButton.innerHTML =
+      '<span class="material-symbols-outlined text-3xl">swords</span>' +
+      '<span class="font-headline text-[16px] font-bold uppercase tracking-widest desktop:text-headline-sm">Start wave</span>';
     this.startButton.addEventListener('click', () => commands.issue({ kind: 'startWave' }));
-    this.panel.append(this.counter, this.preview, this.debtNote, this.startButton);
+    this.debtNote = document.createElement('div');
+    this.debtNote.className = NOTE_CARD + ' max-w-[260px]';
+    this.debtNote.style.display = 'none';
+    slots.bottom.append(this.debtNote, this.startButton);
 
     this.concedeButton = document.createElement('button');
-    this.concedeButton.style.cssText = CONCEDE_STYLE;
+    this.concedeButton.className = CONCEDE;
     this.concedeButton.textContent = 'Concede';
     this.concedeButton.addEventListener('click', () => commands.issue({ kind: 'concede' }));
-    hud.appendChild(this.concedeButton);
     this.deadNote = document.createElement('div');
-    this.deadNote.style.cssText =
-      'position:absolute;top:44px;left:12px;max-width:180px;padding:6px 10px;' +
-      'background:#2a1d1dcc;border-radius:6px;color:#ff8a7e;font:600 11px/1.4 system-ui;' +
-      'user-select:none;display:none';
+    this.deadNote.className = NOTE_CARD + ' absolute left-0 top-full mt-3 w-56';
     this.deadNote.textContent = 'Recovery impossible: selling everything cannot clear the debt.';
-    hud.appendChild(this.deadNote);
+    this.deadNote.style.display = 'none';
+    slots.topbarLeft.append(this.concedeButton, this.deadNote);
   }
 
   /** The next wave's composition, one line per group: "6× swarm — west". */
@@ -81,7 +120,7 @@ export class WaveHud {
     // Wave-1 spawns were never dormant — only a genuinely new front warns.
     const opening = this.data.level.spawns
       .filter((s) => s.activeFromWave === waveIndex + 1 && s.activeFromWave > 1)
-      .map((s) => `⚠ new front opens: ${s.id}`);
+      .map((s) => `<span class="text-error">⚠ new front opens: ${s.id}</span>`);
     return [...opening, ...lines].join('<br>');
   }
 
@@ -94,19 +133,42 @@ export class WaveHud {
     const liquidation = liquidationTotalMg(state.structures, this.data.refundPer1000);
     const dead = !runOver && !solvent && state.treasuryMg + liquidation < 0;
 
+    // Progress bar: per-frame, outside the change-key guard — it fills as the
+    // active wave drains (build-ui spec), hidden outside active waves.
+    const inWave = state.runPhase === 'wave';
+    const barVisible = this.bar.style.display !== 'none';
+    if (inWave) {
+      const counts = this.data.level.waves[state.waveIndex - 1]?.groups.map((g) => g.count) ?? [];
+      const fraction = waveProgress(counts, state.groupCursors, state.enemies.length);
+      const filled = Math.round(fraction * SEGMENTS);
+      if (filled !== this.lastFilled) {
+        this.lastFilled = filled;
+        this.segments.forEach((seg, i) => (seg.className = i < filled ? SEG_FILLED : SEG_EMPTY));
+      }
+      if (!barVisible) this.bar.style.display = 'flex';
+    } else if (barVisible) {
+      this.bar.style.display = 'none';
+      this.lastFilled = -1;
+    }
+
     const key = [state.runPhase, state.waveIndex, solvent, wavesLeft, dead, state.treasuryMg < 0 ? state.treasuryMg : 0].join(':');
     if (key === this.lastKey) return;
     this.lastKey = key;
 
-    this.panel.style.display = runOver ? 'none' : 'block';
+    this.counter.style.display = runOver ? 'none' : 'block';
     this.concedeButton.style.display = runOver ? 'none' : 'block';
     this.deadNote.style.display = dead ? 'block' : 'none';
-    if (runOver) return;
+    if (runOver) {
+      this.preview.style.display = 'none';
+      this.startButton.style.display = 'none';
+      this.debtNote.style.display = 'none';
+      return;
+    }
 
     if (state.runPhase === 'wave') {
       this.counter.textContent = `Wave ${state.waveIndex}/${totalWaves}`;
-      this.preview.innerHTML = '';
-      this.debtNote.textContent = '';
+      this.preview.style.display = 'none';
+      this.debtNote.style.display = 'none';
       this.startButton.style.display = 'none';
       return;
     }
@@ -115,13 +177,16 @@ export class WaveHud {
     this.counter.textContent = wavesLeft
       ? `Next: wave ${state.waveIndex + 1}/${totalWaves}`
       : `All ${totalWaves} waves cleared`;
-    this.preview.innerHTML = wavesLeft ? this.previewLines(state.waveIndex) : '';
-    this.startButton.style.display = inBuild && wavesLeft ? 'inline-block' : 'none';
+    const previewHtml = wavesLeft ? this.previewLines(state.waveIndex) : '';
+    this.preview.innerHTML = previewHtml;
+    this.preview.style.display = previewHtml ? 'block' : 'none';
+    this.startButton.style.display = inBuild && wavesLeft ? 'flex' : 'none';
     this.startButton.disabled = !solvent;
-    this.startButton.style.opacity = solvent ? '1' : '0.4';
-    this.startButton.style.cursor = solvent ? 'pointer' : 'not-allowed';
-    this.debtNote.textContent = solvent
+    this.startButton.className = solvent ? START_READY : START_BLOCKED;
+    const debtText = solvent
       ? ''
       : `In debt ${Math.ceil(-state.treasuryMg / GOLD)}g — sell structures to recover before the next wave.`;
+    this.debtNote.textContent = debtText;
+    this.debtNote.style.display = debtText ? 'block' : 'none';
   }
 }

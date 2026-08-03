@@ -1,9 +1,11 @@
 /// <reference types="vitest/config" />
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
 // base must match the GitHub Pages project path — see ARCHITECTURE.md §13.
 export default defineConfig({
   base: '/td/',
+  plugins: [tailwindcss()],
   build: {
     target: 'es2022',
     outDir: 'dist',

@@ -1,6 +1,7 @@
 // Boot: load data, build sim, start the loop
 // See ARCHITECTURE.md §3
 
+import './ui/hud.css';
 import { startGame } from './app/game';
 
 const canvas = document.getElementById('game');

@@ -1,11 +1,15 @@
 // The isometric camera
-// See ARCHITECTURE.md §8 and design D-P1-7
+// See ARCHITECTURE.md §8, design D-P1-7, and the aether-ui-redesign
+// isometric-camera spec (design D5)
 //
 // Responsibilities:
 //   - One fixed OrthographicCamera: 45° yaw, 30° pitch (2:1 dimetric),
-//     whole board framed, re-fit on resize
+//     whole board framed at the default zoom, re-fit on resize
 //   - Orthographic so a 1-tile gap measures identically anywhere on screen;
 //     the low pitch is what lets height read by silhouette
+//   - Touch devices may pinch-zoom (1× fit … MAX_ZOOM) and pan; both are
+//     clamped to the fit extents and never leave the render side. Desktop
+//     never changes zoom, so its framing stays bit-identical to the fit.
 
 import * as THREE from 'three';
 
@@ -17,10 +21,20 @@ const DIST = 60;
 const MARGIN = 1.2;
 /** Tallest thing the frustum must keep on screen (Phase-3 towers reach ~4.4). */
 const FIT_HEIGHT = 5;
+/** Deepest pinch-zoom; tuned for reliable single-tile taps on phones. */
+export const MAX_ZOOM = 4;
 
 export class IsometricCamera {
   readonly camera: THREE.OrthographicCamera;
   private readonly board: { width: number; height: number };
+  /** 1 = whole board framed (the only value desktop ever sees). */
+  private zoomLevel = 1;
+  /** View-centre offset in camera space, clamped inside the fit extents. */
+  private panX = 0;
+  private panY = 0;
+  /** Fit extents at zoom 1, refreshed by frame(). */
+  private baseHalfW = 1;
+  private baseHalfH = 1;
 
   constructor(aspect: number, board: { width: number; height: number }) {
     this.board = board;
@@ -35,9 +49,15 @@ export class IsometricCamera {
     this.frame(aspect);
   }
 
+  get zoom(): number {
+    return this.zoomLevel;
+  }
+
   /**
    * Re-fit the frustum to the viewport: project the board's bounding box into
-   * camera space and take the tightest box that holds it at this aspect.
+   * camera space and take the tightest box that holds it at this aspect —
+   * then divide by the zoom level and shift by the (re-clamped) pan, so a
+   * resize while zoomed preserves the view centre.
    */
   frame(aspect: number): void {
     // matrixWorldInverse is only refreshed during render; derive it here.
@@ -58,10 +78,50 @@ export class IsometricCamera {
     let halfH = maxY + MARGIN;
     if (halfW / halfH > aspect) halfH = halfW / aspect;
     else halfW = halfH * aspect;
-    this.camera.left = -halfW;
-    this.camera.right = halfW;
-    this.camera.top = halfH;
-    this.camera.bottom = -halfH;
+    this.baseHalfW = halfW;
+    this.baseHalfH = halfH;
+    this.apply();
+  }
+
+  /**
+   * Pinch step: multiply the zoom by `scale`, keeping the world point at the
+   * given NDC position (gesture midpoint) fixed on screen. Render-side only.
+   */
+  pinch(scale: number, ndcX: number, ndcY: number): void {
+    const before = this.viewHalves();
+    this.zoomLevel = Math.min(MAX_ZOOM, Math.max(1, this.zoomLevel * scale));
+    const after = this.viewHalves();
+    // The point at NDC (nx, ny) sits at camera-space (pan + n × half); keep
+    // it stationary while the half-extents shrink or grow.
+    this.panX += ndcX * (before.halfW - after.halfW);
+    this.panY += ndcY * (before.halfH - after.halfH);
+    this.apply();
+  }
+
+  /** Pan by a screen-pixel delta (drag): the world follows the finger. */
+  panByPixels(dxPx: number, dyPx: number, viewportWidthPx: number, viewportHeightPx: number): void {
+    if (viewportWidthPx <= 0 || viewportHeightPx <= 0) return;
+    const { halfW, halfH } = this.viewHalves();
+    this.panX -= (dxPx / viewportWidthPx) * 2 * halfW;
+    this.panY += (dyPx / viewportHeightPx) * 2 * halfH;
+    this.apply();
+  }
+
+  private viewHalves(): { halfW: number; halfH: number } {
+    return { halfW: this.baseHalfW / this.zoomLevel, halfH: this.baseHalfH / this.zoomLevel };
+  }
+
+  /** Clamp the pan into the fit extents and write the projection. */
+  private apply(): void {
+    const { halfW, halfH } = this.viewHalves();
+    const maxPanX = this.baseHalfW - halfW;
+    const maxPanY = this.baseHalfH - halfH;
+    this.panX = Math.min(maxPanX, Math.max(-maxPanX, this.panX));
+    this.panY = Math.min(maxPanY, Math.max(-maxPanY, this.panY));
+    this.camera.left = -halfW + this.panX;
+    this.camera.right = halfW + this.panX;
+    this.camera.top = halfH + this.panY;
+    this.camera.bottom = -halfH + this.panY;
     this.camera.updateProjectionMatrix();
   }
 }

@@ -22,7 +22,9 @@ import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
 import { StructureRenderer } from '../render/towers';
 import { TreasuryHud } from '../ui/hud';
-import { buildHintLine, InputController } from '../ui/input';
+import { buildHintLine, PointerDriver } from '../ui/input';
+import { InputCore } from '../ui/inputcore';
+import { TouchDriver } from '../ui/touch';
 import { InspectorUI } from '../ui/inspector';
 import { PaletteUI } from '../ui/palette';
 import { RunScreens } from '../ui/screens';
@@ -115,10 +117,16 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   renderer.onResize((aspect) => camera.frame(aspect));
 
   // UI: reads sim state, emits commands — never mutates state directly.
+  // Components mount into the index.html slot skeleton (design D2).
   const hud = document.getElementById('hud');
   if (!hud) throw new Error('missing #hud element');
-  const treasuryHud = new TreasuryHud(hud);
-  const palette = new PaletteUI(hud, {
+  const slot = (id: string): HTMLElement => {
+    const el = document.getElementById(id);
+    if (!el) throw new Error(`missing #${id} slot`);
+    return el;
+  };
+  const treasuryHud = new TreasuryHud(slot('topbar-right'));
+  const palette = new PaletteUI(slot('rail'), {
     wallMg: data.wallCostMg,
     towerMg: {
       rapid: data.towers[0]!.levels[0]!.costMg,
@@ -127,11 +135,21 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
       slow: data.towers[3]!.levels[0]!.costMg,
     },
   });
-  const inspector = new InspectorUI(hud, data, commands);
-  const input = new InputController(canvas, camera.camera, sim, commands, palette, inspector, ghost, fx);
+  const inspector = new InspectorUI(slot('inspector'), data, commands);
+  const inputCore = new InputCore(canvas, camera.camera, sim, commands, palette, inspector, ghost, fx);
+  // Interaction model splits on capability, not user agent (design D3): hover
+  // + fine pointer → the one-click pointer model; anything else → touch.
+  const pointerCapable = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const input = pointerCapable
+    ? new PointerDriver(canvas, inputCore)
+    : new TouchDriver(canvas, inputCore, camera, hud);
   new SpawnPanelUI(hud, data, sim, commands, scheduler);
-  const waveHud = new WaveHud(hud, data, commands);
-  const screens = new RunScreens(hud);
+  const waveHud = new WaveHud(
+    { topbarLeft: slot('topbar-left'), topbarCenter: slot('topbar-center'), bottom: slot('bottom') },
+    data,
+    commands,
+  );
+  const screens = new RunScreens(slot('overlay'));
   buildHintLine(hud);
 
   // App-side instrumentation for the F4 readout; the sim never reads the clock.

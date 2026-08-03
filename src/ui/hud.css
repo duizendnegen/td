@@ -1,0 +1,240 @@
+/* Aether-Industrial HUD styling
+   See ARCHITECTURE.md §9 — the HUD stays framework-free DOM; Tailwind is a
+   build-time styling layer only. Tokens are ported from STYLEGUIDE.md
+   frontmatter (the canonical source); material classes implement its
+   Elevation & Depth / Components rules. */
+
+@import 'tailwindcss';
+
+@theme {
+  /* ── Colors (STYLEGUIDE.md frontmatter) ─────────────────────────────── */
+  --color-surface: #091421;
+  --color-surface-dim: #091421;
+  --color-surface-bright: #303a48;
+  --color-surface-container-lowest: #050f1c;
+  --color-surface-container-low: #121c2a;
+  --color-surface-container: #16202e;
+  --color-surface-container-high: #212b39;
+  --color-surface-container-highest: #2b3544;
+  --color-on-surface: #d9e3f6;
+  --color-on-surface-variant: #d0c6ab;
+  --color-inverse-surface: #d9e3f6;
+  --color-inverse-on-surface: #27313f;
+  --color-outline: #999077;
+  --color-outline-variant: #4d4732;
+  --color-surface-tint: #e9c400;
+  --color-primary: #fff6df;
+  --color-on-primary: #3a3000;
+  --color-primary-container: #ffd700;
+  --color-on-primary-container: #705e00;
+  --color-inverse-primary: #705d00;
+  --color-secondary: #ffb779;
+  --color-on-secondary: #4c2700;
+  --color-secondary-container: #955200;
+  --color-on-secondary-container: #ffd9bc;
+  --color-tertiary: #d8ffe7;
+  --color-on-tertiary: #003824;
+  --color-tertiary-container: #65f2b5;
+  --color-on-tertiary-container: #006d4a;
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+  --color-primary-fixed: #ffe16d;
+  --color-primary-fixed-dim: #e9c400;
+  --color-on-primary-fixed: #221b00;
+  --color-on-primary-fixed-variant: #544600;
+  --color-secondary-fixed: #ffdcc1;
+  --color-secondary-fixed-dim: #ffb779;
+  --color-on-secondary-fixed: #2e1500;
+  --color-on-secondary-fixed-variant: #6c3a00;
+  --color-tertiary-fixed: #6ffbbe;
+  --color-tertiary-fixed-dim: #4edea3;
+  --color-on-tertiary-fixed: #002113;
+  --color-on-tertiary-fixed-variant: #005236;
+  --color-background: #091421;
+  --color-on-background: #d9e3f6;
+  --color-surface-variant: #2b3544;
+
+  /* ── Fonts (system-font fallback stacks; CDN faces load in index.html) ── */
+  --font-headline: 'Public Sans', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  /* ── Type scale ─────────────────────────────────────────────────────── */
+  --text-headline-xl: 48px;
+  --text-headline-xl--line-height: 56px;
+  --text-headline-xl--letter-spacing: 0.1em;
+  --text-headline-xl--font-weight: 800;
+  --text-headline-lg: 32px;
+  --text-headline-lg--line-height: 40px;
+  --text-headline-lg--letter-spacing: 0.05em;
+  --text-headline-lg--font-weight: 700;
+  --text-headline-sm: 20px;
+  --text-headline-sm--line-height: 28px;
+  --text-headline-sm--letter-spacing: 0.05em;
+  --text-headline-sm--font-weight: 700;
+  --text-body-md: 16px;
+  --text-body-md--line-height: 24px;
+  --text-body-md--font-weight: 400;
+  --text-number-treasury: 24px;
+  --text-number-treasury--line-height: 32px;
+  --text-number-treasury--letter-spacing: 0px;
+  --text-number-treasury--font-weight: 700;
+  --text-label-caps: 12px;
+  --text-label-caps--line-height: 16px;
+  --text-label-caps--letter-spacing: 0.15em;
+  --text-label-caps--font-weight: 500;
+  --text-label-xs: 10px;
+  --text-label-xs--line-height: 12px;
+  --text-label-xs--letter-spacing: 0.1em;
+  --text-label-xs--font-weight: 500;
+
+  /* ── Spacing ────────────────────────────────────────────────────────── */
+  --spacing-unit: 4px;
+  --spacing-gutter: 16px;
+  --spacing-margin-safe: 32px;
+  --spacing-panel-padding: 24px;
+}
+
+/* Form-factor variants. The mobile layout must also serve short landscape
+   phones (wider than 768px but only ~400px tall), so the split is width AND
+   height, not width alone — resolves the design's open breakpoint question. */
+@custom-variant desktop {
+  @media (min-width: 48rem) and (min-height: 30rem) {
+    @slot;
+  }
+}
+@custom-variant mobile {
+  @media not ((min-width: 48rem) and (min-height: 30rem)) {
+    @slot;
+  }
+}
+
+@layer base {
+  /* The HUD overlay itself never eats pointer events; interactive surfaces
+     opt back in with `pointer-events-auto`. */
+  #hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    user-select: none;
+    font-family: var(--font-body);
+    color: var(--color-on-surface);
+  }
+
+}
+
+/* Rotate prompt: landscape-first on touch devices (touch-input spec). Pure
+   CSS — rotating in and out needs no JS and loses no state. Unlayered so the
+   display flip out-cascades layered utilities. */
+#rotate-prompt {
+  display: none;
+}
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate-prompt {
+    display: flex;
+  }
+}
+
+/* Below the breakpoint the inspector is a bottom sheet that swaps with the
+   build menu (build-ui spec): while a sheet is open the rail hides, and so
+   does the bottom action zone the sheet would otherwise collide with.
+   Unlayered on purpose — it must out-cascade layered display utilities. */
+@media not ((min-width: 48rem) and (min-height: 30rem)) {
+  #hud[data-sheet-open] #rail,
+  #hud[data-sheet-open] #bottom {
+    display: none;
+  }
+}
+
+@layer components {
+  /* Stamped-metal panel: inset highlight top/left, inset shadow bottom/right
+     (STYLEGUIDE.md Elevation & Depth). */
+  .bevel-panel {
+    box-shadow:
+      inset 1px 1px 0 rgb(255 255 255 / 0.1),
+      inset -1px -1px 0 rgb(0 0 0 / 0.5);
+  }
+
+  /* Recessed slot for readouts (the Treasury panel rule). */
+  .recessed-slot {
+    box-shadow: inset 0 4px 6px rgb(0 0 0 / 0.6);
+  }
+
+  /* Corner rivet; place inside a relatively-positioned panel. */
+  .rivet {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background-color: var(--color-surface-bright);
+    border-radius: 50%;
+    box-shadow:
+      inset -1px -1px 2px rgb(0 0 0 / 0.8),
+      inset 1px 1px 2px rgb(255 255 255 / 0.2);
+    border: 1px solid var(--color-surface-dim);
+    pointer-events: none;
+  }
+  .rivet-tl {
+    top: 6px;
+    left: 6px;
+  }
+  .rivet-tr {
+    top: 6px;
+    right: 6px;
+  }
+  .rivet-bl {
+    bottom: 6px;
+    left: 6px;
+  }
+  .rivet-br {
+    bottom: 6px;
+    right: 6px;
+  }
+
+  /* Diagonal caution stripes for blocked / destructive surfaces. */
+  .hazard-stripe {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 10px,
+      rgb(255 180 171 / 0.12) 10px,
+      rgb(255 180 171 / 0.12) 20px
+    );
+  }
+
+  /* Debt-warning state: pulsing crimson border (STYLEGUIDE.md Components). */
+  .debt-pulse {
+    animation: debt-pulse 1.6s ease-in-out infinite;
+  }
+
+  /* Mechanical button press: hover sinks 1px, active inverts the bevel and
+     sinks 2px (STYLEGUIDE.md Active State). */
+  .btn-mech {
+    transition:
+      transform 80ms ease-out,
+      box-shadow 80ms ease-out;
+  }
+  .btn-mech:not(:disabled) {
+    cursor: pointer;
+  }
+  .btn-mech:not(:disabled):hover {
+    transform: translateY(1px);
+  }
+  .btn-mech:not(:disabled):active {
+    transform: translateY(2px);
+    box-shadow:
+      inset 1px 1px 0 rgb(0 0 0 / 0.5),
+      inset -1px -1px 0 rgb(255 255 255 / 0.08);
+  }
+}
+
+@keyframes debt-pulse {
+  0%,
+  100% {
+    border-color: var(--color-error);
+  }
+  50% {
+    border-color: rgb(255 180 171 / 0.35);
+  }
+}
