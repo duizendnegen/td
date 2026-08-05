@@ -3,8 +3,8 @@
 ## Purpose
 
 Player-built walls and towers as the maze's raw material: validated placement that can never seal
-or strand, atomic rejection, and delayed removal — the mechanics that make mazing expressive while
-keeping every path guarantee intact.
+or strand, atomic rejection, and immediate between-waves removal — the mechanics that make mazing
+expressive while keeping every path guarantee intact.
 
 ## Requirements
 
@@ -69,29 +69,73 @@ without the attempt.
 - **THEN** the post-tick state hash is identical to the hash the same tick produces when the
   command is never issued
 
-### Requirement: Removal is delayed, keeps the tile blocked, and refunds half
+### Requirement: Removal is immediate and refunds half the total invested
 
-A removal command SHALL start an 80-tick (4.0 s) countdown on the structure. Throughout the
-countdown the footprint SHALL remain blocked and behave as any other structure. When the
-countdown expires the structure SHALL be removed, its tiles unblocked, the fields rebuilt, and
-50% of the structure's total invested cost — base cost plus all upgrade costs paid (removal
-refund fraction defined in balance data) — credited to the treasury.
+A removal command SHALL take full effect in the tick it applies: the structure is dropped, its
+footprint tiles are unblocked, the flow fields reflect the new mask that same tick, and 50% of the
+structure's total invested cost — base cost plus all upgrade costs paid (removal refund fraction
+defined in balance data) — is credited to the treasury. There SHALL be no removal countdown and no
+intermediate state in which a structure is marked for removal but still standing.
 
-#### Scenario: Tile stays blocked during the countdown
+Removal SHALL NOT be subject to path or enemy validation. Unblocking a tile can only lower path
+costs, so no removal can seal a spawn or strand an enemy, and no structure's own tile can hold an
+enemy.
 
-- **WHEN** a wall's removal countdown is running
-- **THEN** enemies continue to path around the wall's tile until the countdown expires
+A structure standing on a socket tile SHALL refund on removal without unblocking its tile — the
+tile is terrain-blocked, not structure-blocked — and without changing the flow fields.
 
-#### Scenario: Refund arrives on completion
+#### Scenario: Unblock and refund land in the command's tick
 
-- **WHEN** the removal countdown of a 100-cost structure expires
-- **THEN** the structure's tiles become walkable and the treasury is credited 50 milli-gold-scaled
-  cost units in that tick, not before
+- **WHEN** a removal command for a 100-cost wall applies at a tick boundary
+- **THEN** in that same tick the wall is gone, its tile is walkable, both flow fields reflect the
+  new mask, and the treasury is credited 50 milli-gold-scaled cost units
 
 #### Scenario: Upgrades are part of the refund base
 
-- **WHEN** a tower that cost 50 and received a 90-cost upgrade completes removal
+- **WHEN** a tower that cost 50 and received a 90-cost upgrade is removed
 - **THEN** the treasury is credited 50% of 140, not 50% of 50
+
+#### Scenario: Socket removal refunds without unblocking the tile
+
+- **WHEN** a tower on a socket tile is removed
+- **THEN** the refund is credited, the structure is gone, the socket tile remains blocked, no flow
+  field rebuild occurs, and the socket accepts a new tower
+
+#### Scenario: A removal opens the route for live enemies
+
+- **WHEN** a wall is removed while live enemies are steering around it between waves
+- **THEN** the tile is walkable and back in both flow fields in that same tick, and each enemy
+  routes through it from its next waypoint re-evaluation onward — its current one-tile commitment
+  still stands, because unblocking a tile can never invalidate a committed waypoint
+
+### Requirement: Removal is refused while a wave is running
+
+A removal command SHALL be rejected while a wave is running, so a player cannot open and close the
+maze during a wave. A rejected removal SHALL leave simulation state unchanged: no refund, no
+blocked-mask change, no flow-field change, and an unchanged state hash relative to the same tick
+without the attempt.
+
+Removal SHALL remain available in every other live phase — the build phase between waves and the
+locked state after the final wave — so liquidation is always the way back to solvency.
+
+Placement SHALL NOT be gated by wave phase: building mid-wave remains legitimate.
+
+#### Scenario: Mid-wave removal is rejected
+
+- **WHEN** a removal command targeting a standing structure applies while a wave is running
+- **THEN** the structure still stands, the treasury is unchanged, and the post-tick state hash
+  equals the hash the same tick produces without the attempt
+
+#### Scenario: Removal works between waves
+
+- **WHEN** the same removal command applies during the build phase
+- **THEN** the structure is removed and refunded in that tick
+
+#### Scenario: Building mid-wave is still allowed
+
+- **WHEN** a valid placement command applies while a wave is running
+- **THEN** the placement is confirmed and charged as usual
+
 ### Requirement: Terrain kinds govern buildability
 
 Placement SHALL respect the level's terrain palette: dirt tiles accept walls and towers, socket

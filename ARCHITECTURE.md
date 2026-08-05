@@ -116,7 +116,7 @@ src/
 │  ├─ types.ts             entity and state types
 │  ├─ grid.ts              tile storage, blocked mask, footprints
 │  ├─ flowfield.ts         dual Dijkstra fields + corner rule
-│  ├─ placement.ts         validation, removal timers
+│  ├─ placement.ts         validation, removal + its phase gate
 │  ├─ enemy.ts             steering, state machine, theft
 │  ├─ tower.ts             targeting, firing, upgrades
 │  ├─ economy.ts           treasury, interest, bounties, settlement
@@ -163,8 +163,10 @@ Bit-identical simulation across machines and runs. Six rules, all enforceable:
    `sin`, `cos`, `pow`, `atan2`, `hypot` are **not** required to be exact and are banned — use lookup
    tables or squared comparisons instead.
 4. **Iteration order is stable.** Entities live in insertion-ordered flat arrays. Never iterate
-   `Object.keys` or a `Set` where order affects state. Removal uses tombstone-and-compact, not
-   swap-remove, so ordering is deterministic.
+   `Object.keys` or a `Set` where order affects state. Deletion is always order-preserving and
+   never swap-remove: enemies are tombstoned (`alive = false`) and compacted once at step 10, so
+   the array shape holds still across the steps that can kill; structures, only ever removed in
+   step 2 with nothing else iterating them, are filtered out directly.
 5. **Commands are the only input.** The sim never reads the pointer, the clock, or the DOM. Every
    player action becomes a `Command` stamped with the tick it applies on.
 6. **Division truncates explicitly.** `Math.floor` for money accrual (well-defined for the negative
@@ -223,9 +225,9 @@ empties, with no interest on the settlement tick. There is no bankruptcy thresho
 overdraw the balance arbitrarily far below zero, and the only consequences are the spending block
 below 0 and the solvency gate on starting the next wave.
 
-**HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `removalCompleteTick`,
-`nextFireTick`) are absolute tick numbers, never countdowns, so they need no per-tick decrement and
-survive serialisation trivially.
+**HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `nextFireTick`) are
+absolute tick numbers, never countdowns, so they need no per-tick decrement and survive
+serialisation trivially.
 
 Speeds are units-per-tick. A 3 tiles/sec enemy at 20 Hz is `3 * 1024 / 20 = 153.6` → **154**
 units/tick; the rounding is chosen once, in the balance file, in integer units.
@@ -296,7 +298,7 @@ Fixed and documented, because order is part of the determinism contract:
 
 1. Snapshot `prevPos` for every entity
 2. Apply commands (sorted by type, then by issue sequence)
-3. Advance removal timers; rebuild flow fields if the blocked mask changed
+3. Rebuild flow fields if step 2's commands changed the blocked mask; sweep stale commitments
 4. Wave scheduler — the active wave's group cursors spawn due enemies
 5. Enemy movement and waypoint re-evaluation
 6. Enemy arrival: theft at treasury (full-capacity overdraw), escape at spawn, gold pickup
@@ -358,8 +360,11 @@ Before any build is confirmed:
 The previous field is kept in a spare buffer and swapped, so a rejected placement costs one rebuild
 and no allocation.
 
-**Removal delay: 4.0 s = 80 ticks.** The tile stays **blocked** for the whole delay — otherwise the
-delay is free and the anti-juggling rule does nothing.
+**Removal is immediate, and refused during a wave.** Selling is a between-waves action: the phase
+gate (`canRemove`, shared by the sim and every UI remove control) is the whole anti-juggling rule,
+so no delay is needed and none exists — unblock, refund and drop all land in the tick the command
+applies. Removal needs no validation either: unblocking a tile is monotone on the flow fields, so it
+can never seal a spawn or strand an enemy.
 
 ### Attack resolution
 
@@ -502,9 +507,10 @@ so Tailwind's scanner sees every class verbatim.
 
 - **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar.
 - **Palette** — four towers plus wall and remove, with costs, greyed out when unaffordable or
-  when `balance < 0` (the README's no-spending-while-negative rule).
-- **Inspector** — selected tower: level, damage, rate, range, upgrade cost, sell/remove with the
-  removal-delay countdown. Right panel on desktop; bottom sheet on mobile.
+  when `balance < 0` (the README's no-spending-while-negative rule). The remove tool ignores the
+  balance and greys out while a wave runs instead.
+- **Inspector** — selected tower: level, damage, rate, range, upgrade cost, and sell/remove showing
+  the refund it returns, locked while a wave runs. Right panel on desktop; bottom sheet on mobile.
 - **Input** — two thin drivers over one shared core (`InputCore`: ground-plane raycast → tile,
   ghost verdict loop, selection, **command** emission). `PointerDriver` (hover + fine pointer):
   hover ghost, one-click commit. `TouchDriver` (everything else): tap anchors a pending ghost,
@@ -577,7 +583,7 @@ Vitest, `sim/` only. No render or UI tests.
 | File | Asserts |
 |---|---|
 | `flowfield.test.ts` | Reachability; no diagonal between two blocked tiles; costs monotonic toward source |
-| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal keeps tile blocked for 80 ticks |
+| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal unblocks and refunds in its own tick; mid-wave removal refused with an unchanged hash |
 | `theft.test.ts` | Full round trip: steal → carry at 80% → killed → sack drops → picked up → flip to returning → escape |
 | `economy.test.ts` | Interest only during waves and only on positive balance; settlement order; the solvency gate lock and refund-driven unlock; solvent-to-win |
 | `fixed.test.ts` | Normalisation exactness; no float leaks; division rounding at negatives |
@@ -624,8 +630,10 @@ Recorded so they are not accidentally rediscovered as gaps:
 
 To be answered by playtesting, not by argument:
 
-1. Is 4.0 s the right removal delay? (D: 3–5 s range from the README.)
-2. Does turn-around penalisation become necessary, or does the removal delay alone kill juggling?
+1. Does free re-mazing between waves flatten the difficulty curve, and is the 50% refund a stiff
+   enough brake on its own? (Tunable via `removalRefundFraction`.)
+2. Does turn-around penalisation become necessary, or does the no-selling-during-a-wave rule alone
+   kill juggling?
 3. Does uncapped interest actually self-balance, or does hoarding dominate?
 4. Is a flat per-wave stipend needed to soften the death spiral? (Only if testing demands it — never
    by softening theft itself.)

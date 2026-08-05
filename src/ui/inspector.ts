@@ -4,9 +4,8 @@
 // Responsibilities:
 //   - Archetype, level, current stats, next-level cost
 //   - Upgrade action with palette-consistent affordable/debt/blocked states
-//     as whole-literal class variants (design D1); blocked under a removal
-//     countdown; maxed state at level 3
-//   - Remove, with the standard removal-delay countdown
+//     as whole-literal class variants (design D1); maxed state at level 3
+//   - Remove, immediate and refunding, unavailable while a wave runs
 //   - Desktop: right bevel panel. Below the breakpoint: bottom sheet that
 //     swaps with the build menu (#hud[data-sheet-open] hides #rail)
 //   - Emits commands only; reads sim state per frame, never mutates it
@@ -15,6 +14,7 @@ import type { GameData, TowerLevelStats } from '../data/schema';
 import { ARCHETYPES } from '../data/schema';
 import type { CommandQueue } from '../sim/commands';
 import { GOLD, TICK_HZ, TILE } from '../sim/fixed';
+import { canRemove } from '../sim/placement';
 import { MAX_TOWER_LEVEL } from '../sim/sim';
 import { towerStats } from '../sim/tower';
 import type { SimState, Structure } from '../sim/types';
@@ -52,7 +52,8 @@ const UPG_MAXED = UPG_BASE + 'cursor-default border-outline-variant bg-surface-c
 const REM_BASE =
   'btn-mech flex w-full items-center justify-center gap-2 rounded border py-1.5 mobile:py-1 font-mono text-label-caps uppercase ';
 const REM_IDLE = REM_BASE + 'border-surface-bright bg-surface-dim text-on-surface hover:border-error hover:bg-error-container/20';
-const REM_COUNTDOWN = REM_BASE + 'cursor-default border-error/60 bg-error-container/30 text-error';
+const REM_LOCKED =
+  REM_BASE + 'hazard-stripe cursor-not-allowed border-surface-bright bg-surface/60 text-on-surface-variant opacity-50';
 
 // Condensed on mobile: stats sit side-by-side as label-over-value columns.
 const STAT_ROW = 'flex items-baseline justify-between gap-3 mobile:flex-col mobile:items-start mobile:gap-0';
@@ -90,6 +91,8 @@ export class InspectorUI {
   private selectedId: number | null = null;
   private selected: Structure | null = null;
   private lastContentKey = '';
+  /** The removal phase gate, re-read every frame — the sim's own predicate. */
+  private removalAllowed = false;
   /** True while the pointer is over the upgrade action (range preview hook). */
   upgradeHovered = false;
 
@@ -148,7 +151,7 @@ export class InspectorUI {
     this.removeButton.className = REM_IDLE;
     this.removeButton.addEventListener('click', () => {
       const s = this.selected;
-      if (s && s.removalCompleteTick < 0) {
+      if (s && this.removalAllowed) {
         this.commands.issue({ kind: 'remove', tx: s.tx, ty: s.ty });
       }
     });
@@ -179,7 +182,7 @@ export class InspectorUI {
 
   /** Per-frame refresh; drops the selection when the tower disappears. */
   refresh(state: SimState): void {
-    // Re-resolve by id: removal completion or compaction invalidates refs.
+    // Re-resolve by id: a removal or compaction invalidates refs.
     if (this.selectedId !== null) {
       this.selected = state.structures.find((s) => s.id === this.selectedId) ?? null;
       if (!this.selected) this.selectedId = null;
@@ -200,9 +203,8 @@ export class InspectorUI {
       this.hudRoot?.setAttribute('data-sheet-open', '');
     }
 
-    const underRemoval = s.removalCompleteTick >= 0;
-    const countdown = underRemoval ? Math.max(0, s.removalCompleteTick - state.tick) / TICK_HZ : 0;
-    const contentKey = [s.id, s.level, state.treasuryMg, underRemoval, countdown.toFixed(1)].join(':');
+    this.removalAllowed = canRemove(state.runPhase);
+    const contentKey = [s.id, s.level, state.treasuryMg, this.removalAllowed].join(':');
     if (contentKey === this.lastContentKey) return;
     this.lastContentKey = contentKey;
 
@@ -219,12 +221,16 @@ export class InspectorUI {
       )
       .join('');
 
-    if (underRemoval) {
-      this.removeButton.className = REM_COUNTDOWN;
-      this.removeButton.textContent = `Removing… ${countdown.toFixed(1)}s`;
-    } else {
+    // Selling is a between-waves action (structure-placement spec): the
+    // control names the wave as the reason rather than failing silently.
+    if (this.removalAllowed) {
       this.removeButton.className = REM_IDLE;
+      this.removeButton.disabled = false;
       this.removeButton.textContent = `Dismantle · 50% of ${s.paidMg / GOLD}g back`;
+    } else {
+      this.removeButton.className = REM_LOCKED;
+      this.removeButton.disabled = true;
+      this.removeButton.textContent = 'Dismantle locked · wave in progress';
     }
 
     if (s.level >= MAX_TOWER_LEVEL) {
@@ -236,7 +242,7 @@ export class InspectorUI {
 
     // Palette-consistent states: affordable / debt-warned / blocked.
     const costMg = this.data.towers[s.archetypeId]!.levels[s.level]!.costMg;
-    const blocked = state.treasuryMg < 0 || underRemoval;
+    const blocked = state.treasuryMg < 0;
     const debt = !blocked && costMg > state.treasuryMg;
     this.upgradeButton.textContent = `Upgrade → L${s.level + 1} · ${costMg / GOLD}g`;
     this.upgradeButton.disabled = blocked;

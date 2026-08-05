@@ -108,7 +108,7 @@ toward top-down and re-judge — the isometric look is negotiable, legibility is
 - Full validation: in bounds, unoccupied, **no enemy standing in the footprint**, every active spawn
   still reaches the treasury, **and every live enemy still reaches its current goal**
 - Rejected placements revert the mask and restore the previous field with no allocation
-- Removal with the **4.0 s / 80-tick delay**, tile staying blocked throughout
+- Removal **immediate and refused during a wave**: unblock, refund and drop in the command's tick
 - Live re-pathing: fields rebuild on mask change, enemies re-read on their next waypoint
 
 **Theft economy** (`sim/economy.ts`, `sim/enemy.ts`)
@@ -139,7 +139,7 @@ toward top-down and re-judge — the isometric look is negotiable, legibility is
 
 **UI** (`ui/`)
 - Minimal HUD: treasury readout, build palette (wall + rapid-fire tower) with affordability and
-  debt-warning states, removal countdown
+  debt-warning states, remove tool locked during waves
 - Pointer → ground raycast → tile → command
 
 **Tests** — `placement.test.ts`, `theft.test.ts`, `tower.test.ts`
@@ -345,8 +345,9 @@ tick order — and is the one place travel time would carry genuine balance weig
 Answered by playing, not by argument. Full list in
 [ARCHITECTURE.md §15](ARCHITECTURE.md#15-open-questions).
 
-1. Is 4.0 s the right removal delay?
-2. Does turn-around penalisation become necessary, or does the removal delay alone kill juggling?
+1. Does free re-mazing between waves flatten the difficulty curve, or is the 50% refund brake enough?
+2. Does turn-around penalisation become necessary, or does the no-selling-during-a-wave rule alone
+   kill juggling?
 3. Does uncapped interest self-balance?
 4. Is a flat per-wave stipend needed against the death spiral? (Only if testing demands it — never by
    softening theft itself.)
