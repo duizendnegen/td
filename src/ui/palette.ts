@@ -6,8 +6,9 @@
 //   - Affordable / debt-warning / blocked / selected states as whole-literal
 //     class variants (design D1), refreshed per frame
 //   - Debt-warned items stay selectable; below 0 everything is blocked
-//   - The remove tool is blocked while a wave runs — selling is a between-waves
-//     action (structure-placement spec) — and unaffected by the treasury
+//   - The remove tool stays usable while a wave runs — provisional structures
+//     are still sellable, so the per-structure verdict lands at the click
+//     (build-ui spec) — and is unaffected by the treasury
 //   - Desktop: left rail. Below the breakpoint: bottom build menu — same
 //     items and states, placement is pure CSS
 
@@ -89,7 +90,7 @@ export class PaletteUI {
   private readonly items: Item[] = [];
   private selectedTool: Tool | null = null;
   private blocked = false;
-  /** The removal phase gate: false while a wave runs and after the run ends. */
+  /** The removal phase gate: false only once the run has ended (removalOpenIn). */
   private removalAllowed = false;
   onChange: ((tool: Tool | null) => void) | null = null;
 
@@ -175,8 +176,11 @@ export class PaletteUI {
 
   /**
    * Per-frame state refresh from the treasury balance and the removal phase
-   * gate (the sim's own canRemove). A remove tool selected when a wave starts
-   * is dropped, so no click is silently swallowed (build-ui spec).
+   * gate (the sim's own removalOpenIn). The start of a wave no longer drops a
+   * selected remove tool — provisional structures stay sellable, so a player
+   * mid-revision must not be interrupted (build-ui spec); a click on committed
+   * construction gets the ordinary reject feedback instead. The tool is still
+   * dropped once the run ends and nothing can be sold at all.
    */
   refresh(treasuryMg: number, removalAllowed: boolean): void {
     this.blocked = treasuryMg < 0;

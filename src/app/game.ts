@@ -10,7 +10,7 @@ import balanceJson from '../data/balance.json';
 import { loadGameData } from '../data/schema';
 import { levelForParam, nextLevelUrl } from './levels';
 import { CommandQueue } from '../sim/commands';
-import { canRemove } from '../sim/placement';
+import { removalOpenIn } from '../sim/placement';
 import { Sim } from '../sim/sim';
 import { formatHash } from '../sim/hash';
 import { Assets } from '../render/assets';
@@ -303,13 +303,13 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     render: (alpha) => {
       const now = performance.now();
       enemies.sync(sim.state.enemies, alpha, now, sim.state.tick);
-      structures.sync(sim.state.structures, (s) => sim.currentTarget(s));
+      structures.sync(sim.state.structures, (s) => sim.currentTarget(s), now);
       sacks.sync(sim.state.sacks, now);
       fx.drain(sim.events, now);
       fx.update(now);
       input.update();
       treasuryHud.update(sim.state.treasuryMg);
-      palette.refresh(sim.state.treasuryMg, canRemove(sim.state.runPhase));
+      palette.refresh(sim.state.treasuryMg, removalOpenIn(sim.state.runPhase));
       waveHud.update(sim.state, sim.totalWaves);
       timeHud.update(sim.state);
       // Paused presentation (design D9): a stopped board must not read as a

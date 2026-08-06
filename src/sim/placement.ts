@@ -11,11 +11,13 @@
 //     live enemy in the field matching its state
 //   - Purity: the tentative mask is unconditionally restored; fields are
 //     rebuilt into caller-owned scratch buffers (spare-buffer swap)
-//   - The removal phase gate (canRemove) — the one predicate the sim and
-//     every UI remove control share
+//   - The removal gate (canRemove) — the one predicate the sim and every UI
+//     remove control share, reading the phase AND the structure, since a wave
+//     gates only committed construction
 //   - Immediate removal: unblock, refund, drop, all in the calling tick; a
 //     socket tile is never unblocked or rebuilt over (D6)
 
+import { refundMg } from './economy';
 import { toTile } from './fixed';
 import type { FlowField } from './flowfield';
 import { buildFieldInto } from './flowfield';
@@ -136,23 +138,40 @@ export function validatePlacement(
 }
 
 /**
- * Whether removal is permitted in `phase` (structure-placement spec).
+ * Whether `s` may be removed in `phase` (structure-placement spec).
  *
  * An allowlist, not `phase !== 'wave'`: 'won' and 'lost' are refused too,
  * because a refund landing after the run ended would rewrite a final balance
  * the run summary already reported. 'settled-locked' MUST stay open — that
  * liquidation is the only way back to solvency and to the win.
  *
+ * The wave prohibition consults the structure (provisional-construction design
+ * D3): it bans opening and closing an ESTABLISHED maze mid-wave. A provisional
+ * structure has not existed for a single advanced tick of that wave, so
+ * unwinding it cannot alter the maze the wave began against.
+ *
  * Shared, like canSpend: the authoritative apply and every UI surface that
  * renders a remove control call this one predicate so they cannot drift.
  */
-export function canRemove(phase: RunPhase): boolean {
-  return phase === 'build' || phase === 'settled-locked';
+export function canRemove(phase: RunPhase, s: Structure): boolean {
+  if (phase === 'build' || phase === 'settled-locked') return true;
+  return phase === 'wave' && s.provisional;
 }
 
 /**
- * Remove `s` outright — unblock the footprint, credit the refund (floored,
- * from the paid price), and drop the structure — all in the calling tick.
+ * Whether ANY structure could be removable in `phase` — the gate for controls
+ * that have no target yet, the palette's remove tool above all. True through
+ * a wave now that provisional construction stays sellable (build-ui spec); the
+ * per-structure verdict lands at the click, through canRemove.
+ */
+export function removalOpenIn(phase: RunPhase): boolean {
+  return phase === 'build' || phase === 'settled-locked' || phase === 'wave';
+}
+
+/**
+ * Remove `s` outright — unblock the footprint, credit the refund it is owed
+ * (full while provisional, the floored fraction once committed), and drop the
+ * structure — all in the calling tick.
  * Returns whether the blocked mask changed, in which case the caller rebuilds
  * the live fields and runs the commitment-invalidation sweep.
  *
@@ -176,7 +195,7 @@ export function removeStructure(
     grid.setBlocked(s.tx, s.ty, false);
     changed = true;
   }
-  state.treasuryMg += Math.floor((s.paidMg * refundPer1000) / 1000);
+  state.treasuryMg += refundMg(s, refundPer1000);
   state.structures = state.structures.filter((x) => x !== s);
   return changed;
 }
