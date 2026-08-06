@@ -81,10 +81,16 @@ export interface Structure {
    * The basis of the removal refund (phase-3 design D3).
    */
   paidMg: number;
-  /** Absolute tick a pending removal completes, or -1 while not being removed. */
-  removalCompleteTick: number;
   /** Towers: absolute tick of the earliest permitted next shot. Walls: 0. */
   nextFireTick: number;
+  /**
+   * True from placement until the simulation advances a tick while a wave is
+   * running (provisional-construction design D1/D2). Provisional construction
+   * has not faced a live tick yet: it refunds in full and may be sold in any
+   * live phase. The clearing event is an advance under an active wave, never
+   * pause — which the simulation cannot see.
+   */
+  provisional: boolean;
 }
 
 /** One sack per tile (drops merge); insertion-ordered like every entity array. */

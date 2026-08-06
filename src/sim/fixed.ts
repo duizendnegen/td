@@ -22,9 +22,6 @@ export const GOLD = 1000;
 export const TICK_HZ = 20;
 export const TICK_MS = 50;
 
-/** Removal delay, in ticks (4.0 s). The tile stays blocked for the whole delay. */
-export const REMOVAL_TICKS = 80;
-
 /** Fixed-point unit coordinate → tile coordinate. Positions are never negative. */
 export function toTile(u: number): number {
   return Math.trunc(u / TILE);

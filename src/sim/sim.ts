@@ -25,9 +25,14 @@ import { allocField, buildFieldInto } from './flowfield';
 import type { Grid } from './grid';
 import { TERRAIN } from './grid';
 import { hashState } from './hash';
-import { REMOVAL_TICKS } from './fixed';
 import type { PlacementVerdict } from './placement';
-import { footprintFor, structureAt, tickRemovals, validatePlacement } from './placement';
+import {
+  canRemove,
+  footprintFor,
+  removeStructure,
+  structureAt,
+  validatePlacement,
+} from './placement';
 import { fireTowers, selectTarget } from './tower';
 import { Rng } from './rng';
 import { cursorsExhausted, lastSpawnOffset, resolveWaves, stepWaveSpawns, type ResolvedGroup } from './waves';
@@ -63,6 +68,11 @@ export class Sim {
   private readonly bountyMgByType: number[];
   /** Set by any step-2 placement commit; step 3 runs the sweep on it. */
   private maskChanged = false;
+  /**
+   * Set by any step-2 removal that unblocked a tile; step 3 rebuilds the live
+   * fields once for the whole tick, however many structures came down (D2).
+   */
+  private removalUnblocked = false;
 
   constructor(data: GameData, seed: number) {
     this.rng = new Rng(seed);
@@ -108,8 +118,31 @@ export class Sim {
     return this.waves.length;
   }
 
-  /** Advance one tick. The 10-step order is fixed; order is part of the contract. */
+  /**
+   * Advance one tick. The 10-step order is fixed; order is part of the contract.
+   *
+   * This is exactly `commit(commands)` followed by `advance()` — the two halves
+   * are separable so a stopped game can absorb player intent without consuming
+   * time (time-controls design D2). Every existing caller keeps this entry
+   * point and is unaffected by the split.
+   */
   tick(commands: readonly Command[]): void {
+    this.commit(commands);
+    this.advance();
+  }
+
+  /**
+   * Steps 1–3 — absorb intent. Snapshot, apply commands, rebuild the fields for
+   * any mask change and sweep stale commitments. Everything here is reactive to
+   * commands; nothing here consumes time.
+   *
+   * Safe to call any number of times before an `advance()`, with the same result
+   * as one commit carrying the concatenated commands in the same order: step 1
+   * re-snapshots an unmoved position (a no-op), `validatePlacement` builds its
+   * scratch fields from the live mask rather than depending on step 3, and the
+   * step-3 sweep is idempotent while nothing has moved.
+   */
+  commit(commands: readonly Command[]): void {
     const s = this.state;
     // 1. Snapshot prevPos for every entity
     for (const e of s.enemies) {
@@ -118,16 +151,40 @@ export class Sim {
     }
     // 2. Apply commands (already drained in deterministic order)
     for (const c of commands) this.apply(c);
-    // 3. Removal timers; sweep stale commitments after any mask change
-    if (tickRemovals(s, this.grid, this.data.refundPer1000)) {
+    // 3. Rebuild the fields once for this tick's removals; sweep stale
+    //    commitments after any mask change
+    if (this.removalUnblocked) {
       buildFieldInto(this.grid, [this.treasury], this.inbound);
       buildFieldInto(this.grid, this.activeSpawns, this.returning);
+      this.removalUnblocked = false;
       this.maskChanged = true;
     }
-    const fields = { inbound: this.inbound, returning: this.returning };
     if (this.maskChanged) {
-      invalidateCommitments(s, this.grid, fields);
+      invalidateCommitments(s, this.grid, {
+        inbound: this.inbound,
+        returning: this.returning,
+      });
       this.maskChanged = false;
+    }
+  }
+
+  /**
+   * Steps 4–10 — let time pass. Spawns, movement, arrivals, firing, deaths,
+   * progression, compaction and the tick increment.
+   *
+   * Reads the live fields directly: only a command can swap them, and commands
+   * are applied in `commit`, so they are current by construction.
+   */
+  advance(): void {
+    const s = this.state;
+    const fields = { inbound: this.inbound, returning: this.returning };
+    // The commit point (provisional-construction design D1/D2): a tick
+    // advancing under a live wave settles everything standing, BEFORE this
+    // tick's spawning and combat — so a wave always runs against committed
+    // construction. The rule reads only "an advance happened while a wave was
+    // live"; pause is an absence of advances and never enters the simulation.
+    if (s.runPhase === 'wave') {
+      for (const structure of s.structures) structure.provisional = false;
     }
     // 4. Spawning: the active wave's group cursors (design D2)
     if (s.runPhase === 'wave') {
@@ -236,13 +293,9 @@ export class Sim {
       case 'upgrade':
         this.applyUpgrade(command.tx, command.ty);
         break;
-      case 'remove': {
-        const s = structureAt(this.state.structures, command.tx, command.ty);
-        if (s && s.removalCompleteTick < 0) {
-          s.removalCompleteTick = this.state.tick + REMOVAL_TICKS;
-        }
+      case 'remove':
+        this.applyRemove(command.tx, command.ty);
         break;
-      }
     }
   }
 
@@ -326,26 +379,47 @@ export class Sim {
       archetypeId,
       level: kind === 'wall' ? 0 : 1,
       paidMg: costMg,
-      removalCompleteTick: -1,
       nextFireTick: 0,
+      // Uncommitted until a wave tick runs over it (design D1).
+      provisional: true,
     });
     s.treasuryMg -= costMg;
   }
 
   /**
+   * remove (structure-placement spec): refused after the run ends, refused
+   * mid-wave for construction the wave has already run against (canRemove),
+   * and refused on a tile holding no structure — with the same reject event a
+   * refused placement emits, and no other effect.
+   *
+   * An accepted removal completes here, refund included, so the credit is on
+   * the books before step 9 judges progression: a liquidation that clears the
+   * debt unlocks the next wave, or wins from 'settled-locked', in this tick.
+   * The field rebuild is deferred to step 3 (D2).
+   */
+  private applyRemove(tx: number, ty: number): void {
+    const s = this.state;
+    const found = structureAt(s.structures, tx, ty);
+    const target = found !== null && canRemove(s.runPhase, found) ? found : null;
+    if (!target) {
+      this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
+      return;
+    }
+    if (removeStructure(s, this.grid, target, this.data.refundPer1000)) {
+      this.removalUnblocked = true;
+    }
+  }
+
+  /**
    * Upgrade (tower-upgrades spec): valid only on an existing tower below max
-   * level with no removal countdown while the balance is ≥ 0. Stats and the
-   * charge land in the same tick; any failure leaves state untouched.
+   * level while the balance is ≥ 0. Stats and the charge land in the same
+   * tick; any failure leaves state untouched.
    */
   private applyUpgrade(tx: number, ty: number): void {
     const s = this.state;
     const t = structureAt(s.structures, tx, ty);
     const valid =
-      t !== null &&
-      t.kind === 'tower' &&
-      t.level < MAX_TOWER_LEVEL &&
-      t.removalCompleteTick < 0 &&
-      canSpend(s.treasuryMg);
+      t !== null && t.kind === 'tower' && t.level < MAX_TOWER_LEVEL && canSpend(s.treasuryMg);
     if (!valid) {
       this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
       return;

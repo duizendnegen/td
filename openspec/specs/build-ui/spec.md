@@ -111,24 +111,70 @@ simulation's range for that tower.
 - **WHEN** an enemy stands exactly at the edge of the displayed ring
 - **THEN** the tower's in-range check for that enemy agrees with what the ring shows
 
-### Requirement: Removal countdown is visible
+### Requirement: Provisional structures read as uncommitted on the board
 
-A structure whose removal countdown is running SHALL display its remaining time, and the display
-SHALL disappear when the structure is removed.
+Structures that are still provisional SHALL be visually distinguishable from committed ones on the
+board, so a player can see what will lock in when the wave starts without inspecting each one. The
+distinction SHALL clear the moment they commit.
 
-#### Scenario: Countdown reads out
+#### Scenario: This phase's work is distinguishable
 
-- **WHEN** the player orders removal of a wall
-- **THEN** the wall shows a countdown from 4.0 s until it disappears with the wall
+- **WHEN** the player has built during the build phase alongside structures from earlier phases
+- **THEN** the newly built structures read as uncommitted and the earlier ones do not
+
+#### Scenario: Starting a wave clears the distinction
+
+- **WHEN** the wave starts and time advances
+- **THEN** every structure reads as committed
+
+### Requirement: Remove controls are unavailable during a wave
+
+Every control that issues a removal — the palette's remove tool, the desktop inspector's remove
+action, and the mobile inspector sheet's remove action — SHALL read as unavailable while a wave is
+running **for committed structures**, and SHALL become available again for them when the wave
+settles. The two inspector controls SHALL additionally name the wave as the reason; the palette tool
+SHALL read as unavailable in the same visual language as any other blocked palette item, without
+reason text — so the explanation lives where it fits on both form factors rather than in a
+desktop-only affordance. While unavailable, activating any of them SHALL issue no command.
+
+Because provisional structures remain removable during a wave, the palette's remove tool SHALL stay
+usable while a wave runs and SHALL reject only what is committed, with the ordinary reject feedback.
+A remove tool selected when a wave starts SHALL therefore no longer be deselected.
+
+#### Scenario: Starting a wave blocks selling committed structures
+
+- **WHEN** a wave starts and the player targets a structure that has lived through a wave tick
+- **THEN** both inspector remove actions read unavailable with the wave named as the reason, and
+  clicking that structure with the remove tool issues no removal command and gives the ordinary
+  reject feedback
+
+#### Scenario: The remove tool survives the start of a wave
+
+- **WHEN** a wave starts while the remove tool is selected
+- **THEN** the tool stays selected, so a player mid-revision is not interrupted
+
+#### Scenario: Settlement re-enables selling
+
+- **WHEN** the wave settles and the build phase resumes
+- **THEN** the remove controls read available again for every structure and a click issues a
+  removal command
 
 ### Requirement: Tower inspector with upgrade action
 
 Selecting a placed tower SHALL show an inspector with the tower's archetype, current level,
-current stats, its removal control with the standard countdown, and — below level 3 — the next
+current stats, its remove control showing the refund it would return, and — below level 3 — the next
 level's cost and an upgrade action that issues the upgrade command. The upgrade action SHALL
 reflect the same affordability and debt-warning states as the palette and SHALL read as blocked
-while the balance is below 0 or the tower is under removal. At level 3 the inspector SHALL show
-a maxed state with no upgrade action.
+while the balance is below 0. At level 3 the inspector SHALL show a maxed state with no upgrade
+action.
+
+The refund shown SHALL be the amount that removal would actually credit — the full invested total
+for a provisional tower, the removal refund fraction of it for a committed one — and a provisional
+tower's remove control SHALL name the full refund as the revision window it is, so it reads as
+undoing a decision rather than as a better price.
+
+The remove control SHALL read as unavailable while a wave is running **only** for committed towers;
+a provisional tower's remove control SHALL remain available during a wave.
 
 #### Scenario: Inspector upgrades through the command path
 
@@ -139,6 +185,23 @@ a maxed state with no upgrade action.
 
 - **WHEN** a level-3 tower is selected
 - **THEN** the inspector shows its stats and a maxed state, with no upgrade cost or action
+
+#### Scenario: Removing through the inspector is immediate
+
+- **WHEN** the player clicks the inspector's remove control during the build phase
+- **THEN** a removal command is queued, and once it applies the structure is gone, the refund is
+  visible in the treasury readout, and the inspector closes
+
+#### Scenario: The refund shown matches what is paid
+
+- **WHEN** a provisional tower and a committed tower of the same total invested cost are inspected
+- **THEN** the provisional one shows the full invested total and the committed one shows the
+  refund fraction of it, and removing each credits exactly the amount shown
+
+#### Scenario: A provisional tower can be unwound during a wave
+
+- **WHEN** a tower is placed during a wave while time is not advancing and is then selected
+- **THEN** its remove control reads available, and activating it issues a removal command
 
 ### Requirement: Upgrade preview shows the next level's range
 
@@ -178,13 +241,84 @@ from, including a clear signal when a new spawn activates with that wave.
 The UI SHALL provide a start-wave control that is enabled only in the build phase with balance
 ≥ 0. While wave-locked by debt, the control SHALL show a locked state that names the reason and
 points at selling structures as the way out. During an active wave the control SHALL be
-unavailable.
+unavailable, and its slot SHALL host the transport controls instead.
 
 #### Scenario: Debt locks the button with guidance
 
 - **WHEN** settlement leaves the balance at −40
 - **THEN** the start-wave control is disabled, shows the debt, and directs the player to sell
   structures to recover
+
+#### Scenario: A refund unlocks the button in its own tick
+
+- **WHEN** the player is wave-locked at −40 and removes a structure refunding 50
+- **THEN** the start-wave control reads enabled on the next rendered frame, with no countdown in
+  between
+
+#### Scenario: Starting a wave from a paused build phase
+
+- **WHEN** the player has paused during the build phase and activates the start-wave control
+- **THEN** the wave begins with time running, and the transport controls take the slot
+
+### Requirement: Transport controls occupy the start-wave slot during a wave
+
+The UI SHALL present play/pause and fast-forward as transport controls in the same bottom-slot
+footprint the start-wave control occupies, shown while a wave is running — the phase in which the
+start-wave control is already hidden. They SHALL use the conventional transport iconography (play,
+pause, fast-forward) and SHALL NOT display or offer a choice of speed multiplier.
+
+Switching between the start-wave control and the transport controls SHALL NOT shift the surrounding
+layout.
+
+#### Scenario: The slot swaps with the phase
+
+- **WHEN** a wave starts
+- **THEN** the start-wave control is replaced in place by the transport controls, and when the wave
+  settles the start-wave control returns
+
+#### Scenario: Play/pause reflects the current state
+
+- **WHEN** the game is paused
+- **THEN** the control reads as a play action, and while running it reads as a pause action
+
+#### Scenario: No speed choice is exposed
+
+- **WHEN** the transport controls are visible
+- **THEN** no multiplier value or speed selector is presented to the player
+
+### Requirement: Time controls are keyboard-operable on desktop
+
+The UI SHALL bind play/pause and fast-forward to keys, with fast-forward held for as long as the key
+is down, matching the palette's existing desktop keyboard-shortcut treatment including its key
+hints. The key bindings SHALL remain active in every run phase, including phases in which the
+transport buttons are not mounted.
+
+Key handling SHALL prevent the browser's default activation of a focused control, so that a
+transport key pressed after clicking a button does not both re-activate the button and run the
+binding.
+
+#### Scenario: Keys work where the buttons are not shown
+
+- **WHEN** the player uses the time-control keys during the build phase with debug-spawned enemies
+  on the board
+- **THEN** time pauses and fast-forwards as it does during a wave, without transport buttons being
+  present
+
+#### Scenario: Key hints match the palette
+
+- **WHEN** the transport controls are shown on a desktop layout
+- **THEN** each carries its key hint in the same treatment the palette items use, and the hints are
+  absent on the mobile layout
+
+#### Scenario: Pressing the key after clicking the button toggles once
+
+- **WHEN** the player clicks play/pause and then presses the play/pause key
+- **THEN** the state toggles exactly once
+
+#### Scenario: Held keys do not repeat
+
+- **WHEN** the player holds the fast-forward key long enough for keyboard auto-repeat to engage
+- **THEN** fast-forward engages once and stays engaged until the key is released
 
 ### Requirement: Win and lose screens with the run summary
 
@@ -199,13 +333,20 @@ escaped, kills, and final balance.
 ### Requirement: Concede control that flags impossible recovery
 
 A concede control SHALL be available throughout the run. When the balance is negative and the
-total refund value of all remaining structures cannot reach 0, the UI SHALL state plainly that
-recovery is impossible, so a newcomer is never left poking at a dead run.
+total refund value of all remaining structures — each at the refund it would actually pay — cannot
+reach 0, the UI SHALL state plainly that recovery is impossible, so a newcomer is never left poking
+at a dead run.
 
 #### Scenario: Dead run says so
 
 - **WHEN** the debt exceeds the combined refund value of everything still standing
 - **THEN** the concede control (or an adjacent notice) states that recovery is impossible
+
+#### Scenario: Provisional value keeps a run alive
+
+- **WHEN** the debt exceeds what committed structures could raise at the refund fraction, but
+  provisional structures' full refunds would cover it
+- **THEN** the notice is not shown
 
 ### Requirement: HUD layout adapts to form factor
 
@@ -232,7 +373,7 @@ same controls and states — no capability is desktop-only or mobile-only.
 Below the mobile breakpoint, selecting a placed tower SHALL replace the bottom build menu with
 an inspector bottom sheet showing the tower's archetype, level, condensed stats, and
 touch-sized upgrade and remove actions with the same affordability, debt-warning, blocked,
-countdown, and maxed states as the desktop inspector. Dismissing the sheet or deselecting the
+wave-unavailable, and maxed states as the desktop inspector. Dismissing the sheet or deselecting the
 tower SHALL restore the build menu. The sheet SHALL remain a compact bottom band: stats are
 condensed to keep it within roughly the bottom third of the viewport, and it SHALL NOT expand
 into a full-screen view that hides the board.
@@ -247,6 +388,11 @@ into a full-screen view that hides the board.
 
 - **WHEN** the balance is below 0 and the inspector sheet is open
 - **THEN** the sheet's upgrade action reads as blocked, exactly as the desktop inspector would
+
+#### Scenario: Sheet remove action follows the wave gate
+
+- **WHEN** the inspector sheet is open while a wave is running
+- **THEN** its remove action reads unavailable, exactly as the desktop inspector's would
 
 ### Requirement: Wave progress bar
 

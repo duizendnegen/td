@@ -6,6 +6,9 @@
 //   - Affordable / debt-warning / blocked / selected states as whole-literal
 //     class variants (design D1), refreshed per frame
 //   - Debt-warned items stay selectable; below 0 everything is blocked
+//   - The remove tool stays usable while a wave runs — provisional structures
+//     are still sellable, so the per-structure verdict lands at the click
+//     (build-ui spec) — and is unaffected by the treasury
 //   - Desktop: left rail. Below the breakpoint: bottom build menu — same
 //     items and states, placement is pure CSS
 
@@ -87,6 +90,8 @@ export class PaletteUI {
   private readonly items: Item[] = [];
   private selectedTool: Tool | null = null;
   private blocked = false;
+  /** The removal phase gate: false only once the run has ended (removalOpenIn). */
+  private removalAllowed = false;
   onChange: ((tool: Tool | null) => void) | null = null;
 
   constructor(slot: HTMLElement, costs: PaletteCosts) {
@@ -160,28 +165,40 @@ export class PaletteUI {
   }
 
   select(tool: Tool | null): void {
-    // Toggle off on reselect; ignore build tools while spending is blocked.
+    // Toggle off on reselect; ignore build tools while spending is blocked and
+    // the remove tool while a wave gates selling.
     const next = tool !== null && tool === this.selectedTool ? null : tool;
-    if (next !== null && next !== 'remove' && this.blocked) return;
+    if (next !== null && (next === 'remove' ? !this.removalAllowed : this.blocked)) return;
     this.selectedTool = next;
     this.onChange?.(next);
     // refresh() runs every frame and repaints the buttons.
   }
 
-  /** Per-frame state refresh from the treasury balance. */
-  refresh(treasuryMg: number): void {
+  /**
+   * Per-frame state refresh from the treasury balance and the removal phase
+   * gate (the sim's own removalOpenIn). The start of a wave no longer drops a
+   * selected remove tool — provisional structures stay sellable, so a player
+   * mid-revision must not be interrupted (build-ui spec); a click on committed
+   * construction gets the ordinary reject feedback instead. The tool is still
+   * dropped once the run ends and nothing can be sold at all.
+   */
+  refresh(treasuryMg: number, removalAllowed: boolean): void {
     this.blocked = treasuryMg < 0;
-    if (this.blocked && this.selectedTool !== null && this.selectedTool !== 'remove') {
+    this.removalAllowed = removalAllowed;
+    if (this.selectedTool === 'remove') {
+      if (!removalAllowed) this.select(null);
+    } else if (this.blocked && this.selectedTool !== null) {
       this.select(null);
     }
     for (const item of this.items) {
       const selected = item.tool === this.selectedTool;
       const debt = !this.blocked && item.costMg > 0 && item.costMg > treasuryMg;
-      const blocked = this.blocked && item.tool !== 'remove';
+      const blocked =
+        item.tool === 'remove' ? !this.removalAllowed : this.blocked;
 
       let buttonClass: string;
       if (item.tool === 'remove') {
-        buttonClass = selected ? BTN_REMOVE_SELECTED : BTN_REMOVE;
+        buttonClass = blocked ? BTN_BLOCKED : selected ? BTN_REMOVE_SELECTED : BTN_REMOVE;
       } else if (blocked) {
         buttonClass = BTN_BLOCKED;
       } else if (selected) {

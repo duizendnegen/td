@@ -54,9 +54,10 @@ simulation state and reflected in the treasury before the settlement judgement r
 ### Requirement: Starting a wave requires solvency
 
 The start-wave command SHALL be accepted only while the treasury balance is ≥ 0. While the
-balance is negative between waves, the run SHALL be wave-locked: structure removal (with its
-normal delay and refund) remains available, and the resulting refunds are the only income.
-Reaching balance ≥ 0 SHALL unlock the start-wave command with no further condition.
+balance is negative between waves, the run SHALL be wave-locked: immediate structure removal, with
+its refund credited in the tick the removal command applies, remains available, and the resulting
+refunds are the only income. Reaching balance ≥ 0 SHALL unlock the start-wave command with no
+further condition.
 
 #### Scenario: Negative settlement locks the next wave
 
@@ -65,8 +66,9 @@ Reaching balance ≥ 0 SHALL unlock the start-wave command with no further condi
 
 #### Scenario: Selling defense unlocks the wave
 
-- **WHEN** the run is wave-locked at −40 and the player completes removals refunding 45
-- **THEN** the balance reaches +5 and the start-wave command is accepted again
+- **WHEN** the run is wave-locked at −40 and the player removes structures refunding 45
+- **THEN** the balance reaches +5 in the tick the last of those removals applies, and the
+  start-wave command is accepted from that tick on
 
 ### Requirement: The run is lost only by concession
 
@@ -99,8 +101,43 @@ the win SHALL fire at the moment the balance reaches ≥ 0. Concession remains a
 #### Scenario: Indebted finish must liquidate to claim victory
 
 - **WHEN** the final wave's settlement completes with the balance at −60
-- **THEN** the run is not yet won, and it ends as won in the tick a completed removal's refund
+- **THEN** the run is not yet won, and it ends as won in the same tick a removal command's refund
   brings the balance to ≥ 0
+
+### Requirement: A wave's first advanced tick commits standing construction
+
+The first tick the simulation advances while a wave is running SHALL commit every standing
+structure, clearing its provisional state, before that tick's wave scheduling and combat run. The
+start-wave decision is therefore the point at which the build phase's construction becomes
+irreversible at full value.
+
+#### Scenario: The wave begins against committed construction
+
+- **WHEN** a player builds through a build phase and starts a wave
+- **THEN** the wave's first advanced tick commits everything standing before any enemy spawns for
+  that tick
+
+#### Scenario: Starting a wave without advancing does not commit
+
+- **WHEN** the start-wave command is committed but time has not advanced
+- **THEN** standing structures are still provisional, and become committed on the first advance
+
+### Requirement: Liquidation value accounts for the refund each structure would pay
+
+Any calculation of the total value a player could raise by selling everything standing SHALL sum
+each structure's own refund — full for provisional structures, the removal refund fraction for
+committed ones — rather than applying one flat rate across all of them.
+
+#### Scenario: A recoverable run is not declared dead
+
+- **WHEN** the balance is negative and the standing structures include provisional ones whose full
+  refunds would clear the debt, though half-refunds would not
+- **THEN** the run is not reported as impossible to recover
+
+#### Scenario: Provisional value cannot be extracted
+
+- **WHEN** a provisional structure is placed and then removed
+- **THEN** the treasury returns to its value before the placement, so the round trip raises nothing
 
 ### Requirement: Run summary accounting
 

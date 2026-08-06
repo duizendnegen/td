@@ -116,7 +116,7 @@ src/
 │  ├─ types.ts             entity and state types
 │  ├─ grid.ts              tile storage, blocked mask, footprints
 │  ├─ flowfield.ts         dual Dijkstra fields + corner rule
-│  ├─ placement.ts         validation, removal timers
+│  ├─ placement.ts         validation, removal + its phase gate
 │  ├─ enemy.ts             steering, state machine, theft
 │  ├─ tower.ts             targeting, firing, upgrades
 │  ├─ economy.ts           treasury, interest, bounties, settlement
@@ -163,8 +163,10 @@ Bit-identical simulation across machines and runs. Six rules, all enforceable:
    `sin`, `cos`, `pow`, `atan2`, `hypot` are **not** required to be exact and are banned — use lookup
    tables or squared comparisons instead.
 4. **Iteration order is stable.** Entities live in insertion-ordered flat arrays. Never iterate
-   `Object.keys` or a `Set` where order affects state. Removal uses tombstone-and-compact, not
-   swap-remove, so ordering is deterministic.
+   `Object.keys` or a `Set` where order affects state. Deletion is always order-preserving and
+   never swap-remove: enemies are tombstoned (`alive = false`) and compacted once at step 10, so
+   the array shape holds still across the steps that can kill; structures, only ever removed in
+   step 2 with nothing else iterating them, are filtered out directly.
 5. **Commands are the only input.** The sim never reads the pointer, the clock, or the DOM. Every
    player action becomes a `Command` stamped with the tick it applies on.
 6. **Division truncates explicitly.** `Math.floor` for money accrual (well-defined for the negative
@@ -175,6 +177,16 @@ Enforcement: `tests/replay.test.ts` runs a fixed seed plus a recorded command li
 state hash after N ticks matches a golden value. Any accidental float, any `Math.random`, any order
 change breaks it immediately. Without this test the discipline rots silently, which is why it exists
 from Phase 1 rather than being deferred with the rest of the test suite.
+
+### The hash is a history fingerprint, not a position fingerprint
+
+Two boards that look identical can hash differently, and that is correct. `nextStructureId` is
+monotonic and hashed, so placing a structure and selling it again restores the mask, both flow
+fields and the structure list — but not the hash. The state carries how it was reached, which is
+exactly what a lockstep peer must agree on.
+
+This has always been true; provisional construction (§7) makes the round trip cheap enough that
+someone will now notice it and file it as a bug. It is not one.
 
 ### Comparison against floats
 
@@ -223,9 +235,9 @@ empties, with no interest on the settlement tick. There is no bankruptcy thresho
 overdraw the balance arbitrarily far below zero, and the only consequences are the spending block
 below 0 and the solvency gate on starting the next wave.
 
-**HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `removalCompleteTick`,
-`nextFireTick`) are absolute tick numbers, never countdowns, so they need no per-tick decrement and
-survive serialisation trivially.
+**HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `nextFireTick`) are
+absolute tick numbers, never countdowns, so they need no per-tick decrement and survive
+serialisation trivially.
 
 Speeds are units-per-tick. A 3 tiles/sec enemy at 20 Hz is `3 * 1024 / 20 = 153.6` → **154**
 units/tick; the rounding is chosen once, in the balance file, in integer units.
@@ -279,16 +291,61 @@ boundary.
 Fixed 20 Hz (`TICK_MS = 50`) driven by an accumulator in `app/loop.ts`:
 
 ```ts
-accumulator += Math.min(now - last, MAX_FRAME_MS);   // clamp to avoid spiral of death
-while (accumulator >= TICK_MS) {
-  sim.tick(commandQueue.drain());
-  accumulator -= TICK_MS;
+accumulator += Math.min(now - last, MAX_FRAME_MS) * rate;  // clamp the STALL, then scale
+if (rate === 0) {
+  sim.commit(commandQueue.drain());                        // absorb intent, consume no time
+} else {
+  while (accumulator >= TICK_MS) {
+    sim.tick(commandQueue.drain());
+    accumulator -= TICK_MS;
+  }
 }
-render(sim.state, accumulator / TICK_MS);            // alpha ∈ [0,1)
+render(sim.state, rate === 0 ? 1 : accumulator / TICK_MS);  // alpha ∈ [0,1), or 1 when frozen
 ```
 
-`MAX_FRAME_MS` caps catch-up at 5 ticks per frame. Commands queued during a frame apply on the next
-tick boundary — up to 50 ms of input latency, imperceptible for tower placement.
+`MAX_FRAME_MS` caps catch-up at 5 ticks per frame. It is applied to the elapsed wall-clock gap
+*before* `rate` scales it, so it stays a stall guard rather than a speed limit. Commands queued
+during a running frame apply on the next tick boundary — up to 50 ms of input latency,
+imperceptible for tower placement.
+
+### Time controls
+
+`rate` comes from `app/time.ts`: play/pause sets the resting rate (1 or 0) and fast-forward
+overrides it while held, including while paused — which is what makes a stopped game scrubbable.
+
+**The simulation has no clock and no notion of pause.** Pause is an *absence*, not a state: it is
+this loop declining to call `advance()`. No field expressing pause or speed exists in `SimState`,
+none reaches the hash, and the replay goldens are indifferent to every value in `time.ts`. A future
+change must never implement pause by skipping the wave scheduler or scaling entity speeds.
+
+While frozen no time accumulates, so resuming cannot burst; and the loop commits every frozen
+frame, which both lands player intent immediately and re-snapshots each `prevPos` onto its `pos`,
+holding entities still through the pause.
+
+### The commit/advance seam
+
+`sim.tick(commands)` is exactly `sim.commit(commands)` followed by `sim.advance()`, split at the
+boundary the tick order already has:
+
+| | steps | character |
+| --- | --- | --- |
+| `commit` | 1–3 | absorb intent — snapshot, apply commands, rebuild fields, sweep commitments |
+| `advance` | 4–10 | let time pass — spawn, move, resolve, settle, `tick++` |
+
+`commit` is safe to call any number of times before an `advance`, with the same result as one
+commit carrying the concatenated commands in the same order: step 1 re-snapshots an unmoved
+position, `validatePlacement` builds its scratch fields from the live mask rather than depending on
+step 3, and the step-3 sweep is idempotent while nothing has moved.
+
+This is what lets a paused game respond immediately — a tower placed while stopped is charged,
+blocks its tile, rebuilds both fields and re-targets enemy waypoints at once — while advancing
+nothing.
+
+**State comparability is defined at tick boundaries.** A state that has been committed but not yet
+advanced is mid-tick, and its hash is not expected to equal any completed tick's. Nothing that
+compares hashes pauses (the two-machine gate check and the replay goldens both run `tick()`), but
+`F4` marks a pending commit so a hash moving at a standing tick reads as intended rather than as
+determinism drift.
 
 ### Tick order
 
@@ -296,7 +353,7 @@ Fixed and documented, because order is part of the determinism contract:
 
 1. Snapshot `prevPos` for every entity
 2. Apply commands (sorted by type, then by issue sequence)
-3. Advance removal timers; rebuild flow fields if the blocked mask changed
+3. Rebuild flow fields if step 2's commands changed the blocked mask; sweep stale commitments
 4. Wave scheduler — the active wave's group cursors spawn due enemies
 5. Enemy movement and waypoint re-evaluation
 6. Enemy arrival: theft at treasury (full-capacity overdraw), escape at spawn, gold pickup
@@ -358,8 +415,42 @@ Before any build is confirmed:
 The previous field is kept in a spare buffer and swapped, so a rejected placement costs one rebuild
 and no allocation.
 
-**Removal delay: 4.0 s = 80 ticks.** The tile stays **blocked** for the whole delay — otherwise the
-delay is free and the anti-juggling rule does nothing.
+**Removal is immediate, and refused during a wave for committed construction.** Selling an
+established maze is a between-waves action: the gate (`canRemove`, shared by the sim and every UI
+remove control) is the whole anti-juggling rule, so no delay is needed and none exists — unblock,
+refund and drop all land in the tick the command applies. Removal needs no validation either:
+unblocking a tile is monotone on the flow fields, so it can never seal a spawn or strand an enemy.
+
+### Provisional construction
+
+A structure is **provisional** from the tick it is placed until the simulation advances a tick while
+a wave is running. That advance — the first live tick of the wave, swept at the top of `advance()`,
+before spawning and combat — commits every standing structure. `Structure.provisional` is ordinary
+hashed state, so replays reproduce it exactly.
+
+While provisional, a structure refunds **100%** of its total invested cost (upgrades included) and
+may be sold in any live phase, the wave included. Once committed it is unchanged in every respect:
+the configured refund fraction, and no selling while a wave runs.
+
+The window is deliberately *not* "the next tick". What the build phase and a stopped game share is
+that **no consequential tick has elapsed** — the build phase because spawns and settlement are gated
+off, a pause because time is not running at all. One predicate covers both:
+
+```
+   build phase           →  ticks advance, but runPhase ≠ 'wave' → stays provisional
+   press START WAVE      →  first advanced tick → EVERYTHING COMMITS
+   stopped wave, place   →  advance() is never called → provisional
+   running wave, place   →  committed within 50 ms — live play has no free undo
+```
+
+**The simulation still knows nothing about pause.** The rule reads only "an advance happened while a
+wave was live"; pause manifests as `advance()` not being called, so the seam above is preserved
+whole. The upgrade path is deliberately not covered: upgrading a *committed* tower stays
+irreversible, because reversing it means storing a committed baseline rather than a flag, plus a
+revert command.
+
+The player-facing consequence — the build phase is a planning board, and START WAVE is the decision
+— is in [README.md](README.md).
 
 ### Attack resolution
 
@@ -502,9 +593,10 @@ so Tailwind's scanner sees every class verbatim.
 
 - **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar.
 - **Palette** — four towers plus wall and remove, with costs, greyed out when unaffordable or
-  when `balance < 0` (the README's no-spending-while-negative rule).
-- **Inspector** — selected tower: level, damage, rate, range, upgrade cost, sell/remove with the
-  removal-delay countdown. Right panel on desktop; bottom sheet on mobile.
+  when `balance < 0` (the README's no-spending-while-negative rule). The remove tool ignores the
+  balance and greys out while a wave runs instead.
+- **Inspector** — selected tower: level, damage, rate, range, upgrade cost, and sell/remove showing
+  the refund it returns, locked while a wave runs. Right panel on desktop; bottom sheet on mobile.
 - **Input** — two thin drivers over one shared core (`InputCore`: ground-plane raycast → tile,
   ghost verdict loop, selection, **command** emission). `PointerDriver` (hover + fine pointer):
   hover ghost, one-click commit. `TouchDriver` (everything else): tap anchors a pending ghost,
@@ -577,7 +669,7 @@ Vitest, `sim/` only. No render or UI tests.
 | File | Asserts |
 |---|---|
 | `flowfield.test.ts` | Reachability; no diagonal between two blocked tiles; costs monotonic toward source |
-| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal keeps tile blocked for 80 ticks |
+| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal unblocks and refunds in its own tick; mid-wave removal refused with an unchanged hash |
 | `theft.test.ts` | Full round trip: steal → carry at 80% → killed → sack drops → picked up → flip to returning → escape |
 | `economy.test.ts` | Interest only during waves and only on positive balance; settlement order; the solvency gate lock and refund-driven unlock; solvent-to-win |
 | `fixed.test.ts` | Normalisation exactness; no float leaks; division rounding at negatives |
@@ -624,8 +716,22 @@ Recorded so they are not accidentally rediscovered as gaps:
 
 To be answered by playtesting, not by argument:
 
-1. Is 4.0 s the right removal delay? (D: 3–5 s range from the README.)
-2. Does turn-around penalisation become necessary, or does the removal delay alone kill juggling?
+1. Does free re-mazing between waves flatten the difficulty curve, and is the 50% refund a stiff
+   enough brake on its own? (Tunable via `removalRefundFraction`.)
+
+   **Partially answered by fiat, not by playtest** (provisional-construction): revising *this
+   phase's own* construction is now free, because the 50% spread was taxing misclicks and
+   hesitation rather than re-mazing — and under tactical pause it could tax a purchase that could
+   not be undone at all. Rearranging an *established* maze still pays the full 50%, so the brake
+   survives where it was doing work.
+
+   What remains open is the live half, now with a second variable: whether a build phase that is
+   meaningfully cheaper to iterate in flattens the curve anyway, and whether the surviving 50% on
+   committed construction is still the right number. Also open: whether upgrade misclicks — the one
+   asymmetry left, since a committed tower's upgrade cannot be undone — sting enough to justify
+   storing a committed baseline per structure and adding a revert command.
+2. Does turn-around penalisation become necessary, or does the no-selling-during-a-wave rule alone
+   kill juggling?
 3. Does uncapped interest actually self-balance, or does hoarding dominate?
 4. Is a flat per-wave stipend needed to soften the death spiral? (Only if testing demands it — never
    by softening theft itself.)

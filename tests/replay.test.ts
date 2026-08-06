@@ -14,6 +14,18 @@
 // Balance-ux-tweaks note: goldens re-minted once more — the 20×10 level_01,
 // the retuned costs, and the wave speed bonus (new hashed field) all change
 // the trajectory, so the script was re-derived against the new board.
+// Instant-between-wave-selling note: GOLDEN_SCRIPT_HASH alone was re-minted.
+// Immediate removal dropped `removalCompleteTick` from Structure, so the
+// canonical walk lost one mixed field per structure — the hash layout changed
+// while the trajectory did not (the script issues no remove commands, and
+// every milestone below still holds, kills included). GOLDEN_IDLE_HASH was
+// deliberately NOT touched: that run places nothing, so the walk never reaches
+// structure fields. If it ever moves, the edit reached further than intended.
+// Provisional-construction note: GOLDEN_SCRIPT_HASH alone was re-minted again,
+// for the same reason in reverse — `Structure.provisional` adds one mixed field
+// per structure. The trajectory is untouched: the flag is read only by the
+// removal path, this script issues no removals, and every milestone below still
+// holds (kills included, at 156). GOLDEN_IDLE_HASH again did NOT move.
 import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import levelJson from '../src/data/levels/level_01.json';
@@ -28,7 +40,7 @@ const TICKS = 5600;
 /** Empty-command run: an inert build phase — nothing spawns without a wave. */
 const GOLDEN_IDLE_HASH = '69d49af9';
 /** Scripted full-run session (see script below). */
-const GOLDEN_SCRIPT_HASH = '172e0ed3';
+const GOLDEN_SCRIPT_HASH = 'edc89a6b';
 
 function makeSim(): Sim {
   return new Sim(loadGameData(levelJson, balanceJson), SEED);
@@ -179,6 +191,52 @@ describe('replay determinism', () => {
     expect(formatHash(runScripted().sim.hash())).toBe(GOLDEN_SCRIPT_HASH);
   });
 
+  it('commit + advance equals tick() at every tick of the scripted run', () => {
+    // The tick seam (time-controls design D2) is only sound if the two halves
+    // compose back into the whole. Compared per tick, not just at the end, so a
+    // divergence is caught where it happens rather than after it has been
+    // absorbed by later state.
+    const whole = makeSim();
+    const wholeCommands = script();
+    const halves = makeSim();
+    const halfCommands = script();
+
+    for (let t = 0; t < TICKS; t++) {
+      whole.tick(wholeCommands.get(t) ?? []);
+      halves.commit(halfCommands.get(t) ?? []);
+      halves.advance();
+      expect(halves.state.tick).toBe(whole.state.tick);
+      expect(halves.hash()).toBe(whole.hash());
+    }
+    expect(formatHash(halves.hash())).toBe(GOLDEN_SCRIPT_HASH);
+  });
+
+  it('two runs agree on which structures are provisional at every tick', () => {
+    // The provisional flag is hashed, so the golden already pins it — but only
+    // at tick 5600, by which point the script has committed everything. This
+    // walks the whole trajectory, where the flag genuinely flips: it is a pure
+    // function of the seed, the commands and the ticks advanced.
+    const a = makeSim();
+    const b = makeSim();
+    const aCommands = script();
+    const bCommands = script();
+    let sawProvisional = false;
+    let sawCommitted = false;
+
+    for (let t = 0; t < TICKS; t++) {
+      a.tick(aCommands.get(t) ?? []);
+      b.tick(bCommands.get(t) ?? []);
+      const flags = (sim: Sim): string =>
+        sim.state.structures.map((s) => `${s.id}:${s.provisional ? 1 : 0}`).join(',');
+      expect(flags(a)).toBe(flags(b));
+      if (a.state.structures.some((s) => s.provisional)) sawProvisional = true;
+      if (a.state.structures.some((s) => !s.provisional)) sawCommitted = true;
+    }
+    // …and the comparison was not vacuous: both states actually occurred.
+    expect(sawProvisional).toBe(true);
+    expect(sawCommitted).toBe(true);
+  });
+
   it('display rate does not affect state: 1-tick steps == 5-tick bursts', () => {
     const commands = script();
     const oneAtATime = makeSim();
@@ -214,7 +272,7 @@ describe('replay determinism', () => {
       }
     }
     for (const st of s.structures) {
-      for (const v of [st.id, st.tx, st.ty, st.archetypeId, st.level, st.paidMg, st.removalCompleteTick, st.nextFireTick]) {
+      for (const v of [st.id, st.tx, st.ty, st.archetypeId, st.level, st.paidMg, st.nextFireTick]) {
         expect(Number.isInteger(v)).toBe(true);
       }
     }

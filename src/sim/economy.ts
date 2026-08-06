@@ -146,16 +146,34 @@ export function returnSacks(state: SimState): void {
 }
 
 /**
+ * What removing `s` credits, in milli-gold — the one refund rule the sim, the
+ * inspector and the liquidation query all read (provisional-construction
+ * design D3/D5). Provisional construction returns its total invested cost in
+ * full, upgrades included; committed construction returns the configured
+ * fraction of it, floored.
+ */
+export function refundMg(
+  s: { paidMg: number; provisional: boolean },
+  refundPer1000: number,
+): number {
+  return s.provisional ? s.paidMg : Math.floor((s.paidMg * refundPer1000) / 1000);
+}
+
+/**
  * Total refund value of every standing structure, in milli-gold — the
  * liquidation query behind the impossible-recovery notice (design D8).
  * Derived on demand, never stored.
+ *
+ * Summed at the rate each structure would actually pay (design D5): one flat
+ * fraction understates what a player holding provisional construction can
+ * raise, and would declare a recoverable run dead.
  */
 export function liquidationTotalMg(
-  structures: readonly { paidMg: number }[],
+  structures: readonly { paidMg: number; provisional: boolean }[],
   refundPer1000: number,
 ): number {
   let total = 0;
-  for (const s of structures) total += Math.floor((s.paidMg * refundPer1000) / 1000);
+  for (const s of structures) total += refundMg(s, refundPer1000);
   return total;
 }
 

@@ -52,7 +52,7 @@ Treasury and build-gold are **one pool**. Spending on towers lowers the same bal
 - Unclaimed sacks return to the treasury at end of wave. Gold that escapes through a spawn is **gone** — no mercy.
 - **Kill bounties** go straight to the treasury and are meaningful (primary income).
 - **Interest** accrues **only during waves** (build phase earns nothing), as a percentage of held balance per tick. No cap initially — the system self-balances: hoarding earns interest but leaves you undertowered against thieves. Interest is a skill-expression lever that rewards restraint and punishes overspending.
-- **Bankruptcy is a solvency gate, not a threshold:** starting the next wave requires **balance ≥ 0**. You **cannot spend on towers while below 0**; while wave-locked, the only income is selling structures at their 50% refund — recovery weakens the defense, and that *is* the death spiral. There is **no automatic loss**: the run ends only when the player concedes, and the UI states plainly when liquidating everything could not clear the debt. Winning requires the same solvency — after the final wave settles, victory fires the moment the balance is ≥ 0.
+- **Bankruptcy is a solvency gate, not a threshold:** starting the next wave requires **balance ≥ 0**. You **cannot spend on towers while below 0**; while wave-locked, the only income is selling structures at their refund — 50% for anything a wave has already run against, the full price for construction that has not yet been committed — and recovery weakens the defense, which *is* the death spiral. There is **no automatic loss**: the run ends only when the player concedes, and the UI states plainly when liquidating everything could not clear the debt. Winning requires the same solvency — after the final wave settles, victory fires the moment the balance is ≥ 0.
 - Death-spiral mitigation, if testing demands it: a small flat per-wave stipend — never a softening of theft itself.
 
 ## Towers
@@ -86,9 +86,19 @@ Three types for the POC, each designed to punish a missing tower:
 ## Build Rules & Anti-Juggling
 
 - **No timer in the build phase** — plan as long as you like. Building during waves is allowed and instant.
-- **Removing a wall/tower takes 3–5 seconds** (removal delay). This is the anti-juggling rule: open/close treadmill exploits require fast removal cycles; a delay kills them without banning legitimate mid-wave construction.
+- **What you build this phase stays undoable until the wave runs.** A structure is *provisional* until a tick of live wave time passes over it: sell it and you get **100%** back, whatever the phase. The build phase is a planning board, and **START WAVE is the decision** — its first tick locks in everything standing. Provisional structures are marked on the board, so what is about to lock in is visible without clicking each one. A misclicked wall costs nothing; a maze you have already fought behind costs the usual half. (The same rule makes a purchase during a *paused* wave undoable, since no live tick has passed — resume time and it commits.)
+- **Selling committed construction is instant, but only between waves.** This is the anti-juggling rule: open/close treadmill exploits need removal cycles *during* a wave, so removal of anything the wave has already run against is simply refused while one runs — which bans the exploit outright without taxing deliberate re-mazing, and without banning legitimate mid-wave construction. The **50% refund** on committed structures is what makes re-mazing an established maze cost something.
+- **Upgrades are not undoable** once the tower is committed — selling a provisional tower returns its upgrades too, but a committed tower's upgrade is a one-way spend.
 - Fully sealing the path is impossible (placement validation rejects it).
 - Fallback if juggling persists in testing: penalize enemies whose new waypoint equals their previous tile (turn-around detection) — the hook already exists in the waypoint cache.
+
+## Time Controls
+
+- **Space pauses; holding F fast-forwards.** On screen, START WAVE's slot becomes a play/pause and a fast-forward button while a wave runs. The board desaturates while stopped, so a pause never reads as a hang.
+- **Fast-forward is momentary — held only.** It cannot be left on by accident, and because it overrides pause rather than being blocked by it, a stopped game can be *scrubbed*: rest at paused and feather the button to advance in small increments. That is the control the build phase already gives you between waves, extended into a wave.
+- **A paused game stays responsive.** Placing a tower while stopped charges the treasury, blocks the tile, rebuilds the flow fields and re-targets enemies immediately — without advancing a tick. Tactical pause is real deliberation, not a freeze-frame.
+- **Speed is not a player choice.** One configured multiplier, retunable via `?ff=` while playtesting; the HUD never offers a number to pick.
+- Neither control can affect the outcome: the wave speed bonus and interest are both counted in simulation ticks, so fast-forwarding cannot farm a better bonus or dodge one. The simulation has no clock — pause is the render loop declining to advance it.
 
 ## Waves & Levels
 
@@ -151,7 +161,8 @@ the layout reference the shipped HUD follows.
 
 - **Desktop**: top app bar (concede + impossible-recovery notice left, wave counter/progress
   center, treasury readout right), build palette as a left rail, tower inspector as a right
-  panel, START WAVE bottom-right. Debug spawn panel and the hotkey hint line are desktop-only.
+  panel, START WAVE bottom-right — replaced in place by the play/pause and fast-forward transport
+  while a wave runs. Debug spawn panel and the hotkey hint line are desktop-only.
 - **Mobile**: compact top bar (same counter and treasury), build palette as a bottom menu,
   inspector as a bottom sheet that swaps with the build menu while a tower is selected,
   START WAVE above the menu. Portrait shows a rotate prompt — the game is landscape-first.
@@ -172,7 +183,7 @@ are render-side only and never touch simulation state.
 ## Build Order
 
 1. Grid + dual flow fields + one enemy walking in and back out. **Watch the theft round-trip before building anything else** — if it feels good, everything else is layering.
-2. Placement + validation + removal delay.
+2. Placement + validation + removal (immediate, between waves).
 3. Towers (rapid fire first), damage, bounties.
 4. Full theft loop: carry, drop, pickup, flip-to-returning, end-of-wave return.
 5. Remaining towers, upgrades, slow + icons.

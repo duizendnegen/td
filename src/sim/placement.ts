@@ -1,4 +1,4 @@
-// Placement validation and removal timers
+// Placement validation and removal
 // See ARCHITECTURE.md §7, phase-2 design D1–D3, and phase-4 designs D4/D6
 //
 // Responsibilities:
@@ -11,15 +11,19 @@
 //     live enemy in the field matching its state
 //   - Purity: the tentative mask is unconditionally restored; fields are
 //     rebuilt into caller-owned scratch buffers (spare-buffer swap)
-//   - Removal delay 80 ticks; a dirt tile stays blocked throughout, a socket
-//     tile is never unblocked or rebuilt over (D6)
+//   - The removal gate (canRemove) — the one predicate the sim and every UI
+//     remove control share, reading the phase AND the structure, since a wave
+//     gates only committed construction
+//   - Immediate removal: unblock, refund, drop, all in the calling tick; a
+//     socket tile is never unblocked or rebuilt over (D6)
 
+import { refundMg } from './economy';
 import { toTile } from './fixed';
 import type { FlowField } from './flowfield';
 import { buildFieldInto } from './flowfield';
 import type { Grid } from './grid';
 import { TERRAIN } from './grid';
-import type { Enemy, SimState, Structure, StructureKind } from './types';
+import type { Enemy, RunPhase, SimState, Structure, StructureKind } from './types';
 
 export interface FootprintTile {
   x: number;
@@ -134,30 +138,64 @@ export function validatePlacement(
 }
 
 /**
- * Tick step 3: complete due removals — unblock the footprint, credit the
- * refund (floored, from the paid price), and drop the structure. Returns
- * whether the blocked mask changed, in which case the caller rebuilds the
- * live fields and runs the commitment-invalidation sweep.
+ * Whether `s` may be removed in `phase` (structure-placement spec).
+ *
+ * An allowlist, not `phase !== 'wave'`: 'won' and 'lost' are refused too,
+ * because a refund landing after the run ended would rewrite a final balance
+ * the run summary already reported. 'settled-locked' MUST stay open — that
+ * liquidation is the only way back to solvency and to the win.
+ *
+ * The wave prohibition consults the structure (provisional-construction design
+ * D3): it bans opening and closing an ESTABLISHED maze mid-wave. A provisional
+ * structure has not existed for a single advanced tick of that wave, so
+ * unwinding it cannot alter the maze the wave began against.
+ *
+ * Shared, like canSpend: the authoritative apply and every UI surface that
+ * renders a remove control call this one predicate so they cannot drift.
+ */
+export function canRemove(phase: RunPhase, s: Structure): boolean {
+  if (phase === 'build' || phase === 'settled-locked') return true;
+  return phase === 'wave' && s.provisional;
+}
+
+/**
+ * Whether ANY structure could be removable in `phase` — the gate for controls
+ * that have no target yet, the palette's remove tool above all. True through
+ * a wave now that provisional construction stays sellable (build-ui spec); the
+ * per-structure verdict lands at the click, through canRemove.
+ */
+export function removalOpenIn(phase: RunPhase): boolean {
+  return phase === 'build' || phase === 'settled-locked' || phase === 'wave';
+}
+
+/**
+ * Remove `s` outright — unblock the footprint, credit the refund it is owed
+ * (full while provisional, the floored fraction once committed), and drop the
+ * structure — all in the calling tick.
+ * Returns whether the blocked mask changed, in which case the caller rebuilds
+ * the live fields and runs the commitment-invalidation sweep.
+ *
+ * No validation runs here beyond what the caller already checked, and none is
+ * needed: unblocking a tile is monotone on the flow fields (every cost stays
+ * equal or falls), so a removal can never seal a spawn or strand an enemy,
+ * and no enemy can stand on a blocked tile to begin with.
  *
  * Socket asymmetry (D6): a socket structure's tile is terrain-blocked, not
  * structure-blocked, so its removal never unblocks the tile and never counts
  * as a mask change — the refund is the only effect.
  */
-export function tickRemovals(state: SimState, grid: Grid, refundPer1000: number): boolean {
+export function removeStructure(
+  state: SimState,
+  grid: Grid,
+  s: Structure,
+  refundPer1000: number,
+): boolean {
   let changed = false;
-  let reap = false;
-  for (const s of state.structures) {
-    if (s.removalCompleteTick < 0 || state.tick < s.removalCompleteTick) continue;
-    if (grid.terrainAt(s.tx, s.ty) !== TERRAIN.socket) {
-      grid.setBlocked(s.tx, s.ty, false);
-      changed = true;
-    }
-    state.treasuryMg += Math.floor((s.paidMg * refundPer1000) / 1000);
-    s.removalCompleteTick = -2; // reaped below
-    reap = true;
+  if (grid.terrainAt(s.tx, s.ty) !== TERRAIN.socket) {
+    grid.setBlocked(s.tx, s.ty, false);
+    changed = true;
   }
-  if (reap) {
-    state.structures = state.structures.filter((s) => s.removalCompleteTick !== -2);
-  }
+  state.treasuryMg += refundMg(s, refundPer1000);
+  state.structures = state.structures.filter((x) => x !== s);
   return changed;
 }
