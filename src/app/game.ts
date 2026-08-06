@@ -10,6 +10,7 @@ import balanceJson from '../data/balance.json';
 import { loadGameData } from '../data/schema';
 import { levelForParam, nextLevelUrl } from './levels';
 import { CommandQueue } from '../sim/commands';
+import { canRemove } from '../sim/placement';
 import { Sim } from '../sim/sim';
 import { formatHash } from '../sim/hash';
 import { Assets } from '../render/assets';
@@ -28,9 +29,11 @@ import { InspectorUI } from '../ui/inspector';
 import { PaletteUI } from '../ui/palette';
 import { RunScreens } from '../ui/screens';
 import { SpawnPanelUI } from '../ui/spawnpanel';
+import { TimeHud } from '../ui/timehud';
 import { WaveHud } from '../ui/wavehud';
 import { startLoop } from './loop';
 import { SpawnScheduler } from './presets';
+import { FF_SPEED, TimeControl } from './time';
 
 // The kit subset grows as phases land; Phase 4 adds the terrain palette
 // tiles and the socket base.
@@ -74,6 +77,22 @@ function seedFromUrl(): number {
   return parsed;
 }
 
+/**
+ * Fast-forward multiplier override (time-controls design D5). Retuning this is
+ * a playtesting question, so it is answerable on the deployed link without a
+ * rebuild. Purely render-loop: no value here can change a state hash.
+ */
+function ffSpeedFromUrl(): number {
+  const raw = new URLSearchParams(window.location.search).get('ff');
+  if (raw === null) return FF_SPEED;
+  const parsed = Number.parseFloat(raw);
+  if (!Number.isFinite(parsed) || parsed <= 1) {
+    console.warn(`ignoring invalid ?ff=${raw}; using default`);
+    return FF_SPEED;
+  }
+  return parsed;
+}
+
 export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   // Load + validate data — a bad level stops the boot here, before rendering.
   const levelEntry = levelForParam(new URLSearchParams(window.location.search).get('level'));
@@ -85,6 +104,9 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   const sim = new Sim(data, seed);
   const commands = new CommandQueue();
   const scheduler = new SpawnScheduler();
+  // Time controls: the rate the loop drives ticks at. Never simulation state —
+  // the sim has no way to observe pause or speed (design D1).
+  const time = new TimeControl(ffSpeedFromUrl());
   console.log(`seed ${seed}${seed === DEFAULT_SEED ? ' (default)' : ' (from ?seed=)'}`);
 
   // Render.
@@ -148,14 +170,30 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     data,
     commands,
   );
+  const timeHud = new TimeHud(slot('bottom'), time);
   const screens = new RunScreens(
     slot('overlay'),
     nextLevelUrl(levelEntry.next, window.location.search, window.location.pathname),
   );
   buildHintLine(hud);
 
+  // Pause releases on any run-phase change (design D7) — one rule covering
+  // startWave, concede and settlement, so time can never be left stopped in a
+  // phase whose controls cannot restart it. Observed from here, never from the
+  // sim: `startWave` and `concede` are commands, so they flip the phase during
+  // a commit while time is still stopped.
+  let lastPhase = sim.state.runPhase;
+  const releasePauseOnPhaseChange = (): void => {
+    if (sim.state.runPhase === lastPhase) return;
+    lastPhase = sim.state.runPhase;
+    time.setPaused(false);
+  };
+
   // App-side instrumentation for the F4 readout; the sim never reads the clock.
-  const stats = { lastTickMs: 0 };
+  // `pendingCommit` marks a state that has absorbed intent but not yet advanced
+  // — the reason its hash can move while the tick counter stands still.
+  const stats = { lastTickMs: 0, pendingCommit: false };
+  let lastFrozen = false;
   const tickOnce = (): void => {
     const start = performance.now();
     // Scheduled preset spawns join the queue at their tick boundary, then
@@ -163,6 +201,20 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     scheduler.flushDue(sim.state.tick, commands);
     sim.tick(commands.drain());
     stats.lastTickMs = performance.now() - start;
+    stats.pendingCommit = false; // the advance consumed it
+    releasePauseOnPhaseChange();
+  };
+
+  // Frozen-frame intent: the same command path, absorbed without advancing.
+  // The scheduler is deliberately not flushed here — preset spawns are due at a
+  // tick boundary, and no boundary passes while time is stopped.
+  const commitOnce = (): void => {
+    const drained = commands.drain();
+    // An empty commit changes nothing observable, so only real intent marks the
+    // state as pending.
+    if (drained.length > 0) stats.pendingCommit = true;
+    sim.commit(drained);
+    releasePauseOnPhaseChange();
   };
 
   const debug = new DebugOverlay(renderer.scene, sim, hud);
@@ -199,6 +251,36 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     }
   });
 
+  // Time-control keys (design D6): live in EVERY phase, unlike the buttons —
+  // the debug spawn panel is not phase-gated, so a build phase can hold moving
+  // enemies. Space is preventDefault-ed because a focused button would
+  // otherwise re-activate on it.
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (!e.repeat) time.togglePaused();
+      return;
+    }
+    // Auto-repeat would re-engage a hold the release paths just cleared.
+    if ((e.key === 'f' || e.key === 'F') && !e.repeat) {
+      e.preventDefault();
+      time.setFastForward(true, 'key');
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'f' || e.key === 'F') time.setFastForward(false, 'key');
+  });
+
+  // Every remaining release path (design D10). A pointer hold survives neither
+  // losing the window nor the button unmounting when a wave settles, so the
+  // pointer release is bound to the window rather than to any control.
+  window.addEventListener('pointerup', () => time.setFastForward(false, 'pointer'));
+  window.addEventListener('pointercancel', () => time.setFastForward(false, 'pointer'));
+  window.addEventListener('blur', () => time.releaseFastForward());
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) time.releaseFastForward();
+  });
+
   // Exposed for console debugging and automated exploration; read-only use.
   (window as unknown as Record<string, unknown>).__td = {
     renderer,
@@ -210,24 +292,36 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     scheduler,
     palette,
     inspector,
+    // Time control: the handle a playtest retunes `speed` through, and the one
+    // Playwright drives instead of simulating a sustained physical hold.
+    time,
   };
 
-  startLoop({
+  startLoop(time, {
     tick: tickOnce,
+    commit: commitOnce,
     render: (alpha) => {
       const now = performance.now();
       enemies.sync(sim.state.enemies, alpha, now, sim.state.tick);
-      structures.sync(sim.state.structures, sim.state.tick, (s) => sim.currentTarget(s));
+      structures.sync(sim.state.structures, (s) => sim.currentTarget(s));
       sacks.sync(sim.state.sacks, now);
       fx.drain(sim.events, now);
       fx.update(now);
       input.update();
       treasuryHud.update(sim.state.treasuryMg);
-      palette.refresh(sim.state.treasuryMg);
+      palette.refresh(sim.state.treasuryMg, canRemove(sim.state.runPhase));
       waveHud.update(sim.state, sim.totalWaves);
+      timeHud.update(sim.state);
+      // Paused presentation (design D9): a stopped board must not read as a
+      // hang. CSS keys off the attribute; the HUD stays untouched.
+      const frozen = time.frozen;
+      if (frozen !== lastFrozen) {
+        lastFrozen = frozen;
+        canvas.toggleAttribute('data-frozen', frozen);
+      }
       screens.update(sim.state);
       inspector.refresh(sim.state);
-      debug.update(stats.lastTickMs);
+      debug.update(stats.lastTickMs, stats.pendingCommit);
       renderer.render(camera.camera);
     },
   });

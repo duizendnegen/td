@@ -179,7 +179,7 @@ export class DebugOverlay {
   }
 
   /** Called every frame; refreshes whichever dynamic layers are visible. */
-  update(lastTickMs: number): void {
+  update(lastTickMs: number, pendingCommit = false): void {
     // The live fields are swapped objects; a new reference means the mask
     // changed and a visible F1 layer is stale — rebuild it.
     if (this.fieldLayer && this.fieldLayerSource !== this.sim.inbound) {
@@ -198,8 +198,11 @@ export class DebugOverlay {
         if (s.tick < e.slowUntil) slowed++;
       }
       const types = [...byType.entries()].map(([k, n]) => `${k} ${n}`).join(' · ') || 'none';
+      // A pending commit is why the hash can move at a standing tick: the state
+      // has absorbed intent but not advanced through it. Marked so that reads as
+      // intended rather than as determinism drift (time-controls design D3).
       this.readout.textContent =
-        `tick    ${s.tick}\n` +
+        `tick    ${s.tick}${pendingCommit ? ' +pending' : ''}\n` +
         `hash    ${formatHash(this.sim.hash())}\n` +
         `enemies ${s.enemies.length} (${slowed} slowed)\n` +
         `        ${types}\n` +

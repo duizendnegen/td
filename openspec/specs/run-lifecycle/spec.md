@@ -54,9 +54,10 @@ simulation state and reflected in the treasury before the settlement judgement r
 ### Requirement: Starting a wave requires solvency
 
 The start-wave command SHALL be accepted only while the treasury balance is ≥ 0. While the
-balance is negative between waves, the run SHALL be wave-locked: structure removal (with its
-normal delay and refund) remains available, and the resulting refunds are the only income.
-Reaching balance ≥ 0 SHALL unlock the start-wave command with no further condition.
+balance is negative between waves, the run SHALL be wave-locked: immediate structure removal, with
+its refund credited in the tick the removal command applies, remains available, and the resulting
+refunds are the only income. Reaching balance ≥ 0 SHALL unlock the start-wave command with no
+further condition.
 
 #### Scenario: Negative settlement locks the next wave
 
@@ -65,8 +66,9 @@ Reaching balance ≥ 0 SHALL unlock the start-wave command with no further condi
 
 #### Scenario: Selling defense unlocks the wave
 
-- **WHEN** the run is wave-locked at −40 and the player completes removals refunding 45
-- **THEN** the balance reaches +5 and the start-wave command is accepted again
+- **WHEN** the run is wave-locked at −40 and the player removes structures refunding 45
+- **THEN** the balance reaches +5 in the tick the last of those removals applies, and the
+  start-wave command is accepted from that tick on
 
 ### Requirement: The run is lost only by concession
 
@@ -99,7 +101,7 @@ the win SHALL fire at the moment the balance reaches ≥ 0. Concession remains a
 #### Scenario: Indebted finish must liquidate to claim victory
 
 - **WHEN** the final wave's settlement completes with the balance at −60
-- **THEN** the run is not yet won, and it ends as won in the tick a completed removal's refund
+- **THEN** the run is not yet won, and it ends as won in the same tick a removal command's refund
   brings the balance to ≥ 0
 
 ### Requirement: Run summary accounting

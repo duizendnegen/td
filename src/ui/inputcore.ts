@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import type { CommandQueue } from '../sim/commands';
-import { footprintFor, structureAt } from '../sim/placement';
+import { canRemove, footprintFor, structureAt } from '../sim/placement';
 import type { Sim } from '../sim/sim';
 import { towerStats } from '../sim/tower';
 import type { FxRenderer, GhostPreview, GhostTint } from '../render/fx';
@@ -136,12 +136,20 @@ export class InputCore {
     return false;
   }
 
-  /** Issue a removal for the structure at `tile`, if one is not already going. */
+  /**
+   * Issue a removal for the structure at `tile` — refused, with the same red
+   * flash any invalid commit gets, while a wave gates selling or the tile is
+   * bare. The sim re-checks the gate authoritatively at the applying tick.
+   */
   commitRemove(tile: Tile): void {
-    const s = structureAt(this.sim.state.structures, tile.tx, tile.ty);
-    if (s && s.removalCompleteTick < 0) {
-      this.commands.issue({ kind: 'remove', tx: tile.tx, ty: tile.ty });
+    const s = canRemove(this.sim.state.runPhase)
+      ? structureAt(this.sim.state.structures, tile.tx, tile.ty)
+      : null;
+    if (!s) {
+      this.fx.flashReject(footprintFor(tile.tx, tile.ty), performance.now());
+      return;
     }
+    this.commands.issue({ kind: 'remove', tx: tile.tx, ty: tile.ty });
   }
 
   /** Select the tower at `tile` for inspection, or deselect on empty board. */

@@ -86,9 +86,17 @@ Three types for the POC, each designed to punish a missing tower:
 ## Build Rules & Anti-Juggling
 
 - **No timer in the build phase** — plan as long as you like. Building during waves is allowed and instant.
-- **Removing a wall/tower takes 3–5 seconds** (removal delay). This is the anti-juggling rule: open/close treadmill exploits require fast removal cycles; a delay kills them without banning legitimate mid-wave construction.
+- **Selling a wall/tower is instant, but only between waves.** This is the anti-juggling rule: open/close treadmill exploits need removal cycles *during* a wave, so removal is simply refused while one runs — which bans the exploit outright without taxing deliberate re-mazing, and without banning legitimate mid-wave construction. The 50% refund is what makes re-mazing cost something.
 - Fully sealing the path is impossible (placement validation rejects it).
 - Fallback if juggling persists in testing: penalize enemies whose new waypoint equals their previous tile (turn-around detection) — the hook already exists in the waypoint cache.
+
+## Time Controls
+
+- **Space pauses; holding F fast-forwards.** On screen, START WAVE's slot becomes a play/pause and a fast-forward button while a wave runs. The board desaturates while stopped, so a pause never reads as a hang.
+- **Fast-forward is momentary — held only.** It cannot be left on by accident, and because it overrides pause rather than being blocked by it, a stopped game can be *scrubbed*: rest at paused and feather the button to advance in small increments. That is the control the build phase already gives you between waves, extended into a wave.
+- **A paused game stays responsive.** Placing a tower while stopped charges the treasury, blocks the tile, rebuilds the flow fields and re-targets enemies immediately — without advancing a tick. Tactical pause is real deliberation, not a freeze-frame.
+- **Speed is not a player choice.** One configured multiplier, retunable via `?ff=` while playtesting; the HUD never offers a number to pick.
+- Neither control can affect the outcome: the wave speed bonus and interest are both counted in simulation ticks, so fast-forwarding cannot farm a better bonus or dodge one. The simulation has no clock — pause is the render loop declining to advance it.
 
 ## Waves & Levels
 
@@ -151,7 +159,8 @@ the layout reference the shipped HUD follows.
 
 - **Desktop**: top app bar (concede + impossible-recovery notice left, wave counter/progress
   center, treasury readout right), build palette as a left rail, tower inspector as a right
-  panel, START WAVE bottom-right. Debug spawn panel and the hotkey hint line are desktop-only.
+  panel, START WAVE bottom-right — replaced in place by the play/pause and fast-forward transport
+  while a wave runs. Debug spawn panel and the hotkey hint line are desktop-only.
 - **Mobile**: compact top bar (same counter and treasury), build palette as a bottom menu,
   inspector as a bottom sheet that swaps with the build menu while a tower is selected,
   START WAVE above the menu. Portrait shows a rotate prompt — the game is landscape-first.
@@ -172,7 +181,7 @@ are render-side only and never touch simulation state.
 ## Build Order
 
 1. Grid + dual flow fields + one enemy walking in and back out. **Watch the theft round-trip before building anything else** — if it feels good, everything else is layering.
-2. Placement + validation + removal delay.
+2. Placement + validation + removal (immediate, between waves).
 3. Towers (rapid fire first), damage, bounties.
 4. Full theft loop: carry, drop, pickup, flip-to-returning, end-of-wave return.
 5. Remaining towers, upgrades, slow + icons.

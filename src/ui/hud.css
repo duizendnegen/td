@@ -125,6 +125,18 @@
 
 }
 
+/* Paused board (time-controls design D9). Desaturation reads as stopped time
+   where dimming reads as a modal overlay, and filtering the canvas alone leaves
+   the HUD fully saturated and legible. A CSS filter, not a Three.js pass:
+   post-processing is out of scope (ARCHITECTURE.md §14), and the scene is
+   static while frozen so the composite is paid once. */
+#game {
+  transition: filter 180ms ease-out;
+}
+#game[data-frozen] {
+  filter: saturate(0.25) brightness(0.85);
+}
+
 /* Rotate prompt: landscape-first on touch devices (touch-input spec). Pure
    CSS — rotating in and out needs no JS and loses no state. Unlayered so the
    display flip out-cascades layered utilities. */

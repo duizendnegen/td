@@ -81,8 +81,6 @@ export interface Structure {
    * The basis of the removal refund (phase-3 design D3).
    */
   paidMg: number;
-  /** Absolute tick a pending removal completes, or -1 while not being removed. */
-  removalCompleteTick: number;
   /** Towers: absolute tick of the earliest permitted next shot. Walls: 0. */
   nextFireTick: number;
 }
