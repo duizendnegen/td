@@ -1,6 +1,5 @@
 // See ARCHITECTURE.md §12 and the phase-3 tower-upgrades spec
 import { describe, expect, it } from 'vitest';
-import { REMOVAL_TICKS } from '../src/sim/fixed';
 import type { Sim } from '../src/sim/sim';
 import { injectEnemy, makeSim, openLevel, place, remove, testBalance, upgrade } from './helpers';
 
@@ -80,12 +79,13 @@ describe('tower upgrades', () => {
     expect(sim.hash()).toBe(hashBefore().hash());
   });
 
-  it('a tower under a removal countdown cannot be upgraded', () => {
+  it('a removed tower cannot be upgraded: there is nothing there to upgrade', () => {
     const sim = withTower();
     sim.tick([remove(3, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
     const before = sim.state.treasuryMg;
     sim.tick([upgrade(3, 0)]);
-    expect(sim.state.structures[0]!.level).toBe(1);
+    expect(sim.state.structures).toHaveLength(0);
     expect(sim.state.treasuryMg).toBe(before);
   });
 
@@ -95,10 +95,8 @@ describe('tower upgrades', () => {
     expect(sim.state.structures[0]!.paidMg).toBe(135_000);
     const beforeRemoval = sim.state.treasuryMg;
     sim.tick([remove(3, 0)]);
-    const issued = sim.state.tick - 1;
-    while (sim.state.tick <= issued + REMOVAL_TICKS) sim.tick([]);
     expect(sim.state.structures).toHaveLength(0);
-    // 50% of 135, not 50% of 50.
+    // 50% of 135, not 50% of 50 — credited in the removal's own tick.
     expect(sim.state.treasuryMg).toBe(beforeRemoval + 67_500);
   });
 

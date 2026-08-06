@@ -1,7 +1,17 @@
 // See ARCHITECTURE.md §12 and the phase-2/phase-4 structure-placement specs
 import { describe, expect, it } from 'vitest';
-import { REMOVAL_TICKS, tileCentre, toTile } from '../src/sim/fixed';
-import { injectEnemy, makeSim, openLevel, place, remove, spawnCmd, testBalance } from './helpers';
+import { tileCentre, toTile } from '../src/sim/fixed';
+import {
+  injectEnemy,
+  makeSim,
+  openLevel,
+  place,
+  remove,
+  spawnCmd,
+  startWave,
+  testBalance,
+  trivialWave,
+} from './helpers';
 
 describe('placement validation', () => {
   it('rejects a placement that seals every spawn from the treasury', () => {
@@ -104,27 +114,106 @@ describe('placement validation', () => {
     expect(sim.state.treasuryMg).toBe(-4000);
   });
 
-  it('removal keeps the tile blocked for all 80 ticks and refunds at expiry', () => {
+  it('removal unblocks, refunds and drops the structure in the command tick', () => {
     const { sim } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
     sim.tick([place('wall', 2, 0)]);
     const afterBuildMg = sim.state.treasuryMg;
     expect(afterBuildMg).toBe(196_000);
+    expect(sim.grid.isBlocked(2, 0)).toBe(true);
+    expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBe(-1); // walled off the field
 
     sim.tick([remove(2, 0)]);
-    const removalIssuedTick = sim.state.tick - 1; // the tick the command applied on
-    expect(sim.state.structures[0]!.removalCompleteTick).toBe(removalIssuedTick + REMOVAL_TICKS);
 
-    // Blocked, unrefunded, and pathed-around for the whole countdown.
-    while (sim.state.tick < removalIssuedTick + REMOVAL_TICKS) {
-      expect(sim.grid.isBlocked(2, 0)).toBe(true);
-      expect(sim.state.treasuryMg).toBe(afterBuildMg);
+    // One tick, no countdown: gone, unblocked, half the paid cost credited.
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.grid.isBlocked(2, 0)).toBe(false);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg + 2000);
+    // And both live fields reflect the reopened mask that same tick.
+    expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
+    expect(sim.returning.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
+  });
+
+  it('a removal refused mid-wave leaves the state hash untouched', () => {
+    const build = () => {
+      const { sim } = makeSim(
+        openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }, [], {
+          waves: [trivialWave(), trivialWave()],
+        }),
+      );
+      sim.tick([place('wall', 2, 0)]);
+      sim.tick([startWave()]);
+      expect(sim.state.runPhase).toBe('wave');
+      return sim;
+    };
+    const withAttempt = build();
+    const without = build();
+
+    withAttempt.tick([remove(2, 0)]);
+    without.tick([]);
+
+    // Refused: still standing, still blocked, not a milli-gold refunded.
+    expect(withAttempt.state.structures).toHaveLength(1);
+    expect(withAttempt.grid.isBlocked(2, 0)).toBe(true);
+    expect(withAttempt.state.treasuryMg).toBe(without.state.treasuryMg);
+    expect(withAttempt.hash()).toBe(without.hash());
+    expect(withAttempt.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+
+    // Building mid-wave is still legitimate — only selling is gated.
+    withAttempt.tick([place('wall', 2, 2)]);
+    expect(withAttempt.state.structures).toHaveLength(2);
+    expect(withAttempt.grid.isBlocked(2, 2)).toBe(true);
+  });
+
+  it('the same removal succeeds once the wave settles', () => {
+    const { sim } = makeSim(
+      openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }, [], {
+        waves: [trivialWave(), trivialWave()],
+      }),
+    );
+    sim.tick([place('wall', 2, 0)]);
+    const afterBuildMg = sim.state.treasuryMg;
+    sim.tick([startWave()]);
+    sim.tick([remove(2, 0)]); // refused: the wave is running
+    expect(sim.state.structures).toHaveLength(1);
+
+    // Drain the wave; settlement returns the run to the build phase.
+    sim.state.enemies.forEach((e) => (e.hp = 0));
+    sim.tick([]);
+    expect(sim.state.runPhase).toBe('build');
+
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg + 2000 + 6000); // refund + bounty
+  });
+
+  it('a removal opens the route for live enemies in its own tick', () => {
+    const { sim } = makeSim(
+      openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }),
+      testBalance({ speed: 128 }),
+    );
+    sim.tick([place('wall', 3, 1)]);
+    const e = injectEnemy(sim, 2, 1, { speed: 128 });
+    sim.tick([]);
+    // Steering around the wall: committed off row 1, and the walled tile is
+    // out of the field entirely.
+    expect(toTile(e.waypoint.y)).not.toBe(1);
+    expect(sim.inbound.cost[sim.grid.idx(3, 1)]).toBe(-1);
+
+    sim.tick([remove(3, 1)]);
+
+    // The tile is walkable and back in both fields in the removal's own tick.
+    expect(sim.grid.isBlocked(3, 1)).toBe(false);
+    expect(sim.inbound.cost[sim.grid.idx(3, 1)]).toBeGreaterThan(0);
+    expect(sim.returning.cost[sim.grid.idx(3, 1)]).toBeGreaterThan(0);
+
+    // The enemy keeps its standing one-tile commitment — an unblock never
+    // invalidates one — and routes through the reopened tile once it re-reads.
+    let guard = 0;
+    while (!(toTile(e.waypoint.x) === 3 && toTile(e.waypoint.y) === 1) && guard++ < 40) {
       sim.tick([]);
     }
-    // The expiry tick: unblocked, structure gone, half the paid cost credited.
-    sim.tick([]);
-    expect(sim.grid.isBlocked(2, 0)).toBe(false);
-    expect(sim.state.structures).toHaveLength(0);
-    expect(sim.state.treasuryMg).toBe(afterBuildMg + 2000);
+    expect(toTile(e.waypoint.x)).toBe(3);
+    expect(toTile(e.waypoint.y)).toBe(1);
   });
 
   it('walling a committed waypoint forces a same-tick re-commit and the tile is never entered', () => {
@@ -259,13 +348,10 @@ describe('terrain buildability (phase-4)', () => {
     const { sim } = makeSim(paletteLevel());
     sim.tick([place('tower', 3, 0)]);
     const afterBuildMg = sim.state.treasuryMg;
+
     sim.tick([remove(3, 0)]);
-    const removalIssuedTick = sim.state.tick - 1;
-    while (sim.state.tick <= removalIssuedTick + REMOVAL_TICKS) {
-      expect(sim.grid.isBlocked(3, 0)).toBe(true);
-      sim.tick([]);
-    }
-    // Removed and refunded — and the tile is still terrain-blocked.
+
+    // Removed and refunded in that tick — and the tile is still terrain-blocked.
     expect(sim.state.structures).toHaveLength(0);
     expect(sim.state.treasuryMg).toBe(afterBuildMg + 25_000);
     expect(sim.grid.isBlocked(3, 0)).toBe(true);
