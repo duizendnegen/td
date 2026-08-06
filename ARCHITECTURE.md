@@ -281,16 +281,61 @@ boundary.
 Fixed 20 Hz (`TICK_MS = 50`) driven by an accumulator in `app/loop.ts`:
 
 ```ts
-accumulator += Math.min(now - last, MAX_FRAME_MS);   // clamp to avoid spiral of death
-while (accumulator >= TICK_MS) {
-  sim.tick(commandQueue.drain());
-  accumulator -= TICK_MS;
+accumulator += Math.min(now - last, MAX_FRAME_MS) * rate;  // clamp the STALL, then scale
+if (rate === 0) {
+  sim.commit(commandQueue.drain());                        // absorb intent, consume no time
+} else {
+  while (accumulator >= TICK_MS) {
+    sim.tick(commandQueue.drain());
+    accumulator -= TICK_MS;
+  }
 }
-render(sim.state, accumulator / TICK_MS);            // alpha ∈ [0,1)
+render(sim.state, rate === 0 ? 1 : accumulator / TICK_MS);  // alpha ∈ [0,1), or 1 when frozen
 ```
 
-`MAX_FRAME_MS` caps catch-up at 5 ticks per frame. Commands queued during a frame apply on the next
-tick boundary — up to 50 ms of input latency, imperceptible for tower placement.
+`MAX_FRAME_MS` caps catch-up at 5 ticks per frame. It is applied to the elapsed wall-clock gap
+*before* `rate` scales it, so it stays a stall guard rather than a speed limit. Commands queued
+during a running frame apply on the next tick boundary — up to 50 ms of input latency,
+imperceptible for tower placement.
+
+### Time controls
+
+`rate` comes from `app/time.ts`: play/pause sets the resting rate (1 or 0) and fast-forward
+overrides it while held, including while paused — which is what makes a stopped game scrubbable.
+
+**The simulation has no clock and no notion of pause.** Pause is an *absence*, not a state: it is
+this loop declining to call `advance()`. No field expressing pause or speed exists in `SimState`,
+none reaches the hash, and the replay goldens are indifferent to every value in `time.ts`. A future
+change must never implement pause by skipping the wave scheduler or scaling entity speeds.
+
+While frozen no time accumulates, so resuming cannot burst; and the loop commits every frozen
+frame, which both lands player intent immediately and re-snapshots each `prevPos` onto its `pos`,
+holding entities still through the pause.
+
+### The commit/advance seam
+
+`sim.tick(commands)` is exactly `sim.commit(commands)` followed by `sim.advance()`, split at the
+boundary the tick order already has:
+
+| | steps | character |
+| --- | --- | --- |
+| `commit` | 1–3 | absorb intent — snapshot, apply commands, rebuild fields, sweep commitments |
+| `advance` | 4–10 | let time pass — spawn, move, resolve, settle, `tick++` |
+
+`commit` is safe to call any number of times before an `advance`, with the same result as one
+commit carrying the concatenated commands in the same order: step 1 re-snapshots an unmoved
+position, `validatePlacement` builds its scratch fields from the live mask rather than depending on
+step 3, and the step-3 sweep is idempotent while nothing has moved.
+
+This is what lets a paused game respond immediately — a tower placed while stopped is charged,
+blocks its tile, rebuilds both fields and re-targets enemy waypoints at once — while advancing
+nothing.
+
+**State comparability is defined at tick boundaries.** A state that has been committed but not yet
+advanced is mid-tick, and its hash is not expected to equal any completed tick's. Nothing that
+compares hashes pauses (the two-machine gate check and the replay goldens both run `tick()`), but
+`F4` marks a pending commit so a hash moving at a standing tick reads as intended rather than as
+determinism drift.
 
 ### Tick order
 
