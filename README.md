@@ -90,6 +90,14 @@ Three types for the POC, each designed to punish a missing tower:
 - Fully sealing the path is impossible (placement validation rejects it).
 - Fallback if juggling persists in testing: penalize enemies whose new waypoint equals their previous tile (turn-around detection) — the hook already exists in the waypoint cache.
 
+## Time Controls
+
+- **Space pauses; holding F fast-forwards.** On screen, START WAVE's slot becomes a play/pause and a fast-forward button while a wave runs. The board desaturates while stopped, so a pause never reads as a hang.
+- **Fast-forward is momentary — held only.** It cannot be left on by accident, and because it overrides pause rather than being blocked by it, a stopped game can be *scrubbed*: rest at paused and feather the button to advance in small increments. That is the control the build phase already gives you between waves, extended into a wave.
+- **A paused game stays responsive.** Placing a tower while stopped charges the treasury, blocks the tile, rebuilds the flow fields and re-targets enemies immediately — without advancing a tick. Tactical pause is real deliberation, not a freeze-frame.
+- **Speed is not a player choice.** One configured multiplier, retunable via `?ff=` while playtesting; the HUD never offers a number to pick.
+- Neither control can affect the outcome: the wave speed bonus and interest are both counted in simulation ticks, so fast-forwarding cannot farm a better bonus or dodge one. The simulation has no clock — pause is the render loop declining to advance it.
+
 ## Waves & Levels
 
 - **Waves are hand-authored data, not formulas.** The wave curve teaches the rock-paper-scissors: e.g. wave 3 introduces runners, wave 5 is a tank check, wave 7 a swarm check.
@@ -151,7 +159,8 @@ the layout reference the shipped HUD follows.
 
 - **Desktop**: top app bar (concede + impossible-recovery notice left, wave counter/progress
   center, treasury readout right), build palette as a left rail, tower inspector as a right
-  panel, START WAVE bottom-right. Debug spawn panel and the hotkey hint line are desktop-only.
+  panel, START WAVE bottom-right — replaced in place by the play/pause and fast-forward transport
+  while a wave runs. Debug spawn panel and the hotkey hint line are desktop-only.
 - **Mobile**: compact top bar (same counter and treasury), build palette as a bottom menu,
   inspector as a bottom sheet that swaps with the build menu while a tower is selected,
   START WAVE above the menu. Portrait shows a rotate prompt — the game is landscape-first.
