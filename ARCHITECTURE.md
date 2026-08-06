@@ -178,6 +178,16 @@ state hash after N ticks matches a golden value. Any accidental float, any `Math
 change breaks it immediately. Without this test the discipline rots silently, which is why it exists
 from Phase 1 rather than being deferred with the rest of the test suite.
 
+### The hash is a history fingerprint, not a position fingerprint
+
+Two boards that look identical can hash differently, and that is correct. `nextStructureId` is
+monotonic and hashed, so placing a structure and selling it again restores the mask, both flow
+fields and the structure list — but not the hash. The state carries how it was reached, which is
+exactly what a lockstep peer must agree on.
+
+This has always been true; provisional construction (§7) makes the round trip cheap enough that
+someone will now notice it and file it as a bug. It is not one.
+
 ### Comparison against floats
 
 Floats were rejected because the retrofit cost is not local. Changing `pos.x` from float to fixed
@@ -405,11 +415,42 @@ Before any build is confirmed:
 The previous field is kept in a spare buffer and swapped, so a rejected placement costs one rebuild
 and no allocation.
 
-**Removal is immediate, and refused during a wave.** Selling is a between-waves action: the phase
-gate (`canRemove`, shared by the sim and every UI remove control) is the whole anti-juggling rule,
-so no delay is needed and none exists — unblock, refund and drop all land in the tick the command
-applies. Removal needs no validation either: unblocking a tile is monotone on the flow fields, so it
-can never seal a spawn or strand an enemy.
+**Removal is immediate, and refused during a wave for committed construction.** Selling an
+established maze is a between-waves action: the gate (`canRemove`, shared by the sim and every UI
+remove control) is the whole anti-juggling rule, so no delay is needed and none exists — unblock,
+refund and drop all land in the tick the command applies. Removal needs no validation either:
+unblocking a tile is monotone on the flow fields, so it can never seal a spawn or strand an enemy.
+
+### Provisional construction
+
+A structure is **provisional** from the tick it is placed until the simulation advances a tick while
+a wave is running. That advance — the first live tick of the wave, swept at the top of `advance()`,
+before spawning and combat — commits every standing structure. `Structure.provisional` is ordinary
+hashed state, so replays reproduce it exactly.
+
+While provisional, a structure refunds **100%** of its total invested cost (upgrades included) and
+may be sold in any live phase, the wave included. Once committed it is unchanged in every respect:
+the configured refund fraction, and no selling while a wave runs.
+
+The window is deliberately *not* "the next tick". What the build phase and a stopped game share is
+that **no consequential tick has elapsed** — the build phase because spawns and settlement are gated
+off, a pause because time is not running at all. One predicate covers both:
+
+```
+   build phase           →  ticks advance, but runPhase ≠ 'wave' → stays provisional
+   press START WAVE      →  first advanced tick → EVERYTHING COMMITS
+   stopped wave, place   →  advance() is never called → provisional
+   running wave, place   →  committed within 50 ms — live play has no free undo
+```
+
+**The simulation still knows nothing about pause.** The rule reads only "an advance happened while a
+wave was live"; pause manifests as `advance()` not being called, so the seam above is preserved
+whole. The upgrade path is deliberately not covered: upgrading a *committed* tower stays
+irreversible, because reversing it means storing a committed baseline rather than a flag, plus a
+revert command.
+
+The player-facing consequence — the build phase is a planning board, and START WAVE is the decision
+— is in [README.md](README.md).
 
 ### Attack resolution
 
@@ -677,6 +718,18 @@ To be answered by playtesting, not by argument:
 
 1. Does free re-mazing between waves flatten the difficulty curve, and is the 50% refund a stiff
    enough brake on its own? (Tunable via `removalRefundFraction`.)
+
+   **Partially answered by fiat, not by playtest** (provisional-construction): revising *this
+   phase's own* construction is now free, because the 50% spread was taxing misclicks and
+   hesitation rather than re-mazing — and under tactical pause it could tax a purchase that could
+   not be undone at all. Rearranging an *established* maze still pays the full 50%, so the brake
+   survives where it was doing work.
+
+   What remains open is the live half, now with a second variable: whether a build phase that is
+   meaningfully cheaper to iterate in flattens the curve anyway, and whether the surviving 50% on
+   committed construction is still the right number. Also open: whether upgrade misclicks — the one
+   asymmetry left, since a committed tower's upgrade cannot be undone — sting enough to justify
+   storing a committed baseline per structure and adding a revert command.
 2. Does turn-around penalisation become necessary, or does the no-selling-during-a-wave rule alone
    kill juggling?
 3. Does uncapped interest actually self-balance, or does hoarding dominate?

@@ -5,7 +5,9 @@
 //   - Archetype, level, current stats, next-level cost
 //   - Upgrade action with palette-consistent affordable/debt/blocked states
 //     as whole-literal class variants (design D1); maxed state at level 3
-//   - Remove, immediate and refunding, unavailable while a wave runs
+//   - Remove, immediate and refunding the amount it actually credits;
+//     unavailable while a wave runs only for committed towers — a provisional
+//     one stays sellable, framed as the revision window it is
 //   - Desktop: right bevel panel. Below the breakpoint: bottom sheet that
 //     swaps with the build menu (#hud[data-sheet-open] hides #rail)
 //   - Emits commands only; reads sim state per frame, never mutates it
@@ -13,6 +15,7 @@
 import type { GameData, TowerLevelStats } from '../data/schema';
 import { ARCHETYPES } from '../data/schema';
 import type { CommandQueue } from '../sim/commands';
+import { refundMg } from '../sim/economy';
 import { GOLD, TICK_HZ, TILE } from '../sim/fixed';
 import { canRemove } from '../sim/placement';
 import { MAX_TOWER_LEVEL } from '../sim/sim';
@@ -54,6 +57,16 @@ const REM_BASE =
 const REM_IDLE = REM_BASE + 'border-surface-bright bg-surface-dim text-on-surface hover:border-error hover:bg-error-container/20';
 const REM_LOCKED =
   REM_BASE + 'hazard-stripe cursor-not-allowed border-surface-bright bg-surface/60 text-on-surface-variant opacity-50';
+// Provisional: not a discount, a revision window — so it reads in the primary
+// accent, not in the destructive language of a dismantle.
+const REM_UNDO =
+  REM_BASE + 'flex-wrap border-primary-fixed/60 bg-surface-dim text-primary-fixed hover:bg-primary-fixed/10';
+const REM_WINDOW_NOTE = 'font-mono text-label-xs uppercase opacity-70';
+
+/** Milli-gold as a gold figure, keeping the half a 50% refund can leave. */
+function goldText(mg: number): string {
+  return `${Number((mg / GOLD).toFixed(1))}`;
+}
 
 // Condensed on mobile: stats sit side-by-side as label-over-value columns.
 const STAT_ROW = 'flex items-baseline justify-between gap-3 mobile:flex-col mobile:items-start mobile:gap-0';
@@ -203,8 +216,15 @@ export class InspectorUI {
       this.hudRoot?.setAttribute('data-sheet-open', '');
     }
 
-    this.removalAllowed = canRemove(state.runPhase);
-    const contentKey = [s.id, s.level, state.treasuryMg, this.removalAllowed].join(':');
+    this.removalAllowed = canRemove(state.runPhase, s);
+    const contentKey = [
+      s.id,
+      s.level,
+      state.treasuryMg,
+      this.removalAllowed,
+      s.provisional,
+      state.runPhase,
+    ].join(':');
     if (contentKey === this.lastContentKey) return;
     this.lastContentKey = contentKey;
 
@@ -221,12 +241,25 @@ export class InspectorUI {
       )
       .join('');
 
-    // Selling is a between-waves action (structure-placement spec): the
-    // control names the wave as the reason rather than failing silently.
-    if (this.removalAllowed) {
+    // Three states, not two (provisional-construction design D6): the revision
+    // window, the ordinary between-waves dismantle, and the wave's block —
+    // which now names the wave only for construction it has already run
+    // against. The figure shown is always what removal actually credits.
+    const refund = goldText(refundMg(s, this.data.refundPer1000));
+    if (this.removalAllowed && s.provisional) {
+      // The window closes on the first advanced tick of a wave — which is the
+      // start of the wave from the build phase, and the resumption of time
+      // from a stopped one.
+      const closes = state.runPhase === 'wave' ? 'until time advances' : 'until the wave starts';
+      this.removeButton.className = REM_UNDO;
+      this.removeButton.disabled = false;
+      this.removeButton.innerHTML =
+        `<span>Undo build · ${refund}g back in full</span>` +
+        `<span class="${REM_WINDOW_NOTE}">${closes}</span>`;
+    } else if (this.removalAllowed) {
       this.removeButton.className = REM_IDLE;
       this.removeButton.disabled = false;
-      this.removeButton.textContent = `Dismantle · 50% of ${s.paidMg / GOLD}g back`;
+      this.removeButton.textContent = `Dismantle · ${refund}g back (${this.data.refundPer1000 / 10}%)`;
     } else {
       this.removeButton.className = REM_LOCKED;
       this.removeButton.disabled = true;

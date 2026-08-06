@@ -93,6 +93,10 @@ describe('tower upgrades', () => {
     const sim = withTower();
     sim.tick([upgrade(3, 0)]); // 50 + 85 invested
     expect(sim.state.structures[0]!.paidMg).toBe(135_000);
+    // Halving is the COMMITTED rate: a wave tick clears the provisional flag
+    // (exercised in placement.test.ts, where a provisional tower's upgrades
+    // return in full). Set by fiat here so the arithmetic stays the subject.
+    sim.state.structures[0]!.provisional = false;
     const beforeRemoval = sim.state.treasuryMg;
     sim.tick([remove(3, 0)]);
     expect(sim.state.structures).toHaveLength(0);

@@ -178,6 +178,14 @@ export class Sim {
   advance(): void {
     const s = this.state;
     const fields = { inbound: this.inbound, returning: this.returning };
+    // The commit point (provisional-construction design D1/D2): a tick
+    // advancing under a live wave settles everything standing, BEFORE this
+    // tick's spawning and combat — so a wave always runs against committed
+    // construction. The rule reads only "an advance happened while a wave was
+    // live"; pause is an absence of advances and never enters the simulation.
+    if (s.runPhase === 'wave') {
+      for (const structure of s.structures) structure.provisional = false;
+    }
     // 4. Spawning: the active wave's group cursors (design D2)
     if (s.runPhase === 'wave') {
       stepWaveSpawns(s, this.waves[s.waveIndex - 1]!);
@@ -372,14 +380,17 @@ export class Sim {
       level: kind === 'wall' ? 0 : 1,
       paidMg: costMg,
       nextFireTick: 0,
+      // Uncommitted until a wave tick runs over it (design D1).
+      provisional: true,
     });
     s.treasuryMg -= costMg;
   }
 
   /**
-   * remove (structure-placement spec): refused while a wave runs and after the
-   * run ends (canRemove), and refused on a tile holding no structure — with
-   * the same reject event a refused placement emits, and no other effect.
+   * remove (structure-placement spec): refused after the run ends, refused
+   * mid-wave for construction the wave has already run against (canRemove),
+   * and refused on a tile holding no structure — with the same reject event a
+   * refused placement emits, and no other effect.
    *
    * An accepted removal completes here, refund included, so the credit is on
    * the books before step 9 judges progression: a liquidation that clears the
@@ -388,7 +399,8 @@ export class Sim {
    */
   private applyRemove(tx: number, ty: number): void {
     const s = this.state;
-    const target = canRemove(s.runPhase) ? structureAt(s.structures, tx, ty) : null;
+    const found = structureAt(s.structures, tx, ty);
+    const target = found !== null && canRemove(s.runPhase, found) ? found : null;
     if (!target) {
       this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
       return;

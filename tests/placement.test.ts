@@ -11,6 +11,7 @@ import {
   startWave,
   testBalance,
   trivialWave,
+  upgrade,
 } from './helpers';
 
 describe('placement validation', () => {
@@ -124,10 +125,13 @@ describe('placement validation', () => {
 
     sim.tick([remove(2, 0)]);
 
-    // One tick, no countdown: gone, unblocked, half the paid cost credited.
+    // One tick, no countdown: gone, unblocked, refunded. The wall never faced
+    // a wave tick, so the refund is the full price (provisional-construction
+    // design D3); the committed fraction is asserted in 'the provisional
+    // window' below.
     expect(sim.state.structures).toHaveLength(0);
     expect(sim.grid.isBlocked(2, 0)).toBe(false);
-    expect(sim.state.treasuryMg).toBe(afterBuildMg + 2000);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg + 4000);
     // And both live fields reflect the reopened mask that same tick.
     expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
     expect(sim.returning.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
@@ -352,8 +356,9 @@ describe('terrain buildability (phase-4)', () => {
     sim.tick([remove(3, 0)]);
 
     // Removed and refunded in that tick — and the tile is still terrain-blocked.
+    // Provisional, so the refund is the full 50 000 the tower cost.
     expect(sim.state.structures).toHaveLength(0);
-    expect(sim.state.treasuryMg).toBe(afterBuildMg + 25_000);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg + 50_000);
     expect(sim.grid.isBlocked(3, 0)).toBe(true);
     // The socket is placeable again.
     expect(sim.previewPlacement('tower', 3, 0)).toBe('ok');
@@ -384,5 +389,150 @@ describe('terrain buildability (phase-4)', () => {
     // A placement that seals nobody is still fine.
     sim.tick([place('wall', 3, 2)]);
     expect(sim.state.structures).toHaveLength(1);
+  });
+});
+
+// The provisional window (provisional-construction design D1–D3): a structure
+// is uncommitted until an advance runs under a live wave, and while
+// uncommitted it refunds in full and may be sold in any live phase.
+const twoWaveCorridor = () =>
+  openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }, [], {
+    waves: [trivialWave(), trivialWave()],
+  });
+
+describe('the provisional window', () => {
+  it('survives a whole build phase, however many ticks it spans', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([place('wall', 2, 0)]);
+    for (let t = 0; t < 500; t++) sim.tick([]);
+    expect(sim.state.runPhase).toBe('build');
+    expect(sim.state.structures[0]!.provisional).toBe(true);
+  });
+
+  it("a wave's first advanced tick commits everything standing", () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([place('wall', 2, 0)]);
+    sim.tick([place('wall', 2, 2)]);
+    expect(sim.state.structures.every((s) => s.provisional)).toBe(true);
+
+    sim.tick([startWave()]);
+    expect(sim.state.structures.every((s) => !s.provisional)).toBe(true);
+  });
+
+  it('a startWave that is committed but never advanced commits nothing', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([place('wall', 2, 0)]);
+
+    // The paused shape: intent lands, time does not pass.
+    sim.commit([startWave()]);
+    expect(sim.state.runPhase).toBe('wave');
+    expect(sim.state.structures[0]!.provisional).toBe(true);
+    sim.commit([place('wall', 2, 2)]);
+    expect(sim.state.structures.every((s) => s.provisional)).toBe(true);
+
+    // The first advance under the live wave is the commit point.
+    sim.advance();
+    expect(sim.state.structures.every((s) => !s.provisional)).toBe(true);
+  });
+
+  it('a placement during a live wave commits on the next advance', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([startWave()]);
+    sim.commit([place('wall', 2, 0)]);
+    expect(sim.state.structures[0]!.provisional).toBe(true);
+    sim.advance();
+    expect(sim.state.structures[0]!.provisional).toBe(false);
+
+    // Live play therefore has no free undo: placing through tick() — commit
+    // and advance together — is committed by the end of its own tick.
+    sim.tick([place('wall', 2, 2)]);
+    expect(sim.state.structures.every((s) => !s.provisional)).toBe(true);
+  });
+
+  it('refunds a provisional structure in full, restoring the balance exactly', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    const before = sim.state.treasuryMg;
+    sim.tick([place('wall', 2, 0)]);
+    expect(sim.state.treasuryMg).toBe(before - 4000);
+
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(before);
+    expect(sim.grid.isBlocked(2, 0)).toBe(false);
+  });
+
+  it("returns a provisional tower's upgrades with it", () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    const before = sim.state.treasuryMg;
+    sim.tick([place('tower', 2, 0)]); // 50 000
+    sim.tick([upgrade(2, 0)]); // + 85 000 into paidMg
+    expect(sim.state.structures[0]!.paidMg).toBe(135_000);
+    expect(sim.state.treasuryMg).toBe(before - 135_000);
+
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.treasuryMg).toBe(before);
+  });
+
+  it('still refunds the fraction once a wave tick has run over it', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([place('wall', 2, 0)]);
+    sim.tick([startWave()]); // commits it
+    sim.state.enemies.forEach((e) => (e.hp = 0));
+    sim.tick([]); // settles back to the build phase
+    expect(sim.state.runPhase).toBe('build');
+    expect(sim.state.structures[0]!.provisional).toBe(false);
+
+    const beforeSale = sim.state.treasuryMg;
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.treasuryMg).toBe(beforeSale + 2000); // half of 4000
+  });
+
+  it('unwinds a provisional structure placed during a stopped wave', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([startWave()]);
+    const beforeBuild = sim.state.treasuryMg;
+
+    // Stopped: commits only, no advance — exactly what the paused loop does.
+    sim.commit([place('wall', 2, 0)]);
+    expect(sim.grid.isBlocked(2, 0)).toBe(true);
+    sim.commit([remove(2, 0)]);
+
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(beforeBuild); // net zero round trip
+    expect(sim.grid.isBlocked(2, 0)).toBe(false);
+    expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
+    expect(sim.returning.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
+  });
+
+  it('closes the window the moment time advances', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([startWave()]);
+    sim.commit([place('wall', 2, 0)]);
+    const afterBuildMg = sim.state.treasuryMg;
+
+    sim.advance(); // one tick of the live wave commits it
+
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(sim.grid.isBlocked(2, 0)).toBe(true);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg);
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+  });
+
+  it('rejects the committed mid-wave removal atomically', () => {
+    const build = () => {
+      const { sim } = makeSim(twoWaveCorridor());
+      sim.tick([place('wall', 2, 0)]);
+      sim.tick([startWave()]); // the wall is committed by this tick's advance
+      expect(sim.state.structures[0]!.provisional).toBe(false);
+      return sim;
+    };
+    const withAttempt = build();
+    const without = build();
+
+    withAttempt.tick([remove(2, 0)]);
+    without.tick([]);
+    expect(withAttempt.state.structures).toHaveLength(1);
+    expect(withAttempt.hash()).toBe(without.hash());
   });
 });

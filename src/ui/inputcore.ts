@@ -138,13 +138,13 @@ export class InputCore {
 
   /**
    * Issue a removal for the structure at `tile` — refused, with the same red
-   * flash any invalid commit gets, while a wave gates selling or the tile is
-   * bare. The sim re-checks the gate authoritatively at the applying tick.
+   * flash any invalid commit gets, when the tile is bare or the gate refuses
+   * that structure (a wave blocks committed construction only). The sim
+   * re-checks the gate authoritatively at the applying tick.
    */
   commitRemove(tile: Tile): void {
-    const s = canRemove(this.sim.state.runPhase)
-      ? structureAt(this.sim.state.structures, tile.tx, tile.ty)
-      : null;
+    const found = structureAt(this.sim.state.structures, tile.tx, tile.ty);
+    const s = found !== null && canRemove(this.sim.state.runPhase, found) ? found : null;
     if (!s) {
       this.fx.flashReject(footprintFor(tile.tx, tile.ty), performance.now());
       return;

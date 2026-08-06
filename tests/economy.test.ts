@@ -251,12 +251,57 @@ describe('winning (run-lifecycle spec)', () => {
 });
 
 describe('liquidation total (design D8)', () => {
-  it('sums the floored refund of every standing structure', () => {
+  it('sums the floored refund of every committed structure', () => {
     expect(
       liquidationTotalMg(
-        [{ paidMg: 50_000 }, { paidMg: 4000 }, { paidMg: 135_001 }],
+        [
+          { paidMg: 50_000, provisional: false },
+          { paidMg: 4000, provisional: false },
+          { paidMg: 135_001, provisional: false },
+        ],
         500,
       ),
     ).toBe(25_000 + 2000 + 67_500);
+  });
+
+  it('counts provisional structures at their full refund (design D5)', () => {
+    expect(
+      liquidationTotalMg(
+        [{ paidMg: 50_000, provisional: true }, { paidMg: 4000, provisional: false }],
+        500,
+      ),
+    ).toBe(50_000 + 2000);
+  });
+
+  it('a run the provisional refunds could rescue is not reported dead', () => {
+    // Two towers, one from an earlier wave, one built this phase, against a
+    // debt that only the full refund of the provisional one can clear.
+    const { sim } = makeSim(corridor([{ groups: [group()] }, trivialWave()]));
+    sim.tick([place('tower', 3, 0)]); // committed by the wave below
+    sim.tick([startWave()]);
+    sim.state.enemies[0]!.hp = 0;
+    sim.tick([]); // settles back to build; the first tower has lived a wave tick
+    sim.tick([place('tower', 3, 2)]); // this phase's work: still provisional
+    const [committed, provisional] = sim.state.structures;
+    expect(committed!.provisional).toBe(false);
+    expect(provisional!.provisional).toBe(true);
+
+    // The debt sits between the two totals: half of both (50 000) cannot clear
+    // it, but 25 000 + a full 50 000 can.
+    sim.state.treasuryMg = -60_000;
+    const perStructure = liquidationTotalMg(sim.state.structures, 500);
+    const flatHalf = liquidationTotalMg(
+      sim.state.structures.map((s) => ({ paidMg: s.paidMg, provisional: false })),
+      500,
+    );
+    expect(flatHalf).toBe(50_000);
+    expect(perStructure).toBe(75_000);
+    // The dead check the HUD runs: flat-rate would declare this run dead.
+    expect(sim.state.treasuryMg + flatHalf).toBeLessThan(0);
+    expect(sim.state.treasuryMg + perStructure).toBeGreaterThanOrEqual(0);
+
+    // And the money is really there: selling both clears the debt.
+    sim.tick([remove(3, 0), remove(3, 2)]);
+    expect(sim.state.treasuryMg).toBe(15_000);
   });
 });

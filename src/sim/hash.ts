@@ -64,6 +64,7 @@ export function hashState(state: SimState, rngState: readonly number[]): number 
     h = mix(h, s.level);
     h = mix(h, s.paidMg);
     h = mix(h, s.nextFireTick);
+    h = mix(h, s.provisional ? 1 : 0);
   }
   h = mix(h, state.nextSackId);
   h = mix(h, state.sacks.length);
