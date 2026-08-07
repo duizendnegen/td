@@ -56,20 +56,22 @@
 
 ## 5. Capture driver and encoding
 
-- [ ] 5.1 Write `.github/capture/capture.mjs`: launch Chromium at 1280×720 with
+- [x] 5.1 Write `.github/capture/capture.mjs`: launch Chromium at 1280×720 with
       `deviceScaleFactor: 1`, open the built app with `?capture=1` and an explicit `?seed=`, await
       `document.fonts.ready`
-- [ ] 5.2 Load the scenario and feed it through `__td.scheduler.add(...)`
-- [ ] 5.3 Implement state-driven warm-up: step until `runPhase === 'build' && waveIndex === 3`, with
+- [x] 5.2 Load the scenario and feed it through `__td.scheduler.add(...)`
+- [x] 5.3 Implement state-driven warm-up: step until `runPhase === 'build' && waveIndex === 3`, with
       a tick ceiling that fails loudly rather than looping forever (design D11)
-- [ ] 5.4 Assert after warm-up that the expected structures are placed and `runPhase !== 'lost'`;
+- [x] 5.4 Assert after warm-up that the expected structures are placed and `runPhase !== 'lost'`;
       fail with a message naming what was missing
-- [ ] 5.5 Capture ~120 frames: step 2 ticks, render with `nowMs = tick × TICK_MS` inside a
+- [x] 5.5 Capture ~120 frames: step 2 ticks, render with `nowMs = tick × TICK_MS` inside a
       `requestAnimationFrame`, screenshot to a numbered PNG
-- [ ] 5.6 Encode the frames to animated WebP at 10 fps with ffmpeg (or the GIF fallback if the spike
-      required it), and assert the output is under a size ceiling
-- [ ] 5.7 Run the driver locally against `npm run build && npm run preview` and iterate on tower
-      tiles, wall layout, seed and window start until the clip reads well (design Open Questions)
+- [x] 5.6 Encode the frames to animated WebP at 10 fps with ffmpeg (or the GIF fallback if the spike
+      required it), and assert the output is under a size ceiling (8 MB; measured 3.34 MB)
+- [x] 5.7 Run the driver locally against the built app and iterate until the clip reads well —
+      window opens at wave-start+30 so spawns arrive ~0.5 s in; the debug spawn panel is collapsed
+      via its own header click; warm-up's undrained render events are dropped before the first
+      frame (they would open the clip on a phantom fireworks burst)
 
 ## 6. Workflow and delivery
 
