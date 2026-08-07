@@ -1,0 +1,39 @@
+# Prune a PR's preview clips from the ci-media branch when the PR closes
+# (openspec add-pr-wave-preview task 6.6) — ci-media must not grow unbounded.
+# Fork PRs never produced media (their preview job skips), so the same
+# same-repo guard applies.
+name: ci-media prune
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  prune:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete pr-<n>/ from ci-media
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR=${{ github.event.pull_request.number }}
+          cd "$RUNNER_TEMP"
+          if ! git clone --depth 1 -b ci-media \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" media 2>/dev/null; then
+            echo "no ci-media branch — nothing to prune"
+            exit 0
+          fi
+          cd media
+          if [ ! -d "pr-${PR}" ]; then
+            echo "no pr-${PR}/ on ci-media — nothing to prune"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r --quiet "pr-${PR}"
+          git commit -m "prune: PR #${PR} closed"
+          git push origin ci-media
