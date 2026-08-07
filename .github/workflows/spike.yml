@@ -25,6 +25,9 @@ jobs:
       - run: npm run build
       - name: Run feasibility probe
         run: node .github/capture/probe.mjs
+      # ubuntu-24.04 runner images no longer preinstall ffmpeg.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Encode animated WebP
         run: |
           ffmpeg -y -framerate 10 -i .github/capture/out/frame-%03d.png \
