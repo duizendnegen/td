@@ -61,6 +61,7 @@ round trip is not fun, nothing layered on top of it will be.
 
 **Debug** (`render/debug.ts`)
 - `F1` flow-field arrows · `F2` enemy state and waypoints · `F4` tick / hash / ms-per-tick readout
+  *(`F1` was removed in the `path-preview` change — the lane ribbon replaced it.)*
 
 **Data** — `level_01.json` with hand-placed terrain, one spawn, and a zod schema that validates it
 
@@ -74,13 +75,14 @@ reaching the treasury simply despawn.
 ### Deliverable
 
 A deployed link where enemies walk from spawn to treasury through a hand-authored maze. `F1` shows the
-flow field. `F2` shows each enemy's committed waypoint. `F4` shows a state hash that is identical on
-every reload with the same seed.
+flow field (since replaced by the lane ribbon). `F2` shows each enemy's committed waypoint. `F4` shows
+a state hash that is identical on every reload with the same seed.
 
 ### Gate
 
 - [ ] Same seed → identical state hash after 2 000 ticks, across reloads **and** across two machines
-- [ ] `F1` shows zero diagonals cutting between two blocked tiles
+- [ ] Zero diagonals cut between two blocked tiles — swept board-wide by `flowfield.test.ts`
+      (originally read off the `F1` overlay)
 - [ ] Movement is smooth at 60 fps display against a 20 Hz sim — interpolation is doing its job
 - [ ] The kit renders correctly: one material, one atlas, no missing-texture warnings
 - [ ] **The isometric view is legible** — 1-wide gaps, tower footprints (2×2 at the time; 1×1
@@ -164,7 +166,9 @@ impossible; removing a wall takes four seconds.
 - [ ] Does mazing feel expressive? Do 1-wide gaps between structure footprints create interesting
       shapes? *(Playtest verdict: not with 2×2 towers — they could not join wall lines, which led
       directly to the Phase-3 1×1 rework.)*
-- [ ] Is re-pathing legible — can you see enemies react to a wall you just placed?
+- [ ] Is re-pathing legible — can you see enemies react to a wall you just placed? *(Answered by
+      the `path-preview` change: arming a build tool draws the current lanes, and the ghost draws
+      the routes the placement would produce — so the reroute is visible before it is paid for.)*
 - [ ] Does money-as-health land emotionally, or does it just read as an abstract number?
 - [ ] Sealing is genuinely impossible; the stranded-enemy case is caught
 
