@@ -41,14 +41,16 @@
 
 ## 4. Scenario and anti-drift coverage
 
-- [ ] 4.1 Author `.github/capture/scenario.json` as a scheduled command stream: two archetypes at
+- [x] 4.1 Author `.github/capture/scenario.json` as a scheduled command stream: two archetypes at
       tick 0, three `startWave` commands, the remaining two archetypes plus wall placements after
-      warm-up, then the capture-window `startWave` with injected tank and brute spawns
-- [ ] 4.2 Add a vitest test reading `src/data/balance.json` and the scenario, asserting the scenario
+      warm-up, then the capture-window `startWave` with injected tank and brute spawns (5 walls,
+      not ~6 — measured economy: 256.2g after wave 3 funds a 240g build, leaving the wave-4
+      startWave solvency gate 16.2g of headroom)
+- [x] 4.2 Add a vitest test reading `src/data/balance.json` and the scenario, asserting the scenario
       places every tower archetype and spawns every enemy type — including `brute` (design D6)
-- [ ] 4.3 Confirm the test fails as intended by temporarily adding a fifth enemy type to
+- [x] 4.3 Confirm the test fails as intended by temporarily adding a fifth enemy type to
       `balance.json`, then revert
-- [ ] 4.4 Sanity-check the scenario's economy against `balance.json`: two towers at tick 0 fit
+- [x] 4.4 Sanity-check the scenario's economy against `balance.json`: two towers at tick 0 fit
       inside 200 gold, and three waves of bounties plus wave bonuses fund the remaining two towers
       and the walls
 
