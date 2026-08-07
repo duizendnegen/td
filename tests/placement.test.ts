@@ -1,6 +1,10 @@
 // See ARCHITECTURE.md §12 and the phase-2/phase-4 structure-placement specs
 import { describe, expect, it } from 'vitest';
+import balanceJson from '../src/data/balance.json';
+import level01Json from '../src/data/levels/level_01.json';
+import { loadGameData } from '../src/data/schema';
 import { REMOVAL_TICKS, tileCentre, toTile } from '../src/sim/fixed';
+import { Sim } from '../src/sim/sim';
 import { injectEnemy, makeSim, openLevel, place, remove, spawnCmd, testBalance } from './helpers';
 
 describe('placement validation', () => {
@@ -298,5 +302,166 @@ describe('terrain buildability (phase-4)', () => {
     // A placement that seals nobody is still fine.
     sim.tick([place('wall', 3, 2)]);
     expect(sim.state.structures).toHaveLength(1);
+  });
+});
+
+describe('previewRoutes (path-preview spec)', () => {
+  it('sweeping every tile leaves the state hash untouched', () => {
+    const build = () => makeSim(openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 })).sim;
+    const swept = build();
+    const untouched = build();
+    swept.tick([place('wall', 4, 0), place('wall', 4, 4)]);
+    untouched.tick([place('wall', 4, 0), place('wall', 4, 4)]);
+
+    for (let ty = -1; ty <= 5; ty++) {
+      for (let tx = -1; tx <= 9; tx++) {
+        swept.previewRoutes('wall', tx, ty);
+        swept.previewRoutes('tower', tx, ty);
+      }
+    }
+    for (let t = 0; t < 20; t++) {
+      swept.tick([]);
+      untouched.tick([]);
+    }
+    expect(swept.hash()).toBe(untouched.hash());
+  });
+
+  it('a held result survives a later evaluation and a confirmed placement', () => {
+    const { sim } = makeSim(openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 }));
+    const held = sim.previewRoutes('wall', 4, 1);
+    expect(held.verdict).toBe('ok');
+    expect(held.lanes).not.toBeNull();
+    const snapshot = JSON.stringify(held);
+
+    // A second evaluation overwrites `scratch`…
+    sim.previewRoutes('wall', 6, 3);
+    expect(JSON.stringify(held)).toBe(snapshot);
+
+    // …and a confirmed placement swaps `scratch` into live state (sim.ts).
+    sim.tick([place('wall', 6, 3)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(JSON.stringify(held)).toBe(snapshot);
+  });
+
+  it('projects the lanes a routing-valid placement would produce', () => {
+    const { sim } = makeSim(openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 }));
+    const current = sim.currentLanes();
+    // One inbound lane per active spawn, then the return lane.
+    expect(current).toHaveLength(2);
+    expect(current[0]![0]).toEqual({ x: 0, y: 2 });
+    expect(current[0]!.at(-1)).toEqual({ x: 8, y: 2 });
+    expect(current[1]![0]).toEqual({ x: 8, y: 2 });
+    expect(current[1]!.at(-1)).toEqual({ x: 0, y: 2 });
+
+    // A wall in the straight lane pushes the projected route off it.
+    const preview = sim.previewRoutes('wall', 4, 2);
+    expect(preview.verdict).toBe('ok');
+    expect(preview.orphaned).toBeNull();
+    expect(preview.lanes).toHaveLength(2);
+    expect(preview.lanes![0]!.some((t) => t.x === 4 && t.y === 2)).toBe(false);
+    // …while the live lanes are unchanged: nothing was committed.
+    expect(sim.currentLanes()).toEqual(current);
+  });
+
+  it('returns no lanes for every verdict reached before the fields are rebuilt', () => {
+    // 7×3 with rock (1,0), socket (3,0), grass (5,0) — the palette level.
+    const level = () =>
+      openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], { map: ['.r.o.g.', '.......', '.......'] });
+
+    const oob = makeSim(level()).sim;
+    expect(oob.previewRoutes('wall', -1, 1)).toEqual({
+      verdict: 'out-of-bounds',
+      lanes: null,
+      orphaned: null,
+    });
+
+    const terrain = makeSim(level()).sim;
+    expect(terrain.previewRoutes('wall', 1, 0).verdict).toBe('not-buildable'); // rock
+    expect(terrain.previewRoutes('wall', 1, 0).lanes).toBeNull();
+    expect(terrain.previewRoutes('tower', 5, 0).verdict).toBe('not-buildable'); // grass
+    expect(terrain.previewRoutes('tower', 5, 0).lanes).toBeNull();
+
+    const occupied = makeSim(level()).sim;
+    occupied.tick([place('wall', 2, 2)]);
+    expect(occupied.previewRoutes('wall', 2, 2).verdict).toBe('occupied');
+    expect(occupied.previewRoutes('wall', 2, 2).lanes).toBeNull();
+
+    const enemyOn = makeSim(level()).sim;
+    injectEnemy(enemyOn, 2, 1);
+    expect(enemyOn.previewRoutes('wall', 2, 1).verdict).toBe('enemy-in-footprint');
+    expect(enemyOn.previewRoutes('wall', 2, 1).lanes).toBeNull();
+
+    // A socket tower is accepted without ever rebuilding the fields (D6), so
+    // it too has no projection — and cannot expose the previous hover's.
+    const socket = makeSim(level()).sim;
+    socket.previewRoutes('wall', 2, 2); // primes `scratch` with another tile's fields
+    expect(socket.previewRoutes('tower', 3, 0)).toEqual({
+      verdict: 'ok',
+      lanes: null,
+      orphaned: null,
+    });
+
+    const broke = makeSim(level()).sim;
+    broke.state.treasuryMg = -1;
+    expect(broke.previewRoutes('wall', 2, 2)).toEqual({
+      verdict: 'no-funds',
+      lanes: null,
+      orphaned: null,
+    });
+  });
+
+  it('shades the whole orphaned quarter when the last gap in level_01 closes', () => {
+    // Rock wall A runs down x=4 from y=0 to y=7 (the socket at (4,4) is
+    // blocked terrain too); walls at (4,8) and (4,9) complete it.
+    const sim = new Sim(loadGameData(level01Json, balanceJson), 1);
+    sim.tick([place('wall', 4, 9)]);
+    expect(sim.state.structures).toHaveLength(1);
+
+    const preview = sim.previewRoutes('wall', 4, 8);
+    expect(preview.verdict).toBe('seals-spawn');
+    expect(preview.lanes).not.toBeNull();
+    // Neither lane has a route left: the west spawn is level_01's only one,
+    // so it is also the return field's only source.
+    expect(preview.lanes).toEqual([[], []]);
+
+    // Columns 0–3 entirely: 39 walkable tiles (only (0,0) is grass).
+    const orphaned = preview.orphaned!;
+    expect(orphaned).toHaveLength(39);
+    expect(orphaned.every((t) => t.x < 4)).toBe(true);
+    expect(orphaned).toContainEqual({ x: 0, y: 5 }); // the spawn itself
+    // The ghost tile is the cause, not part of the cut-off region.
+    expect(orphaned).not.toContainEqual({ x: 4, y: 8 });
+
+    // Moving off the sealing tile clears it.
+    expect(sim.previewRoutes('wall', 10, 5).orphaned).toBeNull();
+  });
+
+  it('sealing one of two active spawns leaves the other lane projected', () => {
+    // The north spawn (0,0) exits only east through (1,0); the rocks at
+    // (0,1)/(1,1) block the southern step and the diagonal alike.
+    const wave = (spawn: string) => ({
+      groups: [{ spawn, type: 'runner', count: 1, spawnInterval: 1, delay: 0 }],
+    });
+    const { sim } = makeSim({
+      id: 'test',
+      grid: { width: 7, height: 3 },
+      treasury: { x: 6, y: 1 },
+      spawns: [
+        { id: 'north', x: 0, y: 0, activeFromWave: 1 },
+        { id: 'south', x: 0, y: 2, activeFromWave: 1 },
+      ],
+      terrain: { legend: { '.': 'dirt', r: 'rock' }, map: ['.......', 'rr.....', '.......'] },
+      economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      waves: [wave('north'), wave('south')],
+    });
+
+    const preview = sim.previewRoutes('wall', 1, 0);
+    expect(preview.verdict).toBe('seals-spawn');
+    expect(preview.orphaned).toEqual([{ x: 0, y: 0 }]);
+    // North blanks; south still routes, and so does the treasury's way out.
+    expect(preview.lanes![0]).toEqual([]);
+    expect(preview.lanes![1]!.at(-1)).toEqual({ x: 6, y: 1 });
+    expect(preview.lanes![2]![0]).toEqual({ x: 6, y: 1 });
+    expect(preview.lanes![2]!.at(-1)).toEqual({ x: 0, y: 2 });
   });
 });

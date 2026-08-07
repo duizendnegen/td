@@ -19,6 +19,7 @@ import { EnemyRenderer, SackRenderer } from '../render/enemies';
 import { FxRenderer, GhostPreview } from '../render/fx';
 import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
+import { LaneRibbon } from '../render/ribbon';
 import { StructureRenderer } from '../render/towers';
 import { TreasuryHud } from '../ui/hud';
 import { buildHintLine, PointerDriver } from '../ui/input';
@@ -107,6 +108,7 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   const sacks = new SackRenderer(renderer.scene);
   const fx = new FxRenderer(renderer.scene);
   const ghost = new GhostPreview(renderer.scene);
+  const ribbon = new LaneRibbon(renderer.scene);
   const camera = new IsometricCamera(renderer.aspect, data.level.grid);
   renderer.onResize((aspect) => camera.frame(aspect));
 
@@ -130,7 +132,17 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     },
   });
   const inspector = new InspectorUI(slot('inspector'), data, commands);
-  const inputCore = new InputCore(canvas, camera.camera, sim, commands, palette, inspector, ghost, fx);
+  const inputCore = new InputCore(
+    canvas,
+    camera.camera,
+    sim,
+    commands,
+    palette,
+    inspector,
+    ghost,
+    ribbon,
+    fx,
+  );
   // Interaction model splits on capability, not user agent (design D3): hover
   // + fine pointer → the one-click pointer model; anything else → touch.
   const pointerCapable = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -187,7 +199,6 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   // Input.
   window.addEventListener('keydown', (e) => {
     const action = {
-      F1: () => debug.toggleFields(),
       F2: () => debug.toggleWaypoints(),
       F3: () => debug.toggleCombat(),
       F4: () => debug.toggleReadout(),
@@ -222,6 +233,7 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
       fx.drain(sim.events, now);
       fx.update(now);
       input.update();
+      ribbon.animate(now);
       treasuryHud.update(sim.state.treasuryMg);
       palette.refresh(sim.state.treasuryMg);
       waveHud.update(sim.state, sim.totalWaves);

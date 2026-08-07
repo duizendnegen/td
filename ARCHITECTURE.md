@@ -135,7 +135,8 @@ src/
 │  ├─ enemies.ts           enemy meshes, hover, status icons
 │  ├─ cameras.ts           the fixed isometric camera
 │  ├─ fx.ts                tracers, impacts, gold sacks (render-only)
-│  └─ debug.ts             flow-field arrows, ranges, sim readout
+│  ├─ ribbon.ts            lane ribbon: traced routes, projected reroute, orphaned region
+│  └─ debug.ts             waypoints, ranges, sim readout
 ├─ ui/
 │  ├─ hud.ts               treasury, wave
 │  ├─ palette.ts           build menu
@@ -505,6 +506,13 @@ so Tailwind's scanner sees every class verbatim.
   when `balance < 0` (the README's no-spending-while-negative rule).
 - **Inspector** — selected tower: level, damage, rate, range, upgrade cost, sell/remove with the
   removal-delay countdown. Right panel on desktop; bottom sheet on mobile.
+- **Lane ribbon** — shown only while a build tool is armed: one traced route per active spawn to
+  the treasury plus one back out, drawn as marching dashes so direction reads without colour.
+  While a ghost sits on a tile whose validation produced post-placement routing, the projected
+  routes join it, classified per tile into shared / current-only / projected-only so only the
+  diverged span is doubled; a `seals-spawn` candidate additionally shades the region it would
+  orphan. Geometry lives in `render/ribbon.ts`; the routes come from `Sim.currentLanes()` and
+  `Sim.previewRoutes()` as copied tile arrays, never as references into the sim's field buffers.
 - **Input** — two thin drivers over one shared core (`InputCore`: ground-plane raycast → tile,
   ghost verdict loop, selection, **command** emission). `PointerDriver` (hover + fine pointer):
   hover ghost, one-click commit. `TouchDriver` (everything else): tap anchors a pending ghost,
@@ -560,13 +568,14 @@ by watching the game:
 
 | Key | Shows |
 |---|---|
-| `F1` | Flow-field direction arrows per tile, colour-coded inbound/returning; blocked tiles |
 | `F2` | Enemy state: committed waypoint line, inbound/returning, carried gold, slow timer |
 | `F3` | Tower ranges and current target lines |
 | `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count |
 
-`F1` in particular is how the corner-cutting rule gets verified at all — an illegal diagonal is
-obvious as an arrow and invisible as motion.
+Routing has no debug overlay: the player-facing **lane ribbon** (§9) is the answer to "where do
+they go", and its orphaned-region shade covers walkable-but-unreachable tiles. The corner-cutting
+rule is verified by `flowfield.test.ts`, which sweeps the whole board rather than one route — an
+illegal diagonal is invisible as motion and would be missed by eye either way.
 
 ---
 
@@ -576,7 +585,7 @@ Vitest, `sim/` only. No render or UI tests.
 
 | File | Asserts |
 |---|---|
-| `flowfield.test.ts` | Reachability; no diagonal between two blocked tiles; costs monotonic toward source |
+| `flowfield.test.ts` | Reachability; no diagonal between two blocked tiles; costs monotonic toward source; route tracing terminates and follows the field |
 | `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal keeps tile blocked for 80 ticks |
 | `theft.test.ts` | Full round trip: steal → carry at 80% → killed → sack drops → picked up → flip to returning → escape |
 | `economy.test.ts` | Interest only during waves and only on positive balance; settlement order; the solvency gate lock and refund-driven unlock; solvent-to-win |
