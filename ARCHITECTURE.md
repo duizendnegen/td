@@ -669,6 +669,21 @@ they go", and its orphaned-region shade covers walkable-but-unreachable tiles. T
 rule is verified by `flowfield.test.ts`, which sweeps the whole board rather than one route — an
 illegal diagonal is invisible as motion and would be missed by eye either way.
 
+### Headless capture mode
+
+`?capture=1` builds the full game — data, renderer, HUD, input — but never starts the real-time
+loop. The simulation advances and frames render only when an external driver asks, through the
+`__td` seam: `step(n)` runs n ticks on the same tick path as normal running (`stepOnce` in
+`src/app/step.ts`), and `renderFrame(nowMs)` renders exactly one frame with an injected clock, so
+time-based presentation (hover bobs, effect fades) is a function of the tick, not of wall time.
+`tests/capture.test.ts` asserts driven stepping reaches the same state hash as a normal run.
+
+The boundary is deliberate (demo-agnostic): the application knows nothing about what gets
+captured. The PR-preview scenario, driver, and encoding live entirely in `.github/capture/`, and
+`?capture=1` is a mode flag, never a scenario selector. `tests/scenario.test.ts` reaches across
+that boundary on purpose, binding the CI-side scenario to `balance.json` so the demo clip can
+never silently fall behind the game's roster of towers and enemies.
+
 ---
 
 ## 12. Testing
@@ -702,6 +717,13 @@ git init  →  GitHub  →  Actions on push to main  →  GitHub Pages
 
 The live link exists from Phase 1 so every phase gate is playtestable by someone who is not you —
 which is the entire point of a POC.
+
+Pull requests run `ci.yml`: a required `test` job (typecheck + vitest, enforced on `main`) and an
+advisory `preview` job that captures the `.github/capture/` scenario headless (SwiftShader), pushes
+an animated WebP to the `ci-media` branch as `pr-<n>/<sha>.webp`, and maintains one sticky PR
+comment embedding it. Preview failures update the same comment with the run link and never block a
+merge; fork PRs skip the job (read-only token). `ci-media-prune.yml` deletes `pr-<n>/` when the PR
+closes.
 
 ---
 
