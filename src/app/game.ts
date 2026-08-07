@@ -5,6 +5,10 @@
 //   - The layer a networked command source would later replace
 //   - App-side spawn scheduling: burst presets expand into ordinary spawn
 //     commands here, never inside the sim (design D8)
+//   - buildGame wires everything and returns the tick/render handles; the
+//     real-time loop is started by the caller (src/main.ts), so a headless
+//     driver can advance the sim and render frames on demand instead
+//     (debug-tooling spec: headless capture mode)
 
 import balanceJson from '../data/balance.json';
 import { loadGameData } from '../data/schema';
@@ -29,8 +33,9 @@ import { PaletteUI } from '../ui/palette';
 import { RunScreens } from '../ui/screens';
 import { SpawnPanelUI } from '../ui/spawnpanel';
 import { WaveHud } from '../ui/wavehud';
-import { startLoop } from './loop';
 import { SpawnScheduler } from './presets';
+import { stepOnce } from './step';
+import { TICK_MS } from '../sim/fixed';
 
 // The kit subset grows as phases land; Phase 4 adds the terrain palette
 // tiles and the socket base.
@@ -74,7 +79,20 @@ function seedFromUrl(): number {
   return parsed;
 }
 
-export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
+export interface GameHandles {
+  /** Advance the simulation exactly one tick (scheduler flush + command drain). */
+  tick(): void;
+  /**
+   * Render exactly one frame. `nowMs` drives all time-based presentation
+   * (hover bobs, effect fades) — the normal path passes `performance.now()`,
+   * a capture driver passes `tick × TICK_MS` so frames derive from the tick.
+   * `alpha` ∈ [0, 1) interpolates between ticks; a driver at a tick boundary
+   * passes 0.
+   */
+  render(nowMs: number, alpha?: number): void;
+}
+
+export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles> {
   // Load + validate data — a bad level stops the boot here, before rendering.
   const levelEntry = levelForParam(new URLSearchParams(window.location.search).get('level'));
   const data = loadGameData(levelEntry.json, balanceJson);
@@ -158,10 +176,7 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   const stats = { lastTickMs: 0 };
   const tickOnce = (): void => {
     const start = performance.now();
-    // Scheduled preset spawns join the queue at their tick boundary, then
-    // drain with everything else — replays never need the scheduler.
-    scheduler.flushDue(sim.state.tick, commands);
-    sim.tick(commands.drain());
+    stepOnce(sim, scheduler, commands);
     stats.lastTickMs = performance.now() - start;
   };
 
@@ -199,6 +214,31 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     }
   });
 
+  // One frame, on demand. The clock is injected: presentation state is a
+  // function of the sim state, alpha and nowMs alone — never of wall time
+  // read here (debug-tooling spec: "Frames depend on tick, not elapsed time").
+  const renderFrame = (nowMs: number, alpha = 0): void => {
+    enemies.sync(sim.state.enemies, alpha, nowMs, sim.state.tick);
+    structures.sync(sim.state.structures, sim.state.tick, (s) => sim.currentTarget(s));
+    sacks.sync(sim.state.sacks, nowMs);
+    fx.drain(sim.events, nowMs);
+    fx.update(nowMs);
+    input.update();
+    treasuryHud.update(sim.state.treasuryMg);
+    palette.refresh(sim.state.treasuryMg);
+    waveHud.update(sim.state, sim.totalWaves);
+    screens.update(sim.state);
+    inspector.refresh(sim.state);
+    debug.update(stats.lastTickMs);
+    renderer.render(camera.camera);
+  };
+
+  // The frame-stepping automation seam: an external driver (the PR-preview
+  // capture harness) advances the sim and renders frames through these.
+  const step = (ticks: number): void => {
+    for (let i = 0; i < Math.max(0, Math.floor(ticks)); i += 1) tickOnce();
+  };
+
   // Exposed for console debugging and automated exploration; read-only use.
   (window as unknown as Record<string, unknown>).__td = {
     renderer,
@@ -210,25 +250,10 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
     scheduler,
     palette,
     inspector,
+    step,
+    renderFrame,
+    tickMs: TICK_MS,
   };
 
-  startLoop({
-    tick: tickOnce,
-    render: (alpha) => {
-      const now = performance.now();
-      enemies.sync(sim.state.enemies, alpha, now, sim.state.tick);
-      structures.sync(sim.state.structures, sim.state.tick, (s) => sim.currentTarget(s));
-      sacks.sync(sim.state.sacks, now);
-      fx.drain(sim.events, now);
-      fx.update(now);
-      input.update();
-      treasuryHud.update(sim.state.treasuryMg);
-      palette.refresh(sim.state.treasuryMg);
-      waveHud.update(sim.state, sim.totalWaves);
-      screens.update(sim.state);
-      inspector.refresh(sim.state);
-      debug.update(stats.lastTickMs);
-      renderer.render(camera.camera);
-    },
-  });
+  return { tick: tickOnce, render: renderFrame };
 }

@@ -17,24 +17,25 @@
 
 ## 2. APPROVAL GATE
 
-- [ ] 2.1 **STOP. Present the spike verdict and wait for explicit approval before continuing.** If
+- [x] 2.1 **STOP. Present the spike verdict and wait for explicit approval before continuing.** If
       headless WebGL or per-frame compositing fails and has no workaround, abandon the change — no
       application code has been touched. If Camo rejects animated WebP, get agreement on the GIF
-      960×540 fallback (design D9) before proceeding
-- [ ] 2.2 On approval, delete the throwaway probe script and the temporary `workflow_dispatch`
+      960×540 fallback (design D9) before proceeding — approved 2026-08-07: animated WebP works,
+      no fallback
+- [x] 2.2 On approval, delete the throwaway probe script and the temporary `workflow_dispatch`
       workflow
 
 ## 3. Capture seam in the application
 
-- [ ] 3.1 Split `startGame` into `buildGame(canvas)` that wires data, renderer, UI and input and
+- [x] 3.1 Split `startGame` into `buildGame(canvas)` that wires data, renderer, UI and input and
       returns the tick/render handles; move the real-time loop start to `src/main.ts`
-- [ ] 3.2 Change the render closure to take `nowMs` as a parameter instead of reading
+- [x] 3.2 Change the render closure to take `nowMs` as a parameter instead of reading
       `performance.now()`; the normal path passes `performance.now()`, preserving current behaviour
-- [ ] 3.3 Add `?capture=1`: build the game fully but do not start the loop, and expose the
+- [x] 3.3 Add `?capture=1`: build the game fully but do not start the loop, and expose the
       frame-stepping seam on `__td` alongside the existing handles
-- [ ] 3.4 Verify the normal boot path is unchanged — `npm test` and `npm run typecheck` green, and
+- [x] 3.4 Verify the normal boot path is unchanged — `npm test` and `npm run typecheck` green, and
       the game plays identically without the parameter
-- [ ] 3.5 Add a test asserting capture-mode stepping reaches the same state hash as a normal run to
+- [x] 3.5 Add a test asserting capture-mode stepping reaches the same state hash as a normal run to
       the same tick with the same seed and command stream (spec: "Capture mode uses the same tick
       path")
 
