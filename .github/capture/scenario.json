@@ -3,7 +3,7 @@
   "seed": 12648430,
   "level": "level_01",
   "commands": [
-    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "rapid", "tx": 10, "ty": 1 } },
+    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "rapid", "tx": 4, "ty": 0 } },
     { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "sniper", "tx": 9, "ty": 3 } },
 
     { "tick": 60, "body": { "kind": "startWave" } },
