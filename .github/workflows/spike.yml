@@ -1,0 +1,103 @@
+# THROWAWAY spike workflow for the PR wave preview feasibility probe
+# (openspec change add-pr-wave-preview, tasks 1.2-1.5). Deleted at task 2.2.
+name: spike-probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/pr-preview]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - name: Run feasibility probe
+        run: node .github/capture/probe.mjs
+      - name: Encode animated WebP
+        run: |
+          ffmpeg -y -framerate 10 -i .github/capture/out/frame-%03d.png \
+            -c:v libwebp -lossless 0 -q:v 80 -loop 0 probe.webp
+          ls -la probe.webp
+      - name: Push clip to ci-media
+        id: media
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT=${GITHUB_SHA::7}
+          FILE="spike/probe-${SHORT}.webp"
+          cd "$RUNNER_TEMP"
+          if git clone --depth 1 -b ci-media \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" media 2>/dev/null; then
+            cd media
+          else
+            git clone --depth 1 \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" media
+            cd media
+            git switch --orphan ci-media
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p spike
+          cp "$GITHUB_WORKSPACE/probe.webp" "$FILE"
+          git add "$FILE"
+          git commit -m "spike: probe clip ${SHORT}"
+          git push origin ci-media
+          echo "url=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ci-media/${FILE}" >> "$GITHUB_OUTPUT"
+      - name: Comment on PR and verify Camo serves animated WebP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          URL="${{ steps.media.outputs.url }}"
+          PR=$(gh pr list --head "$GITHUB_REF_NAME" --json number --jq '.[0].number' || true)
+          if [ -z "$PR" ]; then
+            echo "No PR for $GITHUB_REF_NAME — raw clip at $URL"
+            exit 0
+          fi
+          BODY="**[spike-probe — throwaway]** animated WebP probe for ${GITHUB_SHA::7}:
+
+          ![probe clip](${URL})
+
+          If this renders as a short animated zoom, Camo serves animated WebP."
+          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            -f body="$BODY" --jq '.id')
+          echo "Posted comment $COMMENT_ID on PR #$PR"
+          # Camo rewrites image URLs in the rendered HTML; fetch and probe it.
+          sleep 5
+          HTML=$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+            -H "Accept: application/vnd.github.html+json" --jq '.body_html')
+          CAMO=$(echo "$HTML" | grep -o 'https://camo\.githubusercontent\.com/[^"]*' | head -1 || true)
+          if [ -z "$CAMO" ]; then
+            echo "CAMO CHECK: no camo URL in rendered comment (unexpected)"; exit 1
+          fi
+          echo "Camo URL: $CAMO"
+          curl -sSL "$CAMO" -o camo-served.webp
+          CTYPE=$(curl -sSI "$CAMO" | tr -d '\r' | grep -i '^content-type:' | head -1)
+          echo "Served $CTYPE, $(stat -c%s camo-served.webp) bytes"
+          if head -c 512 camo-served.webp | grep -aq ANIM; then
+            echo "CAMO CHECK: PASS — animated WebP (ANIM chunk present) served by Camo"
+          else
+            echo "CAMO CHECK: FAIL — served bytes lack ANIM chunk (GIF fallback needed)"
+            exit 1
+          fi
+      - name: Upload probe outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-probe-output
+          path: |
+            .github/capture/out/
+            probe.webp
