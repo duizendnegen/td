@@ -40,7 +40,7 @@ export class Renderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x12161c);
+    this.scene.background = new THREE.Color(0x3a1b2e);
 
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(12, 20, 8);
