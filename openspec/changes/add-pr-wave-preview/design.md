@@ -238,6 +238,32 @@ scene on a GitHub runner, the change is abandoned having modified nothing.
   PRs merge past it. Accepted: D10's failure comment makes it visible in the PR body, and D6
   guarantees correctness is never what rots.
 
+### Spike verdict (task 1.6 — runs 31216985235 / 31217097176 on `ubuntu-latest`, 2026-08-07)
+
+Every gate question passed; no GIF fallback needed. Evidence per risk:
+
+- **Headless WebGL**: PASS. Stock headless Chromium (Playwright `channel: 'chromium'`, no GL
+  flags) renders the scene via `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)))`.
+  Boot screenshot has 6209 distinct colours — board, towers, HUD all present.
+- **Per-frame compositing**: PASS. With the RAF loop paused, a frame driven inside a
+  `requestAnimationFrame` composites before `page.screenshot()` returns: two states rendered
+  back to back produced differing screenshots. Bonus: re-rendering the *same* state produced
+  byte-identical PNGs, on both the local D3D11 GPU and runner SwiftShader — rung 2 of D4 holds
+  with margin.
+- **Fonts**: PASS. `document.fonts.ready` resolves on the runner; Material Symbols ligature
+  `screen_rotation` measures 24 px (one glyph), not ~200 px of fallback text.
+- **Camo / animated WebP**: PASS, with a finding that moots the risk: GitHub does **not** proxy
+  `raw.githubusercontent.com` images through Camo — the rendered PR page embeds the raw URL
+  directly (verified in PR #8's HTML), served `Content-Type: image/webp` with the `VP8X`/`ANIM`
+  chunks intact. D7's SHA-named files stay (raw's CDN caches too), but the fallback trigger
+  "Camo strips animated WebP" cannot occur.
+- **Runner facts for `ci.yml`**: ubuntu-24.04 images no longer preinstall ffmpeg — one
+  `apt-get install -y ffmpeg` step (~15 s) is required. Playwright needs
+  `npx playwright install --with-deps chromium`. Probe wall-clock on the runner: ~40 s total.
+- **Size datum for D9**: 40 frames at 1280×720, `libwebp -q:v 80` → 1.5 MB (~38 KB/frame).
+  A ~120-frame clip extrapolates to ~4.6 MB; the encode step's size ceiling should assume q
+  tuning may be needed.
+
 ## Migration Plan
 
 Phased, with a hard stop:

@@ -2,10 +2,10 @@
 # (openspec change add-pr-wave-preview, tasks 1.2-1.5). Deleted at task 2.2.
 name: spike-probe
 
+# Dispatch-only after the first verified run, so pushes during later phases
+# don't re-post probe comments.
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/pr-preview]
 
 permissions:
   contents: write
@@ -59,7 +59,11 @@ jobs:
           git commit -m "spike: probe clip ${SHORT}"
           git push origin ci-media
           echo "url=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ci-media/${FILE}" >> "$GITHUB_OUTPUT"
-      - name: Comment on PR and verify Camo serves animated WebP
+      # Finding from the first run: GitHub does NOT proxy raw.githubusercontent.com
+      # through Camo — the PR page embeds the raw URL directly. So the check is:
+      # (a) raw serves image/webp with an ANIM chunk, (b) the rendered PR page
+      # contains an <img> pointing at it.
+      - name: Comment on PR and verify the embed serves animated WebP
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -74,28 +78,17 @@ jobs:
 
           ![probe clip](${URL})
 
-          If this renders as a short animated zoom, Camo serves animated WebP."
-          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
-            -f body="$BODY" --jq '.id')
-          echo "Posted comment $COMMENT_ID on PR #$PR"
-          # Camo rewrites image URLs in the rendered HTML; fetch and probe it.
+          If this renders as a short animated zoom, the embed path works."
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" -f body="$BODY" --jq '.id'
           sleep 5
-          HTML=$(gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
-            -H "Accept: application/vnd.github.html+json" --jq '.body_html')
-          CAMO=$(echo "$HTML" | grep -o 'https://camo\.githubusercontent\.com/[^"]*' | head -1 || true)
-          if [ -z "$CAMO" ]; then
-            echo "CAMO CHECK: no camo URL in rendered comment (unexpected)"; exit 1
-          fi
-          echo "Camo URL: $CAMO"
-          curl -sSL "$CAMO" -o camo-served.webp
-          CTYPE=$(curl -sSI "$CAMO" | tr -d '\r' | grep -i '^content-type:' | head -1)
-          echo "Served $CTYPE, $(stat -c%s camo-served.webp) bytes"
-          if head -c 512 camo-served.webp | grep -aq ANIM; then
-            echo "CAMO CHECK: PASS — animated WebP (ANIM chunk present) served by Camo"
-          else
-            echo "CAMO CHECK: FAIL — served bytes lack ANIM chunk (GIF fallback needed)"
-            exit 1
-          fi
+          CTYPE=$(curl -sSI "$URL" | tr -d '\r' | grep -i '^content-type:' | head -1)
+          echo "raw serves: $CTYPE"
+          curl -sSL "$URL" -o served.webp
+          head -c 512 served.webp | grep -aq ANIM || { echo "EMBED CHECK: FAIL — no ANIM chunk"; exit 1; }
+          PR_URL="https://github.com/${GITHUB_REPOSITORY}/pull/${PR}"
+          curl -sL "$PR_URL" | grep -oq "<img src=\"${URL}\"" \
+            && echo "EMBED CHECK: PASS — PR page embeds the raw animated WebP directly" \
+            || { echo "EMBED CHECK: FAIL — no <img> for $URL on $PR_URL"; exit 1; }
       - name: Upload probe outputs
         if: always()
         uses: actions/upload-artifact@v4

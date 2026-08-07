@@ -2,16 +2,17 @@
 
 - [x] 1.1 Add Playwright as a dev dependency and a throwaway probe script that boots the built app
       on a runner, waits for `__td` to exist, and takes one screenshot
-- [ ] 1.2 Run the probe on `ubuntu-latest` via a temporary `workflow_dispatch` workflow; confirm
+- [x] 1.2 Run the probe on `ubuntu-latest` via a temporary `workflow_dispatch` workflow; confirm
       headless Chromium renders the three.js scene (SwiftShader) and the screenshot is not blank
-- [ ] 1.3 In the same probe, confirm a frame driven manually inside a `requestAnimationFrame`
+- [x] 1.3 In the same probe, confirm a frame driven manually inside a `requestAnimationFrame`
       composites before `page.screenshot()` returns — render two visibly different states back to
       back and verify the screenshots differ
-- [ ] 1.4 Confirm `await document.fonts.ready` resolves on the runner and that Material Symbols
+- [x] 1.4 Confirm `await document.fonts.ready` resolves on the runner and that Material Symbols
       glyphs render as icons, not as literal ligature text
-- [ ] 1.5 Encode a handful of probe frames to animated WebP with ffmpeg, post it in a throwaway PR
-      comment from `ci-media`, and confirm GitHub's Camo proxy serves it animated
-- [ ] 1.6 Write the verdict into design.md (Risks section): what passed, what needs the GIF
+- [x] 1.5 Encode a handful of probe frames to animated WebP with ffmpeg, post it in a throwaway PR
+      comment from `ci-media`, and confirm GitHub serves it animated (finding: raw
+      `raw.githubusercontent.com` embeds are not Camo-proxied at all)
+- [x] 1.6 Write the verdict into design.md (Risks section): what passed, what needs the GIF
       fallback, and any runner flags required
 
 ## 2. APPROVAL GATE
