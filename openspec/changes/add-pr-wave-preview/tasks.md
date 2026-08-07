@@ -75,28 +75,31 @@
 
 ## 6. Workflow and delivery
 
-- [ ] 6.1 Add `.github/workflows/ci.yml` with a required `test` job running `npm ci`, typecheck and
+- [x] 6.1 Add `.github/workflows/ci.yml` with a required `test` job running `npm ci`, typecheck and
       vitest on `pull_request`
-- [ ] 6.2 Add the advisory `preview` job: `needs: test`, not a required check, guarded on
+- [x] 6.2 Add the advisory `preview` job: `needs: test`, not a required check, guarded on
       `github.event.pull_request.head.repo.full_name == github.repository` so fork PRs skip cleanly
-- [ ] 6.3 Build, run the capture driver, and push the clip to the `ci-media` branch as
+- [x] 6.3 Build, run the capture driver, and push the clip to the `ci-media` branch as
       `pr-<n>/<sha>.webp`
-- [ ] 6.4 Create or update a single marked sticky comment embedding the
+- [x] 6.4 Create or update a single marked sticky comment embedding the
       `raw.githubusercontent.com` URL; confirm a second push updates the same comment rather than
-      adding one
-- [ ] 6.5 On capture failure, update the same sticky comment with the reason and a link to the run
+      adding one (verified on PR #9: the success comment became the failure comment in place)
+- [x] 6.5 On capture failure, update the same sticky comment with the reason and a link to the run
       instead of leaving it stale or silent (design D10)
-- [ ] 6.6 Add a `pull_request: closed` step that deletes `pr-<n>/` from `ci-media`
-- [ ] 6.7 Mark `test` as a required status check on `main` in repository settings; leave `preview`
+- [x] 6.6 Add a `pull_request: closed` step that deletes `pr-<n>/` from `ci-media`
+      (ci-media-prune.yml; verified pr-9/ was deleted on close)
+- [x] 6.7 Mark `test` as a required status check on `main` in repository settings; leave `preview`
       unrequired
 
 ## 7. Verification and documentation
 
-- [ ] 7.1 Open a throwaway PR that changes nothing visual; confirm the preview appears inline,
-      renders animated, and shows the four archetypes and four enemy types
-- [ ] 7.2 Open a throwaway PR that changes something visual (e.g. a tint in `hud.css`); confirm the
-      difference is visible in the clip
-- [ ] 7.3 Force a capture failure and confirm the sticky comment reports it and the PR remains
-      mergeable
-- [ ] 7.4 Document the capture mode and the demo-agnostic boundary in ARCHITECTURE.md, and note the
+- [x] 7.1 Confirm the preview appears inline, renders animated, and shows the four archetypes and
+      four enemy types (verified on PR #8 — the change's own PR serves as the no-visual-delta
+      baseline; animated bytes confirmed via ANIM chunk and frame inspection)
+- [x] 7.2 Open a throwaway PR that changes something visual; confirm the difference is visible in
+      the clip (PR #9: scene-background tint, clearly visible)
+- [x] 7.3 Force a capture failure and confirm the sticky comment reports it and the PR remains
+      mergeable (PR #9 push 2: rock-tile placement → "3/4 towers, 8/9 structures" in the comment,
+      PR still MERGEABLE)
+- [x] 7.4 Document the capture mode and the demo-agnostic boundary in ARCHITECTURE.md, and note the
       `ci-media` branch's purpose and pruning in README.md

@@ -178,3 +178,10 @@ are render-side only and never touch simulation state.
 5. Remaining towers, upgrades, slow + icons.
 6. Wave loader, interest, the solvency gate, two levels.
 7. Isometric view.
+
+## CI
+
+Every PR runs a required `test` check (typecheck + vitest) and an advisory preview job that posts
+a short animated clip of a staged board to the PR as a sticky comment. The clips live on the
+long-lived `ci-media` branch (`pr-<n>/<sha>.webp`) — it holds generated media only, is pruned
+automatically when a PR closes, and can be force-reset without losing anything of value.
