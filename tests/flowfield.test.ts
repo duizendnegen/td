@@ -1,7 +1,7 @@
 // See ARCHITECTURE.md §12
 import { describe, expect, it } from 'vitest';
 import { DIAG, TILE } from '../src/sim/fixed';
-import { DIR_DX, DIR_DY, UNREACHABLE, buildField, nextTile } from '../src/sim/flowfield';
+import { DIR_DX, DIR_DY, UNREACHABLE, buildField, nextTile, tracePath } from '../src/sim/flowfield';
 import { Grid } from '../src/sim/grid';
 
 /** Build a grid from an ASCII map: '#' blocked, anything else walkable. */
@@ -119,5 +119,55 @@ describe('flow fields', () => {
     const b = buildField(gridFrom(rows), [{ x: 6, y: 3 }]);
     expect([...a.dir]).toEqual([...b.dir]);
     expect([...a.cost]).toEqual([...b.cost]);
+  });
+});
+
+describe('tracePath (path-preview spec)', () => {
+  // A corridor forced around two rock stubs, so the trace has to turn.
+  const rows = ['..........', '.####.....', '....#..#..', '.#..#..#..', '.#.....#..', '..........'];
+
+  it('traces from a spawn to the treasury following the field directions', () => {
+    const grid = gridFrom(rows);
+    const treasury = { x: 9, y: 5 };
+    const field = buildField(grid, [treasury]);
+    const path = tracePath(field, grid, { x: 0, y: 0 });
+
+    expect(path[0]).toEqual({ x: 0, y: 0 });
+    expect(path[path.length - 1]).toEqual(treasury);
+    // Every consecutive pair is exactly that tile's field step.
+    for (let i = 0; i < path.length - 1; i++) {
+      const here = path[i]!;
+      expect(nextTile(field, grid, here.x, here.y)).toEqual(path[i + 1]);
+    }
+    // A route, not a wander: no tile is visited twice.
+    expect(new Set(path.map((t) => `${t.x},${t.y}`)).size).toBe(path.length);
+  });
+
+  it('yields no onward route from a walkable but unreachable tile', () => {
+    const grid = gridFrom(['.....', '.###.', '.#.#.', '.###.']);
+    const field = buildField(grid, [{ x: 0, y: 0 }]);
+    expect(field.cost[grid.idx(2, 2)]).toBe(UNREACHABLE);
+    expect(tracePath(field, grid, { x: 2, y: 2 })).toEqual([{ x: 2, y: 2 }]);
+  });
+
+  it('traces a source tile to itself alone', () => {
+    const grid = gridFrom(rows);
+    const field = buildField(grid, [{ x: 9, y: 5 }]);
+    expect(field.cost[grid.idx(9, 5)]).toBe(0);
+    expect(tracePath(field, grid, { x: 9, y: 5 })).toEqual([{ x: 9, y: 5 }]);
+  });
+
+  it('terminates from every tile of a board, blocked tiles included', () => {
+    const grid = gridFrom(rows);
+    const field = buildField(grid, [{ x: 9, y: 5 }]);
+    const cap = grid.width * grid.height;
+    for (let y = 0; y < grid.height; y++) {
+      for (let x = 0; x < grid.width; x++) {
+        const path = tracePath(field, grid, { x, y });
+        expect(path.length).toBeGreaterThanOrEqual(1);
+        // Under the cap means the walk stopped at a source, not at the guard.
+        expect(path.length).toBeLessThan(cap + 1);
+      }
+    }
   });
 });

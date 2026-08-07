@@ -2,21 +2,11 @@
 
 ## Purpose
 
-Makes the invisible verifiable: flow fields, fixed-point state, and determinism cannot be checked
-by watching the game, so first-class overlays and a fast determinism probe exist from Phase 1.
+Makes the invisible verifiable: enemy steering, targeting, fixed-point state, and determinism
+cannot be checked by watching the game, so first-class overlays and a fast determinism probe exist
+from Phase 1. Routing itself is no longer among them — it became a player surface, `path-preview`.
 
 ## Requirements
-
-### Requirement: Flow-field overlay (F1)
-
-Pressing `F1` SHALL toggle an overlay showing, per tile: the field's direction as an arrow,
-colour-coded inbound versus returning, blocked tiles, and unreachable tiles distinguished from
-finite-cost tiles.
-
-#### Scenario: Corner rule is visually verifiable
-
-- **WHEN** `F1` is active on terrain containing corner-to-corner blocked pairs
-- **THEN** no displayed arrow points diagonally between two blocked tiles
 
 ### Requirement: Enemy state overlay (F2)
 

@@ -7,8 +7,10 @@
 //     (hover ghost, click commits) and touch (pending ghost, ✓/✕ commits)
 //     are thin front-ends over this core
 //   - Raycast against the ground plane to get a tile coordinate
-//   - Ghost preview runs the REAL validation (sim.previewPlacement),
+//   - Ghost preview runs the REAL validation (sim.previewRoutes),
 //     re-evaluated on ghost-tile change or new tick — never per move event
+//   - The same trigger drives the lane ribbon, so the ghost tint and the
+//     projected routes come from one validation and cannot disagree
 //   - Never writes sim state directly — emits commands only
 //   - Every invalid commit plays the same red flash the sim's rejects use
 
@@ -19,6 +21,7 @@ import type { Sim } from '../sim/sim';
 import { towerStats } from '../sim/tower';
 import type { FxRenderer, GhostPreview, GhostTint } from '../render/fx';
 import { GROUND_TOP_Y } from '../render/renderer';
+import type { LaneRibbon } from '../render/ribbon';
 import type { InspectorUI } from './inspector';
 import { toolStructure, type PaletteUI, type Tool } from './palette';
 
@@ -33,6 +36,7 @@ export class InputCore {
   readonly palette: PaletteUI;
   readonly inspector: InspectorUI;
   private readonly ghost: GhostPreview;
+  private readonly ribbon: LaneRibbon;
   private readonly fx: FxRenderer;
   private readonly canvas: HTMLCanvasElement;
   private readonly camera: THREE.Camera;
@@ -52,6 +56,7 @@ export class InputCore {
     palette: PaletteUI,
     inspector: InspectorUI,
     ghost: GhostPreview,
+    ribbon: LaneRibbon,
     fx: FxRenderer,
   ) {
     this.canvas = canvas;
@@ -61,6 +66,7 @@ export class InputCore {
     this.palette = palette;
     this.inspector = inspector;
     this.ghost = ghost;
+    this.ribbon = ribbon;
     this.fx = fx;
 
     palette.onChange = () => {
@@ -152,24 +158,36 @@ export class InputCore {
 
   /**
    * Per-frame ghost maintenance for a build ghost at `tile` (hovered or
-   * pending). The verdict is recomputed only when the tile or the sim tick
-   * changed, so an enemy walking into the footprint flips the tint without
-   * any input event. Speculative only — never touches sim state.
+   * pending). The verdict and the lane ribbon are recomputed only when the
+   * tile or the sim tick changed, so an enemy walking into the footprint
+   * flips the tint without any input event. Speculative only — never touches
+   * sim state.
+   *
+   * With a tool armed and no ghost tile (cursor off the board), the ribbon
+   * still shows the current lanes; `off` is a stable key, so that costs one
+   * evaluation, not one per frame.
    */
   updateBuildGhost(tile: Tile | null): void {
     const tool = this.palette.selected;
     const structure = tool !== null ? toolStructure(tool) : null;
-    if (!structure || !tile) {
+    if (!structure) {
       this.ghost.hide();
+      this.ribbon.hide();
       this.lastEvalTile = '';
       return;
     }
     const tick = this.sim.state.tick;
-    const key = `${tool}:${tile.tx},${tile.ty}`;
+    const key = tile ? `${tool}:${tile.tx},${tile.ty}` : `${tool}:off`;
     if (tick !== this.lastEvalTick || key !== this.lastEvalTile) {
       this.lastEvalTick = tick;
       this.lastEvalTile = key;
-      this.lastVerdictOk = this.sim.previewPlacement(structure.kind, tile.tx, tile.ty) === 'ok';
+      const preview = tile ? this.sim.previewRoutes(structure.kind, tile.tx, tile.ty) : null;
+      this.lastVerdictOk = preview?.verdict === 'ok';
+      this.ribbon.update(this.sim.currentLanes(), preview?.lanes ?? null, preview?.orphaned ?? null);
+    }
+    if (!tile) {
+      this.ghost.hide();
+      return;
     }
     this.ghost.show(structure.kind, tile.tx, tile.ty, this.tint(tool!), this.toolRangeUnits(tool!));
     this.ghost.showPreviewRingAt(null);
@@ -183,8 +201,11 @@ export class InputCore {
   /**
    * Per-frame rings when no build tool is active: the inspected tower's
    * range ring, plus the next-level preview while the upgrade is hovered.
+   * Nothing is armed here, so the lane ribbon goes away — including when a
+   * placed tower is selected for inspection (path-preview spec).
    */
   updateIdleRings(): void {
+    this.ribbon.hide();
     const sel = this.inspector.current;
     if (sel) {
       const centre = { x: sel.tx + 0.5, z: sel.ty + 0.5 };

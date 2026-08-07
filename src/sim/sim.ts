@@ -20,8 +20,8 @@ import {
 } from './economy';
 import type { RenderEvent } from './events';
 import { invalidateCommitments, spawnEnemy, stepEnemies } from './enemy';
-import type { FlowField } from './flowfield';
-import { allocField, buildFieldInto } from './flowfield';
+import type { FlowField, TileXY } from './flowfield';
+import { UNREACHABLE, allocField, buildFieldInto, tracePath } from './flowfield';
 import type { Grid } from './grid';
 import { TERRAIN } from './grid';
 import { hashState } from './hash';
@@ -35,6 +35,34 @@ import type { Enemy, SimState, Structure, StructureKind } from './types';
 
 /** Towers may only upgrade to this level; the level-3 inspector reads maxed. */
 export const MAX_TOWER_LEVEL = 3;
+
+/**
+ * A placement verdict together with the routing it would produce
+ * (path-preview design D3). Every array is freshly copied out of the sim's
+ * buffers, so holding one across later evaluations or a confirmed placement
+ * is safe.
+ */
+export interface PlacementRoutes {
+  verdict: PlacementVerdict;
+  /**
+   * Projected lanes in the same order as `currentLanes` — one per active
+   * spawn, then the return lane. `null` when the verdict was reached before
+   * any post-placement routing existed; an individual lane is `[]` when its
+   * start tile would have no route at all.
+   */
+  lanes: TileXY[][] | null;
+  /** Walkable tiles the projected routing cuts off. Non-null on 'seals-spawn' only. */
+  orphaned: TileXY[] | null;
+}
+
+/**
+ * A traced route from `from`, or an empty lane where `from` has no route —
+ * a lane with nothing to draw rather than a one-tile stub.
+ */
+function laneFrom(field: FlowField, grid: Grid, from: TileXY): TileXY[] {
+  if (field.cost[grid.idx(from.x, from.y)]! < 0) return [];
+  return tracePath(field, grid, from);
+}
 
 export class Sim {
   readonly state: SimState;
@@ -205,6 +233,82 @@ export class Sim {
       footprintFor(tx, ty),
       this.scratch,
     );
+  }
+
+  /**
+   * The routes traffic takes right now (path-preview spec): one lane per
+   * active spawn through the inbound field, then one from the treasury
+   * through the returning field. Read-only and freshly allocated.
+   */
+  currentLanes(): TileXY[][] {
+    return this.traceLanes(this.inbound, this.returning);
+  }
+
+  /**
+   * previewPlacement plus the routing the placement would produce (design
+   * D3). The trace happens here, immediately after validation, so the caller
+   * never holds a reference into `scratch` — which the next evaluation
+   * overwrites and an accepted placement swaps into live state.
+   *
+   * `lanes` is null for every verdict reached before `scratch` was rebuilt:
+   * no-funds, out-of-bounds, not-buildable, occupied, enemy-in-footprint,
+   * and the socket 'ok' path, which never touches the mask or the fields.
+   */
+  previewRoutes(kind: StructureKind, tx: number, ty: number): PlacementRoutes {
+    if (!canSpend(this.state.treasuryMg)) {
+      return { verdict: 'no-funds', lanes: null, orphaned: null };
+    }
+    const footprint = footprintFor(tx, ty);
+    const verdict = validatePlacement(
+      this.grid,
+      kind,
+      this.state.structures,
+      this.state.enemies,
+      this.allSpawns,
+      this.activeSpawns,
+      this.treasury,
+      footprint,
+      this.scratch,
+    );
+    // A socket 'ok' short-circuits before the rebuild, so the buffers still
+    // hold the previous evaluation's fields — never readable as this one's.
+    const socket =
+      this.grid.inBounds(tx, ty) && this.grid.terrainAt(tx, ty) === TERRAIN.socket;
+    const rebuilt =
+      verdict === 'seals-spawn' || verdict === 'strands-enemy' || (verdict === 'ok' && !socket);
+    if (!rebuilt) return { verdict, lanes: null, orphaned: null };
+    return {
+      verdict,
+      lanes: this.traceLanes(this.scratch.inbound, this.scratch.returning),
+      orphaned: verdict === 'seals-spawn' ? this.orphanedBy(footprint) : null,
+    };
+  }
+
+  /** One inbound lane per active spawn, then the treasury's return lane. */
+  private traceLanes(inbound: FlowField, returning: FlowField): TileXY[][] {
+    const lanes = this.activeSpawns.map((s) => laneFrom(inbound, this.grid, s));
+    lanes.push(laneFrom(returning, this.grid, this.treasury));
+    return lanes;
+  }
+
+  /**
+   * Walkable tiles the projected inbound field marks unreachable (design D6)
+   * — exactly the array 'seals-spawn' is derived from. The footprint itself
+   * is excluded: it is the cause, not part of the cut-off region, and
+   * validation has already restored it to walkable.
+   */
+  private orphanedBy(footprint: readonly { x: number; y: number }[]): TileXY[] {
+    const out: TileXY[] = [];
+    const { cost } = this.scratch.inbound;
+    for (let ty = 0; ty < this.grid.height; ty++) {
+      for (let tx = 0; tx < this.grid.width; tx++) {
+        if (!this.grid.isWalkable(tx, ty)) continue;
+        if (cost[this.grid.idx(tx, ty)] !== UNREACHABLE) continue;
+        if (footprint.some((t) => t.x === tx && t.y === ty)) continue;
+        out.push({ x: tx, y: ty });
+      }
+    }
+    return out;
   }
 
   /**
