@@ -304,14 +304,21 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     }
   });
 
-  // Time-control keys (design D6): live in EVERY phase, unlike the buttons —
-  // the debug spawn panel is not phase-gated, so a build phase can hold moving
-  // enemies. Space is preventDefault-ed because a focused button would
-  // otherwise re-activate on it.
+  // Space is phase-sensitive (build-phase-controls design D3): it starts the
+  // wave in the build phase, toggles pause in a running wave, and is inert
+  // elsewhere — so no player-facing path can pause a build phase. The sim
+  // stays the sole validator of startWave (design D2); an insolvent press is
+  // an ignored command. F fast-forward keeps its every-phase binding — the
+  // debug spawn panel is not phase-gated, so a build phase can hold moving
+  // enemies; freezing those is now the console handle's job. Space is
+  // preventDefault-ed in every phase because a focused button would otherwise
+  // re-activate on it.
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
       e.preventDefault();
-      if (!e.repeat) time.togglePaused();
+      if (e.repeat) return;
+      if (sim.state.runPhase === 'build') commands.issue({ kind: 'startWave' });
+      else if (sim.state.runPhase === 'wave') time.togglePaused();
       return;
     }
     // Auto-repeat would re-engage a hold the release paths just cleared.

@@ -17,6 +17,7 @@ import type { CommandQueue } from '../sim/commands';
 import { liquidationTotalMg } from '../sim/economy';
 import { GOLD } from '../sim/fixed';
 import type { SimState } from '../sim/types';
+import { keyHint } from './keyhint';
 import { waveProgress } from './waveprogress';
 
 /** Segment count of the wave progress bar (design D6; density open question). */
@@ -31,11 +32,11 @@ const PREVIEW =
   'text-label-caps uppercase text-on-surface-variant';
 
 const START_READY =
-  'btn-mech bevel-panel pointer-events-auto flex flex-col items-center gap-1 rounded-xl border-2 ' +
+  'btn-mech bevel-panel pointer-events-auto relative flex flex-col items-center gap-1 rounded-xl border-2 ' +
   'border-tertiary-container bg-surface-container-high px-6 py-3 text-tertiary-container ' +
   'shadow-[0_0_20px_rgba(101,242,181,0.15)]';
 const START_BLOCKED =
-  'btn-mech bevel-panel pointer-events-auto flex cursor-not-allowed flex-col items-center gap-1 rounded-xl ' +
+  'btn-mech bevel-panel pointer-events-auto relative flex cursor-not-allowed flex-col items-center gap-1 rounded-xl ' +
   'border-2 border-tertiary-container/40 bg-surface-container-high px-6 py-3 text-tertiary-container opacity-40';
 
 const BAR =
@@ -110,6 +111,7 @@ export class WaveHud {
     this.startButton.innerHTML =
       '<span class="material-symbols-outlined text-3xl">swords</span>' +
       '<span class="font-headline text-[16px] font-bold uppercase tracking-widest desktop:text-headline-sm">Start wave</span>';
+    this.startButton.appendChild(keyHint('Space'));
     this.startButton.addEventListener('click', () => commands.issue({ kind: 'startWave' }));
     this.debtNote = document.createElement('div');
     this.debtNote.className = NOTE_CARD + ' max-w-[260px]';

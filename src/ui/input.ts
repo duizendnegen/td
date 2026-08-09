@@ -65,7 +65,7 @@ export function buildHintLine(hud: HTMLElement): void {
     'leading-relaxed text-on-surface-variant desktop:block';
   el.innerHTML =
     '1 wall · 2-5 towers · 6 remove<br>click tower to inspect · Esc cancels<br>' +
-    'Space pause · hold F to fast-forward<br>' +
+    'Space start wave / pause · hold F to fast-forward<br>' +
     'F2 waypoints · F3 ranges<br>F4 readout · F8 probe';
   hud.appendChild(el);
 }
