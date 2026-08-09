@@ -128,6 +128,26 @@ describe('mouse camera controller', () => {
     expect(bounds(r.cam)).toEqual(before);
   });
 
+  it('other pointers never drive or cancel an active right-drag', () => {
+    const r = rig();
+    r.wheel(-100);
+    r.wheel(-100); // zoomed in: pan has room
+    r.pointer('pointerdown', { clientX: 600, clientY: 300, pointerId: 1 });
+    r.pointer('pointermove', { clientX: 700, clientY: 340, pointerId: 1 }); // past slop: panning
+    const mid = bounds(r.cam);
+    r.pointer('pointermove', { clientX: 900, clientY: 500, pointerId: 7 }); // stray pen/touch pointer
+    expect(bounds(r.cam)).toEqual(mid);
+    r.pointer('pointercancel', { pointerId: 7 }); // touch cancel must not kill the drag
+    r.pointer('pointermove', { clientX: 720, clientY: 350, pointerId: 1 });
+    expect(bounds(r.cam)).not.toEqual(mid);
+    r.pointer('pointercancel', { pointerId: 1 }); // the owner's cancel does
+    r.pointer('pointermove', { clientX: 900, clientY: 500, pointerId: 1 });
+    const after = bounds(r.cam);
+    r.pointer('pointerup', { clientX: 900, clientY: 500, pointerId: 1 });
+    expect(bounds(r.cam)).toEqual(after);
+    expect(r.cancels).toBe(0);
+  });
+
   it('touch pointers and other buttons are ignored', () => {
     const r = rig();
     r.wheel(-100);

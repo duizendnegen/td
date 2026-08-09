@@ -21,6 +21,8 @@ import { SLOP_PX } from './gestures';
 const NOTCH_PX = 100;
 
 interface RightDrag {
+  /** pointerId that owns the drag; events from other pointers are ignored. */
+  id: number;
   x: number;
   y: number;
   startX: number;
@@ -45,11 +47,11 @@ export class MouseCameraController {
     canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch' || e.button !== 2) return;
       canvas.setPointerCapture?.(e.pointerId);
-      this.drag = { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panning: false };
+      this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, panning: false };
     });
     canvas.addEventListener('pointermove', (e) => {
       const d = this.drag;
-      if (!d || e.pointerType === 'touch') return;
+      if (!d || e.pointerId !== d.id) return;
       if (!d.panning && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > SLOP_PX) {
         d.panning = true;
       }
@@ -60,12 +62,12 @@ export class MouseCameraController {
       d.y = e.clientY;
     });
     canvas.addEventListener('pointerup', (e) => {
-      if (!this.drag || e.pointerType === 'touch' || e.button !== 2) return;
+      if (!this.drag || e.pointerId !== this.drag.id || e.button !== 2) return;
       if (!this.drag.panning) this.onRightClick();
       this.drag = null;
     });
-    canvas.addEventListener('pointercancel', () => {
-      this.drag = null;
+    canvas.addEventListener('pointercancel', (e) => {
+      if (this.drag && e.pointerId === this.drag.id) this.drag = null;
     });
   }
 
