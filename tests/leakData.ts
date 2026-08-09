@@ -61,7 +61,9 @@ export function corridorLevel(): Record<string, unknown> {
 function padding(count: number): LayoutItem[] {
   const walls: LayoutItem[] = [];
   for (let i = 0; i < count; i++) {
-    walls.push({ build: 'wall', tx: 10 + (i % 10), ty: i < 10 ? 0 : 6 });
+    // Three border bands of ten: (10..19, 0), (10..19, 6), (0..9, 0).
+    const band = Math.floor(i / 10);
+    walls.push({ build: 'wall', tx: band === 2 ? i - 20 : 10 + (i % 10), ty: band === 1 ? 6 : 0 });
   }
   return walls;
 }
@@ -87,9 +89,9 @@ export const SCENARIOS: LeakScenario[] = [
     // pressure is per-enemy exposure, not train throughput.
     name: 'runner burst vs rapid-only → slow closes the leak',
     burst: [{ type: 'runner', count: 3, spawnInterval: 250 }],
-    // 6 rapid + 12 padding walls = 360g at wall 5: same rapids as the counter
+    // 6 rapid + 20 padding walls = 360g at wall 3: same rapids as the counter
     // side, so the slow tower versus dead walls IS the experiment.
-    mono: [...MONO_RAPID, ...padding(12)],
+    mono: [...MONO_RAPID, ...padding(20)],
     counter: [
       // 6 rapid clustered inside the slow zone + 1 slow = 360g.
       { build: 'rapid', tx: 17, ty: 2 },
@@ -100,7 +102,7 @@ export const SCENARIOS: LeakScenario[] = [
       { build: 'rapid', tx: 25, ty: 2 },
       { build: 'rapid', tx: 27, ty: 4 },
     ],
-    // Tuned 2026-08 (scale-world-experiment): observed 75k vs 0.
+    // Tuned 2026-08 (scale-world-experiment, final values): observed 75k vs 0.
     monoMinLeakMg: 60_000,
     counterMaxLeakMg: 40_000,
   },
@@ -108,8 +110,8 @@ export const SCENARIOS: LeakScenario[] = [
     // Swarms punish the missing area: single-target rate can't clear a clump.
     name: 'swarm burst vs rapid-only → area closes the leak',
     burst: [{ type: 'swarm', count: 50, spawnInterval: 2 }],
-    // 6 rapid + 4 padding walls = 320g at wall 5.
-    mono: [...MONO_RAPID, ...padding(4)],
+    // 6 rapid + 7 padding walls = 321g at wall 3.
+    mono: [...MONO_RAPID, ...padding(7)],
     counter: [
       // 4 area = 320g.
       { build: 'area', tx: 14, ty: 2 },
@@ -117,7 +119,7 @@ export const SCENARIOS: LeakScenario[] = [
       { build: 'area', tx: 22, ty: 2 },
       { build: 'area', tx: 26, ty: 4 },
     ],
-    // Tuned 2026-08 (scale-world-experiment): observed 312k vs ~24k.
+    // Tuned 2026-08 (scale-world-experiment, final values): observed 232k vs 0.
     monoMinLeakMg: 100_000,
     counterMaxLeakMg: 40_000,
   },
@@ -125,22 +127,19 @@ export const SCENARIOS: LeakScenario[] = [
     // Tanks punish the missing sniper: rapid chip damage never breaks tank hp.
     name: 'tank burst vs rapid-only → sniper closes the leak',
     burst: [{ type: 'tank', count: 3, spawnInterval: 30 }],
-    // 6 rapid + 16 padding walls = 380g at wall 5.
-    mono: [...MONO_RAPID, ...padding(16)],
+    // 6 rapid + 4 padding walls = 312g at wall 3.
+    mono: [...MONO_RAPID, ...padding(4)],
     counter: [
-      // 4 sniper + 2 rapid = 380g.
-      { build: 'sniper', tx: 16, ty: 2 },
-      { build: 'sniper', tx: 19, ty: 4 },
-      { build: 'sniper', tx: 22, ty: 2 },
-      { build: 'sniper', tx: 25, ty: 4 },
-      { build: 'rapid', tx: 20, ty: 2 },
-      { build: 'rapid', tx: 24, ty: 4 },
+      // 3 sniper + 2 rapid = 310g.
+      { build: 'sniper', tx: 17, ty: 2 },
+      { build: 'sniper', tx: 21, ty: 4 },
+      { build: 'sniper', tx: 25, ty: 2 },
+      { build: 'rapid', tx: 19, ty: 4 },
+      { build: 'rapid', tx: 23, ty: 4 },
     ],
-    // Tuned 2026-08 (scale-world-experiment): observed 180k (0 kills) vs 60k
-    // (2 of 3 killed) — the trailing tank rides the focus-fire shadow. Under
-    // hp ×5 the sniper closes MOST of the leak; interception is damage
-    // control now, and the thresholds say so.
-    monoMinLeakMg: 120_000,
-    counterMaxLeakMg: 100_000,
+    // Tuned 2026-08 (scale-world-experiment, final values): observed 120k
+    // (1 kill) vs 0 (all 3) at the calibrated hp ×2.
+    monoMinLeakMg: 80_000,
+    counterMaxLeakMg: 40_000,
   },
 ];

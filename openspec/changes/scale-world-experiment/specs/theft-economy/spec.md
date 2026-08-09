@@ -45,15 +45,15 @@ the modifier-order contract carry over unchanged.
 ### Requirement: Unclaimed sacks return to the treasury at settlement
 
 When a wave's end-of-wave settlement runs, every gold sack still on the ground SHALL be credited
-to the treasury at the balance-data sack recovery fraction (`sackRecoveryPer1000`, default 700) —
+to the treasury at the balance-data sack recovery fraction (`sackRecoveryPer1000`, default 900) —
 floored per sack in milli-gold — and removed, in a deterministic order. The remainder SHALL be
 permanently lost. Mid-wave sack pickup by enemies is unaffected and transfers full value.
 
 #### Scenario: Ground gold comes home
 
-- **WHEN** a wave ends with sacks of 30 and 20 on the ground and `sackRecoveryPer1000` is 700
-- **THEN** settlement credits 21 + 14 = 35 to the treasury, removes both sacks, and the remaining
-  15 is gone from play permanently
+- **WHEN** a wave ends with sacks of 30 and 20 on the ground and `sackRecoveryPer1000` is 900
+- **THEN** settlement credits 27 + 18 = 45 to the treasury, removes both sacks, and the remaining
+  5 is gone from play permanently
 
 #### Scenario: Full recovery remains expressible
 

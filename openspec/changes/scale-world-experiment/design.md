@@ -81,31 +81,30 @@ regardless of how the ground gold happens to be partitioned.
 
 ### D5: Dial parsing lives in the app layer and fails loudly
 
-A small parser next to the `?level=` handling reads the nine dial parameters, validates
+A small parser next to the `?level=` handling reads the ten dial parameters, validates
 type/range (positive multipliers, non-negative integers where applicable), and throws with the
 offending parameter name on anything invalid — never a silent fallback. The result is a plain
 overrides object handed to the data loader; the sim never learns dials exist, it just receives
-balance data. `interestRatePpm` overrides the level's parsed per-tick rate (already stored as
-ppm).
+balance data. `interestRatePpm` and `startingTreasury` override the level's parsed economy
+values.
 
 ## Risks / Trade-offs
 
-- [Per-encounter damage lands at ×0.6 of today; mid-run waves may be unwinnable for unskilled
-  mazing] → That deficit is the experiment's point, and `hpScale` gives an instant retreat path
-  without touching data. Wave 1 was checked by hand: a single rapid L1 still out-damages a swarm
-  per pass (~280 vs 250 hp).
+- [Effective hp scaling can make mid-run waves economically unwinnable] → This risk FIRED at the
+  initial ×5 sweep: with bounties unchanged, the sack tax made killing a loaded swarm net
+  negative and scripted best-play death-spiraled by wave 4. The dial sweep is exactly the
+  designed retreat path, and the calibrated finals (hp ×2, ranges ×1.8, wall 3, sack 900,
+  startingTreasury 500) were verified by a scripted full clear of level 1 (158 kills, zero
+  escapes, solvent win — now the replay golden).
 - [Carrier 130% + cheap walls + ungated mid-wave placement enables wall-drop micro in front of
   fleeing carriers] → Known and accepted for this experiment; construction time was explicitly
-  scoped out. The sack fraction (70%) already taxes the strategy this micro serves. Revisit
-  after the feel test.
-- [Sniper L3 at 19.5 tiles covers ~85% of the 40×20 board from the center, weakening sniper
-  placement as a decision] → Accepted per explicit user decision (no archetype exceptions);
-  `rangeScale` sweeps will reveal whether it matters.
+  scoped out. Revisit after further play.
 - [State hashes and any test pinned to old constants (80% carrier, full sack return, ranges, hp,
   wall cost) break] → Expected; this is a new baseline. Update fixtures alongside; use the D3
   hash-identity at 80 to separate refactor errors from intentional retunes.
-- [30% settlement loss pushes marginal runs toward `settled-locked` more often] → Intended
-  pressure; the solvency-gate liquidation path already handles it.
+- [Settlement loss pushes marginal runs toward `settled-locked` more often] → Intended pressure
+  (10% at the calibrated recovery fraction); the solvency-gate liquidation path already handles
+  it.
 
 ## Migration Plan
 

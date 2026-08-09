@@ -20,7 +20,7 @@
 - [x] 2.3 Multiply all tower `rangeTiles` by 3 (rapid 7.5 at every level; sniper 15/17.25/19.5;
       area 7.5/9/10.5; slow 7.5/9/10.5) and confirm schema validation (2-axis invariant) passes
 - [x] 2.4 Multiply all enemy `hp` by 5 (swarm 250, tank 4500, runner 2400, brute 3000)
-- [ ] 2.5 Update tests/fixtures pinned to the old constants (80% carrier speed, full sack
+- [x] 2.5 Update tests/fixtures pinned to the old constants (80% carrier speed, full sack
       return, wall cost 20, old ranges/hp/bonus windows)
 
 ## 3. Level upscale to 40×20 (design D2)
@@ -46,8 +46,20 @@
 
 ## 5. Verification and playtest
 
-- [ ] 5.1 Full test suite green; determinism probe passes on both upscaled levels
-- [ ] 5.2 Exploratory playtest with the Playwright plugin: wave 1 of level 1 is clearable with
+- [x] 5.1 Full test suite green; determinism probe passes on both upscaled levels
+- [x] 5.2 Exploratory playtest with the Playwright plugin: wave 1 of level 1 is clearable with
       a modest build; a killed carrier's sack settles at 70%; a loaded carrier visibly
       outruns its base speed; wave bonus is nonzero on a brisk clear
-- [ ] 5.3 Screenshot the 40×20 board at desktop fit to confirm readability is acceptable
+- [x] 5.3 Screenshot the 40×20 board at desktop fit to confirm readability is acceptable
+
+## 6. Playtest calibration (added after the feel test)
+
+- [x] 6.1 Calibrate values from the dial sweep: ranges ×3 → ×1.8, hp ×5 → ×2, wallCost 5 → 3,
+      sackRecoveryPer1000 700 → 900 (the ×5 sweep death-spiraled the economy by wave 4)
+- [x] 6.2 Raise `level_01` startingTreasury to 500 — starting money is the per-level balancing
+      lever; add the `startingTreasury` tuning dial
+- [x] 6.3 Re-tune the leak harness and re-derive both replay goldens at the calibrated values
+      (scripted full clear: 158 kills incl. 2 injected tanks, theft overdraw in wave 5, zero
+      escapes, solvent win)
+- [x] 6.4 Retime `.github/capture/scenario.json` (PR-preview capture) to the new board using the
+      replay golden's proven timeline

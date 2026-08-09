@@ -6,8 +6,9 @@
 
 The system SHALL accept URL query parameters that override balance and level-economy values once
 at load, before fixed-point conversion: `rangeScale` and `hpScale` as multipliers on authored
-values; `carrierSpeedPer100`, `wallCost`, `interestRatePpm`, `bonusGraceTicks`,
-`bonusDecayTicks`, `sackRecoveryPer1000`, and `refundPer1000` as absolute overrides. Dialed
+values; `carrierSpeedPer100`, `wallCost`, `interestRatePpm`, `startingTreasury`,
+`bonusGraceTicks`, `bonusDecayTicks`, `sackRecoveryPer1000`, and `refundPer1000` as absolute
+overrides. Dialed
 values SHALL flow through the same schema validation as authored data and SHALL act as
 deterministic simulation inputs. Absent parameters SHALL leave authored values untouched. An
 invalid dial value SHALL fail the load with a visible error, never silently fall back. Map size

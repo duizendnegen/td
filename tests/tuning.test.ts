@@ -24,19 +24,19 @@ describe('tuning dials (debug-tooling spec)', () => {
     expect(tuning).toEqual({ rangeScale: 2, hpScale: 3 });
     const out = applyTuning(level01Json, balanceJson, tuning);
     const data = loadGameData(out.levelJson, out.balanceJson);
-    // Authored rapid range 7.5 tiles → 15 tiles → one rounding at load.
-    expect(data.towers[0]!.levels[0]!.rangeUnits).toBe(15_360);
-    // Authored swarm hp 250 → 750.
-    expect(data.enemyTypes.find((t) => t.key === 'swarm')!.hp).toBe(750);
+    // Authored rapid range 4.5 tiles → 9 tiles → one rounding at load.
+    expect(data.towers[0]!.levels[0]!.rangeUnits).toBe(9_216);
+    // Authored swarm hp 100 → 300.
+    expect(data.enemyTypes.find((t) => t.key === 'swarm')!.hp).toBe(300);
     // The authored objects were not mutated.
-    expect(balanceJson.towers.rapid.levels[0]!.rangeTiles).toBe(7.5);
-    expect(balanceJson.enemies.swarm.hp).toBe(250);
+    expect(balanceJson.towers.rapid.levels[0]!.rangeTiles).toBe(4.5);
+    expect(balanceJson.enemies.swarm.hp).toBe(100);
   });
 
   it('absolute dials override balance and level economy values', () => {
     const tuning = parseTuning(
       params(
-        'carrierSpeedPer100=80&wallCost=20&interestRatePpm=100&bonusGraceTicks=150&bonusDecayTicks=600&sackRecoveryPer1000=1000&refundPer1000=750',
+        'carrierSpeedPer100=80&wallCost=20&interestRatePpm=100&startingTreasury=350&bonusGraceTicks=150&bonusDecayTicks=600&sackRecoveryPer1000=1000&refundPer1000=750',
       ),
     );
     const out = applyTuning(level01Json, balanceJson, tuning);
@@ -44,6 +44,7 @@ describe('tuning dials (debug-tooling spec)', () => {
     expect(data.carrierSpeedPer100).toBe(80);
     expect(data.wallCostMg).toBe(20_000);
     expect(data.interestRatePpm).toBe(100);
+    expect(data.startingTreasuryMg).toBe(350_000);
     expect(data.waveBonus.graceTicks).toBe(150);
     expect(data.waveBonus.decayTicks).toBe(600);
     expect(data.sackRecoveryPer1000).toBe(1000);

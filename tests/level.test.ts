@@ -180,7 +180,7 @@ describe('level and balance schemas', () => {
 
   it('converts build and tower blocks to integers at load', () => {
     const data = loadGameData(baseLevel(), balanceJson);
-    expect(data.wallCostMg).toBe(5_000);
+    expect(data.wallCostMg).toBe(3_000);
     expect(data.refundPer1000).toBe(500);
     // Canonical archetype order pins archetypeId assignment.
     expect(data.towers.map((t) => t.archetype)).toEqual(['rapid', 'sniper', 'area', 'slow']);
@@ -194,8 +194,8 @@ describe('level and balance schemas', () => {
       }
       expect(Number.isInteger(tower.burstRadiusUnits)).toBe(true);
     }
-    // The rapid baseline: 7.5 tiles × 1024 units (scale-world-experiment).
-    expect(data.towers[0]!.levels[0]!.rangeUnits).toBe(7680);
+    // The rapid baseline: 4.5 tiles × 1024 units (scale-world-experiment).
+    expect(data.towers[0]!.levels[0]!.rangeUnits).toBe(4608);
     expect(Number.isInteger(data.slowSpeedPer100)).toBe(true);
     // Tuned values stay in balance.json; only the ×1000 gold scaling is pinned.
     const runner = data.enemyTypes.find((t) => t.key === 'runner')!;
@@ -210,7 +210,7 @@ describe('level and balance schemas', () => {
     const bad = JSON.parse(JSON.stringify(balanceJson)) as {
       towers: { rapid: { levels: { rangeTiles: number }[] } };
     };
-    bad.towers.rapid.levels[2]!.rangeTiles = 4.5; // rapid never gains range (D2)
+    bad.towers.rapid.levels[2]!.rangeTiles = 6.5; // rapid never gains range (D2)
     expect(() => loadGameData(baseLevel(), bad)).toThrow(/rapid\.rangeTiles/);
   });
 });

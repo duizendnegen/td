@@ -1,25 +1,33 @@
 {
-  "$note": "PR-preview capture scenario (openspec add-pr-wave-preview, design D11). Review tooling, not application data: played through __td.scheduler by .github/capture/capture.mjs against level_01 with the seed below. Opening rapid+sniper hold wall B's north gap through three off-camera waves; the bounties and wave bonuses fund the area+slow pair and the top-right maze walls; wave 4 is the on-camera window, with a tank and a brute injected so every declared enemy type appears (design D6). tests/coverage.test.ts asserts the roster coverage; the economy margins were measured by playing this file through the sim.",
+  "$note": "PR-preview capture scenario (openspec add-pr-wave-preview, design D11). Review tooling, not application data: played through __td.scheduler by .github/capture/capture.mjs against level_01 with the seed below. Retimed for the scale-world-experiment 40×20 board: the opening trio sits on the corridor spine between the rock walls, a ten-wall serpentine zigzags the corridor before wave 2, and the wall-B socket sniper lands before wave 3 — three off-camera waves whose timings mirror the replay golden's proven timeline. Wave 4 is the on-camera window, with a tank and a brute injected so every declared enemy type appears (design D6). The economy margins were measured by playing this timeline through the sim (tests/replay.test.ts pins the same opening).",
   "seed": 12648430,
   "level": "level_01",
   "commands": [
-    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "rapid", "tx": 10, "ty": 1 } },
-    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "sniper", "tx": 9, "ty": 3 } },
+    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "rapid", "tx": 12, "ty": 8 } },
+    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "area", "tx": 13, "ty": 10 } },
+    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "slow", "tx": 12, "ty": 14 } },
 
-    { "tick": 60, "body": { "kind": "startWave" } },
-    { "tick": 370, "body": { "kind": "startWave" } },
-    { "tick": 980, "body": { "kind": "startWave" } },
+    { "tick": 100, "body": { "kind": "startWave" } },
 
-    { "tick": 1560, "body": { "kind": "place", "structure": "tower", "archetype": "area", "tx": 9, "ty": 2 } },
-    { "tick": 1560, "body": { "kind": "place", "structure": "tower", "archetype": "slow", "tx": 10, "ty": 2 } },
-    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 13, "ty": 0 } },
-    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 14, "ty": 0 } },
-    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 15, "ty": 0 } },
-    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 16, "ty": 0 } },
-    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 17, "ty": 0 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 11, "ty": 9 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 12, "ty": 9 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 13, "ty": 9 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 14, "ty": 9 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 15, "ty": 9 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 10, "ty": 12 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 11, "ty": 12 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 12, "ty": 12 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 13, "ty": 12 } },
+    { "tick": 432, "body": { "kind": "place", "structure": "wall", "tx": 14, "ty": 12 } },
 
-    { "tick": 1580, "body": { "kind": "startWave" } },
-    { "tick": 1620, "body": { "kind": "spawn", "type": "tank", "spawn": 0 } },
-    { "tick": 1650, "body": { "kind": "spawn", "type": "brute", "spawn": 0 } }
+    { "tick": 482, "body": { "kind": "startWave" } },
+
+    { "tick": 939, "body": { "kind": "place", "structure": "tower", "archetype": "sniper", "tx": 16, "ty": 12 } },
+
+    { "tick": 989, "body": { "kind": "startWave" } },
+
+    { "tick": 1754, "body": { "kind": "startWave" } },
+    { "tick": 1850, "body": { "kind": "spawn", "type": "tank", "spawn": 0 } },
+    { "tick": 1900, "body": { "kind": "spawn", "type": "brute", "spawn": 0 } }
   ]
 }

@@ -17,6 +17,8 @@ export interface Tuning {
   wallCost?: number;
   /** Overrides the level's interestRatePerTick, given in parts-per-million. */
   interestRatePpm?: number;
+  /** Overrides the level's startingTreasury, in whole gold. */
+  startingTreasury?: number;
   bonusGraceTicks?: number;
   bonusDecayTicks?: number;
   sackRecoveryPer1000?: number;
@@ -37,6 +39,7 @@ const DIALS: readonly DialSpec[] = [
   { key: 'carrierSpeedPer100', integer: true, min: 1, max: 1000 },
   { key: 'wallCost', integer: true, min: 0, max: 100_000 },
   { key: 'interestRatePpm', integer: true, min: 0, max: 1_000_000 },
+  { key: 'startingTreasury', integer: true, min: 0, max: 1_000_000 },
   { key: 'bonusGraceTicks', integer: true, min: 0, max: 1_000_000 },
   { key: 'bonusDecayTicks', integer: true, min: 1, max: 1_000_000 },
   { key: 'sackRecoveryPer1000', integer: true, min: 0, max: 1000 },
@@ -104,6 +107,7 @@ export function applyTuning(
   if (tuning.interestRatePpm !== undefined) {
     level.economy.interestRatePerTick = tuning.interestRatePpm / 1_000_000;
   }
+  if (tuning.startingTreasury !== undefined) level.economy.startingTreasury = tuning.startingTreasury;
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return { levelJson: level, balanceJson: balance };

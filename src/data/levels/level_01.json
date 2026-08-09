@@ -29,7 +29,7 @@
       "................rr..........rr.........."
     ]
   },
-  "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0002 },
+  "economy": { "startingTreasury": 500, "interestRatePerTick": 0.0002 },
   "waves": [
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 6, "spawnInterval": 10, "delay": 40 }] },
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 12, "spawnInterval": 8, "delay": 40 }] },
