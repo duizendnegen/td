@@ -186,6 +186,26 @@ describe('replay determinism', () => {
     expect(formatHash(runScripted().sim.hash())).toBe(GOLDEN_SCRIPT_HASH);
   });
 
+  it('commit + advance equals tick() at every tick of the scripted run', () => {
+    // The tick seam (time-controls design D2) is only sound if the two halves
+    // compose back into the whole. Compared per tick, not just at the end, so a
+    // divergence is caught where it happens rather than after it has been
+    // absorbed by later state.
+    const whole = makeSim();
+    const wholeCommands = script();
+    const halves = makeSim();
+    const halfCommands = script();
+
+    for (let t = 0; t < TICKS; t++) {
+      whole.tick(wholeCommands.get(t) ?? []);
+      halves.commit(halfCommands.get(t) ?? []);
+      halves.advance();
+      expect(halves.state.tick).toBe(whole.state.tick);
+      expect(halves.hash()).toBe(whole.hash());
+    }
+    expect(formatHash(halves.hash())).toBe(GOLDEN_SCRIPT_HASH);
+  });
+
   it('display rate does not affect state: 1-tick steps == 5-tick bursts', () => {
     const commands = script();
     const oneAtATime = makeSim();

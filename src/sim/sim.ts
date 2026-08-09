@@ -118,8 +118,31 @@ export class Sim {
     return this.waves.length;
   }
 
-  /** Advance one tick. The 10-step order is fixed; order is part of the contract. */
+  /**
+   * Advance one tick. The 10-step order is fixed; order is part of the contract.
+   *
+   * This is exactly `commit(commands)` followed by `advance()` — the two halves
+   * are separable so a stopped game can absorb player intent without consuming
+   * time (time-controls design D2). Every existing caller keeps this entry
+   * point and is unaffected by the split.
+   */
   tick(commands: readonly Command[]): void {
+    this.commit(commands);
+    this.advance();
+  }
+
+  /**
+   * Steps 1–3 — absorb intent. Snapshot, apply commands, rebuild the fields for
+   * any mask change and sweep stale commitments. Everything here is reactive to
+   * commands; nothing here consumes time.
+   *
+   * Safe to call any number of times before an `advance()`, with the same result
+   * as one commit carrying the concatenated commands in the same order: step 1
+   * re-snapshots an unmoved position (a no-op), `validatePlacement` builds its
+   * scratch fields from the live mask rather than depending on step 3, and the
+   * step-3 sweep is idempotent while nothing has moved.
+   */
+  commit(commands: readonly Command[]): void {
     const s = this.state;
     // 1. Snapshot prevPos for every entity
     for (const e of s.enemies) {
@@ -136,11 +159,25 @@ export class Sim {
       this.removalUnblocked = false;
       this.maskChanged = true;
     }
-    const fields = { inbound: this.inbound, returning: this.returning };
     if (this.maskChanged) {
-      invalidateCommitments(s, this.grid, fields);
+      invalidateCommitments(s, this.grid, {
+        inbound: this.inbound,
+        returning: this.returning,
+      });
       this.maskChanged = false;
     }
+  }
+
+  /**
+   * Steps 4–10 — let time pass. Spawns, movement, arrivals, firing, deaths,
+   * progression, compaction and the tick increment.
+   *
+   * Reads the live fields directly: only a command can swap them, and commands
+   * are applied in `commit`, so they are current by construction.
+   */
+  advance(): void {
+    const s = this.state;
+    const fields = { inbound: this.inbound, returning: this.returning };
     // 4. Spawning: the active wave's group cursors (design D2)
     if (s.runPhase === 'wave') {
       stepWaveSpawns(s, this.waves[s.waveIndex - 1]!);
