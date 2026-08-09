@@ -2,14 +2,16 @@
 // See ARCHITECTURE.md §11
 //
 // Responsibilities:
-//   - F1 flow-field direction arrows and blocked tiles
 //   - F2 enemy state and committed waypoints
 //   - F3 tower ranges and target lines (Phase 3)
 //   - F4 tick / state hash / entity count / ms-per-tick
+//
+// "Where do enemies go" is a player surface now, not a debug one: the
+// path-preview lane ribbon answers it, and its orphaned-region shade covers
+// what F1's unreachable diamonds used to.
 
 import * as THREE from 'three';
 import { TILE } from '../sim/fixed';
-import { DIR_DX, DIR_DY, UNREACHABLE, type FlowField } from '../sim/flowfield';
 import { formatHash } from '../sim/hash';
 import type { Sim } from '../sim/sim';
 import { towerCentre, towerStats } from '../sim/tower';
@@ -18,8 +20,6 @@ import { GROUND_TOP_Y } from './renderer';
 const OVERLAY_Y = GROUND_TOP_Y + 0.03;
 const INBOUND_COLOR = 0x35d0ff; // cyan
 const RETURNING_COLOR = 0xffa03c; // orange
-const BLOCKED_COLOR = 0xff4455;
-const UNREACHABLE_COLOR = 0xff44ff;
 /** F3 tower colours per archetypeId (canonical ARCHETYPES order). */
 const TOWER_COLORS = [0xffe08a, 0xff8a5c, 0xffb02e, 0x6fd9ff];
 
@@ -29,82 +29,11 @@ function lineSegments(points: number[], color: number): THREE.LineSegments {
   return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color }));
 }
 
-/** Arrow (shaft + two head barbs) for one tile's field direction, as 6 points ×3 coords. */
-function arrowPoints(cx: number, cz: number, d: number, out: number[]): void {
-  const len = Math.hypot(DIR_DX[d]!, DIR_DY[d]!);
-  const vx = DIR_DX[d]! / len;
-  const vz = DIR_DY[d]! / len;
-  const tipX = cx + vx * 0.32;
-  const tipZ = cz + vz * 0.32;
-  // shaft
-  out.push(cx - vx * 0.32, OVERLAY_Y, cz - vz * 0.32, tipX, OVERLAY_Y, tipZ);
-  // barbs at ±140° from the direction
-  const bx = -vx * 0.16;
-  const bz = -vz * 0.16;
-  out.push(tipX, OVERLAY_Y, tipZ, tipX + bx - vz * 0.09, OVERLAY_Y, tipZ + bz + vx * 0.09);
-  out.push(tipX, OVERLAY_Y, tipZ, tipX + bx + vz * 0.09, OVERLAY_Y, tipZ + bz - vx * 0.09);
-}
-
-/** Static arrow layer for one field; offset separates the two fields visually. */
-function buildFieldLayer(
-  sim: Sim,
-  field: FlowField,
-  color: number,
-  offset: number,
-): THREE.Object3D {
-  const arrows: number[] = [];
-  const unreachable: number[] = [];
-  const { grid } = sim;
-  for (let ty = 0; ty < grid.height; ty++) {
-    for (let tx = 0; tx < grid.width; tx++) {
-      if (grid.isBlocked(tx, ty)) continue;
-      const i = grid.idx(tx, ty);
-      const cx = tx + 0.5 + offset;
-      const cz = ty + 0.5 + offset;
-      const d = field.dir[i]!;
-      if (d !== UNREACHABLE) {
-        arrowPoints(cx, cz, d, arrows);
-      } else if (field.cost[i] === UNREACHABLE) {
-        // Small diamond: walkable but no path to the source.
-        unreachable.push(cx - 0.14, OVERLAY_Y, cz, cx, OVERLAY_Y, cz - 0.14);
-        unreachable.push(cx, OVERLAY_Y, cz - 0.14, cx + 0.14, OVERLAY_Y, cz);
-        unreachable.push(cx + 0.14, OVERLAY_Y, cz, cx, OVERLAY_Y, cz + 0.14);
-        unreachable.push(cx, OVERLAY_Y, cz + 0.14, cx - 0.14, OVERLAY_Y, cz);
-      }
-      // Sources (cost 0) get neither an arrow nor a diamond.
-    }
-  }
-  const group = new THREE.Group();
-  group.add(lineSegments(arrows, color));
-  if (unreachable.length > 0) group.add(lineSegments(unreachable, UNREACHABLE_COLOR));
-  return group;
-}
-
-/** Red X over every blocked tile. */
-function buildBlockedLayer(sim: Sim): THREE.Object3D {
-  const points: number[] = [];
-  const { grid } = sim;
-  for (let ty = 0; ty < grid.height; ty++) {
-    for (let tx = 0; tx < grid.width; tx++) {
-      if (!grid.blocked[grid.idx(tx, ty)]) continue;
-      const x = tx + 0.5;
-      const z = ty + 0.5;
-      const y = OVERLAY_Y + 0.3; // above the rock models
-      points.push(x - 0.3, y, z - 0.3, x + 0.3, y, z + 0.3);
-      points.push(x - 0.3, y, z + 0.3, x + 0.3, y, z - 0.3);
-    }
-  }
-  return lineSegments(points, BLOCKED_COLOR);
-}
-
 export class DebugOverlay {
   private readonly scene: THREE.Scene;
   private readonly sim: Sim;
   private readonly readout: HTMLDivElement;
 
-  private fieldLayer: THREE.Object3D | null = null; // F1
-  /** The inbound field the F1 layer was built from; a swap means a rebuild. */
-  private fieldLayerSource: object | null = null;
   private waypointLayer: THREE.Group | null = null; // F2
   private waypointsOn = false;
   private combatLayer: THREE.Group | null = null; // F3
@@ -119,27 +48,6 @@ export class DebugOverlay {
       'position:absolute;top:8px;left:8px;padding:6px 10px;background:#000a;' +
       'font:12px/1.5 monospace;border-radius:6px;white-space:pre;display:none';
     hud.appendChild(this.readout);
-  }
-
-  /** F1: both flow fields, blocked tiles, unreachable tiles. */
-  toggleFields(): void {
-    if (this.fieldLayer) {
-      this.scene.remove(this.fieldLayer);
-      this.fieldLayer = null;
-      this.fieldLayerSource = null;
-      return;
-    }
-    this.buildFields();
-  }
-
-  private buildFields(): void {
-    const layer = new THREE.Group();
-    layer.add(buildFieldLayer(this.sim, this.sim.inbound, INBOUND_COLOR, -0.09));
-    layer.add(buildFieldLayer(this.sim, this.sim.returning, RETURNING_COLOR, 0.09));
-    layer.add(buildBlockedLayer(this.sim));
-    this.scene.add(layer);
-    this.fieldLayer = layer;
-    this.fieldLayerSource = this.sim.inbound;
   }
 
   /** F2: line from each enemy to its committed waypoint. */
@@ -180,12 +88,6 @@ export class DebugOverlay {
 
   /** Called every frame; refreshes whichever dynamic layers are visible. */
   update(lastTickMs: number, pendingCommit = false): void {
-    // The live fields are swapped objects; a new reference means the mask
-    // changed and a visible F1 layer is stale — rebuild it.
-    if (this.fieldLayer && this.fieldLayerSource !== this.sim.inbound) {
-      this.scene.remove(this.fieldLayer);
-      this.buildFields();
-    }
     if (this.waypointsOn) this.refreshWaypoints();
     if (this.combatOn) this.refreshCombat();
     if (this.readoutOn) {

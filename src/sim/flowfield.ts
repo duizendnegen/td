@@ -7,6 +7,7 @@
 //   - 8-connected, integer costs 1024 orthogonal / 1448 diagonal
 //   - Corner-cutting prevented at field-build time, not at move time
 //   - Bucket queue keyed on cost — deterministic pop order, no tie-break rule needed
+//   - Tracing a field into the ordered route a follower would walk
 
 import { DIAG, TILE } from './fixed';
 import type { Grid } from './grid';
@@ -17,6 +18,12 @@ export const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1] as const;
 export const DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1] as const;
 
 export const UNREACHABLE = -1;
+
+/** A tile coordinate pair — the element type of a traced route. */
+export interface TileXY {
+  x: number;
+  y: number;
+}
 
 export interface FlowField {
   /**
@@ -105,13 +112,34 @@ export function buildFieldInto(
 }
 
 /** The tile one field step from (tx, ty), or null at sources/unreachable tiles. */
-export function nextTile(
-  field: FlowField,
-  grid: Grid,
-  tx: number,
-  ty: number,
-): { x: number; y: number } | null {
+export function nextTile(field: FlowField, grid: Grid, tx: number, ty: number): TileXY | null {
   const d = field.dir[grid.idx(tx, ty)]!;
   if (d === UNREACHABLE) return null;
   return { x: tx + DIR_DX[d]!, y: ty + DIR_DY[d]! };
+}
+
+/**
+ * The ordered tiles a follower of `field` visits from `from` — a nextTile
+ * walk, always including `from` itself (path-preview design D2).
+ *
+ * Termination is structural: a Dijkstra parent chain is acyclic and strictly
+ * decreasing in cost, so the walk reaches a source. The tile-count cap is
+ * insurance against a malformed field, not part of the normal path.
+ *
+ * A source tile traces to itself alone; so does an unreachable one — callers
+ * that need to tell those apart read `field.cost`.
+ */
+export function tracePath(field: FlowField, grid: Grid, from: TileXY): TileXY[] {
+  const path: TileXY[] = [{ x: from.x, y: from.y }];
+  const cap = grid.width * grid.height;
+  let tx = from.x;
+  let ty = from.y;
+  for (let steps = 0; steps < cap; steps++) {
+    const next = nextTile(field, grid, tx, ty);
+    if (!next) break;
+    path.push(next);
+    tx = next.x;
+    ty = next.y;
+  }
+  return path;
 }
