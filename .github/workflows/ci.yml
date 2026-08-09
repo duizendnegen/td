@@ -1,11 +1,12 @@
 # PR checks (openspec add-pr-wave-preview).
 #
-# test — required status check on main: typecheck + vitest. The capture
-#        scenario's roster coverage (tests/scenario.test.ts) rides in here,
-#        so the demo can never silently fall behind balance.json (design D6).
-#        Draft PRs are skipped; ready_for_review runs the check once the PR
-#        leaves draft. A skipped required check counts as passing, but a
-#        draft is unmergeable anyway.
+# test — required status check on main: typecheck, build, then vitest —
+#        cheapest failure first; the suite only runs on a compiling tree.
+#        The capture scenario's roster coverage (tests/scenario.test.ts)
+#        rides in here, so the demo can never silently fall behind
+#        balance.json (design D6). Draft PRs are skipped; ready_for_review
+#        runs the check once the PR leaves draft. A skipped required check
+#        counts as passing, but a draft is unmergeable anyway.
 #
 # The advisory wave-preview render lives in preview.yml, opted into per PR
 # with the `wave preview` label.
@@ -14,6 +15,9 @@ name: CI
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -27,4 +31,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run build
       - run: npm test

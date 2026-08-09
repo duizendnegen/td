@@ -192,7 +192,7 @@ are render-side only and never touch simulation state.
 
 ## CI
 
-Every ready (non-draft) PR runs a required `test` check (typecheck + vitest). Adding the
+Every ready (non-draft) PR runs a required `test` check (typecheck, build, vitest). Adding the
 `wave preview` label to a ready PR renders an advisory animated clip of a staged board and posts
 it to the PR as a sticky comment; pushes don't re-render — remove and re-add the label to refresh
 the clip. The clips live on the long-lived `ci-media` branch (`pr-<n>/<sha>.webp`) — it holds
