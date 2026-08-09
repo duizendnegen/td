@@ -1,6 +1,6 @@
 ---
 name: agent-workspace
-description: "An isolated git-worktree workspace in which an agent may commit on its own branch — creating the worktree in the sibling td.worktrees/ folder, bootstrapping it (npm ci), the `git -C` mutation convention that path-scoped permission rules require, handing the branch back for merge, and tearing the workspace down afterwards. Use when the user asks for a separate workspace/worktree for a task, when a task needs commits (checkpoints, multi-commit plans) that must not touch the main checkout, or when asked to remove/clean up a finished workspace."
+description: "An isolated git-worktree workspace in which an agent may commit on its own branch — creating the worktree under ~/worktrees/td/, bootstrapping it (npm ci), the `git -C` mutation convention that path-scoped permission rules require, handing the branch back for merge, and tearing the workspace down afterwards. Use when the user asks for a separate workspace/worktree for a task, when a task needs commits (checkpoints, multi-commit plans) that must not touch the main checkout, or when asked to remove/clean up a finished workspace."
 ---
 
 # Agent workspace
@@ -12,22 +12,23 @@ pulling, merging, tags, other branches, and the main checkout.
 
 ## The contract
 
-- A workspace is a git worktree at `td.worktrees/<task-slug>` — a sibling
-  of the main checkout (GitKraken's convention), i.e.
-  `/home/<user>/src/github.com/duizendnegen/td.worktrees/<task-slug>` — on a
-  dedicated branch `agent/<task-slug>`.
+- A workspace is a git worktree at `~/worktrees/td/<task-slug>` — i.e.
+  `/home/<user>/worktrees/td/<task-slug>` — on a dedicated branch
+  `agent/<task-slug>`.
 - The location is load-bearing twice over:
-  - Beside the repo, never inside it: a worktree nested in the main checkout
+  - Outside the repo entirely: a worktree nested in the main checkout
     would appear there as untracked files and get caught by file watchers,
     search, and `git clean`.
-  - `td.worktrees/` is a distinct literal path prefix from the checkout's
-    `td/`, so path-scoped permission rules can tell workspace git mutations
-    (allowed) from main-checkout ones (denied). Rules match the literal
-    command text, not the shell cwd, which forces two conventions:
+  - The user's path-scoped permission rules split on this exact prefix:
+    git mutations via `git -C /home/<user>/worktrees/...` are allowed,
+    while the same mutations anywhere under `/home/<user>/src/` are
+    denied — deny beats allow, so a workspace under `~/src/` (even a
+    sibling like `td.worktrees/`) can never auto-approve. Rules match the
+    literal command text, not the shell cwd, which forces two conventions:
     - Every git mutation uses `git -C <workspace path> ...`. A bare
       `git commit` is denied regardless of where it runs.
-    - Write the expanded absolute path (`/home/<user>/src/...`) — a literal
-      `~` or `$HOME` in the command text matches no path pattern.
+    - Write the expanded absolute path (`/home/<user>/worktrees/...`) — a
+      literal `~` or `$HOME` in the command text matches no path pattern.
 - The worktree shares its object database and refs with the main checkout.
   Stay on the `agent/<task-slug>` branch: no push, no pull, no tags, no
   touching other branches' refs.
@@ -40,7 +41,7 @@ From the main checkout — expect a permission prompt on `worktree add`; that
 prompt is the design, not an obstacle:
 
     git fetch origin
-    git worktree add --no-track -b agent/<task-slug> /home/<user>/src/github.com/duizendnegen/td.worktrees/<task-slug> <base>
+    git worktree add --no-track -b agent/<task-slug> /home/<user>/worktrees/td/<task-slug> <base>
 
 `<base>` is whatever the task names: typically `origin/main`, or the
 current feature branch when the work builds on it.
@@ -84,7 +85,7 @@ global toolchain; nothing per-project to trust or install beyond that.
 On the user's word that the branch is merged (or the work abandoned), from
 the main checkout:
 
-    git worktree remove /home/<user>/src/github.com/duizendnegen/td.worktrees/<task-slug>
+    git worktree remove /home/<user>/worktrees/td/<task-slug>
 
 - Expect the permission prompt, same as creation.
 - git refuses to remove a tree with uncommitted changes or untracked files
