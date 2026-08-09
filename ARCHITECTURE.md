@@ -601,7 +601,7 @@ so Tailwind's scanner sees every class verbatim.
 - **Lane ribbon** — shown only while a build tool is armed: one traced route per active spawn to
   the treasury plus one back out, drawn as marching dashes so direction reads without colour.
   While a ghost sits on a tile whose validation produced post-placement routing, the projected
-  routes join it, classified per tile into shared / current-only / projected-only so only the
+  routes join it, classified per segment into shared / current-only / projected-only so only the
   diverged span is doubled; a `seals-spawn` candidate additionally shades the region it would
   orphan. Geometry lives in `render/ribbon.ts`; the routes come from `Sim.currentLanes()` and
   `Sim.previewRoutes()` as copied tile arrays, never as references into the sim's field buffers.

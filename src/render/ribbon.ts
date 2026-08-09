@@ -3,7 +3,7 @@
 // See ARCHITECTURE.md §8, §9 and the path-preview design D4, D5, D7
 //
 // Responsibilities:
-//   - Three dashed line sets classified per tile: shared / current-only /
+//   - Three dashed line sets classified per segment: shared / current-only /
 //     projected-only, shared segments drawn once (D4)
 //   - Marching dashes scrolling toward each lane's destination, animated by
 //     a shader phase uniform — never by rebuilding geometry (D5)
@@ -96,16 +96,26 @@ function classify(
   // Shared segments appear in both lanes of a pair; the first one wins.
   const drawnShared = new Set<string>();
 
+  // Sharing is a property of the segment, not its endpoints: around a
+  // diverge-and-rejoin both end tiles can sit on both lanes while the edge
+  // between them belongs to only one (a ghost outlawing a diagonal reroutes
+  // B→C into B→X→C with B and C on both lanes).
+  const laneSegments = (lane: readonly TileXY[]): Set<string> => {
+    const segs = new Set<string>();
+    for (let i = 0; i < lane.length - 1; i++) segs.add(segmentKey(lane[i]!, lane[i + 1]!));
+    return segs;
+  };
+
   // `other` is null when there is nothing to compare against — no ghost, or a
   // verdict that produced no projection. Then every segment is shared, which
   // is what makes those states indistinguishable from an unarmed hover.
-  const emit = (lane: readonly TileXY[], other: Set<number> | null, own: LaneClass): void => {
+  const emit = (lane: readonly TileXY[], other: Set<string> | null, own: LaneClass): void => {
     let dist = 0;
     for (let i = 0; i < lane.length - 1; i++) {
       const a = lane[i]!;
       const b = lane[i + 1]!;
       const step = Math.hypot(b.x - a.x, b.y - a.y);
-      const shared = other === null || (other.has(tileKey(a)) && other.has(tileKey(b)));
+      const shared = other === null || other.has(segmentKey(a, b));
       const target = shared ? 'shared' : own;
       if (!shared || !drawnShared.has(segmentKey(a, b))) {
         if (shared) drawnShared.add(segmentKey(a, b));
@@ -121,10 +131,9 @@ function classify(
   for (let i = 0; i < laneCount; i++) {
     const now = current[i] ?? [];
     const soon = projected?.[i] ?? null;
-    const nowKeys = new Set(now.map(tileKey));
-    const soonKeys = soon === null ? null : new Set(soon.map(tileKey));
-    emit(now, soonKeys, 'current');
-    if (soon) emit(soon, nowKeys, 'projected');
+    const soonSegs = soon === null ? null : laneSegments(soon);
+    emit(now, soonSegs, 'current');
+    if (soon) emit(soon, laneSegments(now), 'projected');
   }
   return sets;
 }
