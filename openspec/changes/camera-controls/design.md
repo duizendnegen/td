@@ -82,11 +82,13 @@ pinch immediately invalidates.
 New `src/ui/mousecam.ts`, constructed with the canvas, the camera, and an `onRightClick`
 callback. It owns:
 
-- `wheel` (registered `passive: false`, `preventDefault()`): normalize `deltaY` by
-  `deltaMode` (lines ≈ 33 px, pages treated as one notch), accumulate, and emit one
-  `stepZoom(±1, cursor NDC)` per 100 px notch; the accumulator resets on sign flip so a
-  direction change never has to pay off the opposite remainder. Cursor NDC comes from the
-  same `getBoundingClientRect` mapping `InputCore.pickTile` uses.
+- `wheel` (registered `passive: false`, `preventDefault()`): pixel-mode (`deltaMode 0`)
+  deltas accumulate and emit one `stepZoom(±1, cursor NDC)` per 100 px notch, with the
+  accumulator reset on sign flip so a direction change never has to pay off the opposite
+  remainder; line/page modes come from notched hardware and step once per event (a lines→px
+  conversion would put Firefox's 3-lines-per-notch just under a 100 px threshold and swallow
+  the first notch). Cursor NDC comes from the same `getBoundingClientRect` mapping
+  `InputCore.pickTile` uses.
 - Right-button pointer events (non-touch pointers only, same filter as `PointerDriver`):
   `setPointerCapture` on right-down so the drag survives leaving the canvas; below `SLOP_PX`
   it is a click → `onRightClick()`; past it, each move pans via `panByPixels`.

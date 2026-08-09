@@ -3,8 +3,9 @@
 //
 // Responsibilities:
 //   - Hover drives the ghost; a left click commits immediately (no confirm
-//     step); right click cancels the tool — behavior unchanged from the
-//     phase-3 controller
+//     step). The right button belongs wholesale to MouseCameraController
+//     (drag pans; a sub-slop click still cancels the tool via its callback);
+//     this driver only suppresses the context menu for it
 //   - All picking, validation, selection, and command emission live in the
 //     shared InputCore; this driver only owns the hovered tile
 
@@ -27,7 +28,6 @@ export class PointerDriver {
     canvas.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch') return;
       if (e.button === 0) this.onClick();
-      if (e.button === 2) core.palette.select(null);
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }

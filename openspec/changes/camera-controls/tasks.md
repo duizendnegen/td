@@ -16,30 +16,30 @@
 
 ## 2. Mouse camera controller
 
-- [ ] 2.1 Create `src/ui/mousecam.ts` with `MouseCameraController(canvas, camera,
+- [x] 2.1 Create `src/ui/mousecam.ts` with `MouseCameraController(canvas, camera,
       onRightClick)` per design D3: right-button drag (non-touch pointers, pointer capture,
       `SLOP_PX` click/drag split, pan via `panByPixels`, sub-slop release fires
       `onRightClick`)
-- [ ] 2.2 Add the wheel handler (`passive: false`, `preventDefault`): normalize `deltaY` by
+- [x] 2.2 Add the wheel handler (`passive: false`, `preventDefault`): normalize `deltaY` by
       `deltaMode`, accumulate with sign-flip reset, one `stepZoom(±1, cursor NDC)` per notch
-- [ ] 2.3 Add a controller test beside `tests/camera.test.ts` using its stubbed-canvas
+- [x] 2.3 Add a controller test beside `tests/camera.test.ts` using its stubbed-canvas
       pattern: wheel notch up zooms by exactly 1.1 about the cursor; right-drag past slop
       pans and does not fire `onRightClick`; sub-slop right click fires `onRightClick` and
       moves nothing; touch pointers are ignored
 
 ## 3. Wiring and handover
 
-- [ ] 3.1 Remove the `button === 2` branch from `PointerDriver` (`src/ui/input.ts`), leaving
+- [x] 3.1 Remove the `button === 2` branch from `PointerDriver` (`src/ui/input.ts`), leaving
       its `contextmenu` suppression in place
-- [ ] 3.2 In `src/app/game.ts`, instantiate `MouseCameraController` exactly where
+- [x] 3.2 In `src/app/game.ts`, instantiate `MouseCameraController` exactly where
       `pointerCapable` selects `PointerDriver`, wiring `onRightClick` to
       `palette.select(null)`
-- [ ] 3.3 Update the stale comments that camera code carries about desktop never zooming
+- [x] 3.3 Update the stale comments that camera code carries about desktop never zooming
       (`src/render/cameras.ts` header, `game.ts` hybrid comment)
 
 ## 4. Verify
 
-- [ ] 4.1 `npm run typecheck` and `npm test` pass in the workspace
+- [x] 4.1 `npm run typecheck` and `npm test` pass in the workspace
 - [ ] 4.2 Manual pass with `npm run dev`: wheel zooms about the cursor and clamps at both
       ends; right-drag pans clamped to the board; right click still cancels the active tool;
       left-click build/select unchanged; replay/state hash untouched by camera motion (F4

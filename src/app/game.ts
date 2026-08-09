@@ -25,6 +25,7 @@ import { StructureRenderer } from '../render/towers';
 import { TreasuryHud } from '../ui/hud';
 import { buildHintLine, PointerDriver } from '../ui/input';
 import { InputCore } from '../ui/inputcore';
+import { MouseCameraController } from '../ui/mousecam';
 import { TouchCameraController, TouchDriver } from '../ui/touch';
 import { InspectorUI } from '../ui/inspector';
 import { PaletteUI } from '../ui/palette';
@@ -183,6 +184,12 @@ export async function startGame(canvas: HTMLCanvasElement): Promise<void> {
   const input = pointerCapable
     ? new PointerDriver(canvas, inputCore)
     : new TouchDriver(canvas, inputCore, camera, hud);
+  // Wherever the mouse drives building, it also drives the camera: wheel
+  // zoom + right-drag pan, with the sub-slop right click keeping its old
+  // tool-cancel meaning (isometric-camera spec, camera-controls D1/D3).
+  if (pointerCapable) {
+    new MouseCameraController(canvas, camera, () => palette.select(null));
+  }
   // Hybrid (touch screen alongside the fine pointer): touch still drives the
   // camera (isometric-camera spec) while the mouse keeps the one-click model.
   if (pointerCapable && navigator.maxTouchPoints > 0) {
