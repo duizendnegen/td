@@ -1,7 +1,6 @@
 // See ARCHITECTURE.md §5/§12, the phase-4 theft-economy and run-lifecycle specs
 import { describe, expect, it } from 'vitest';
 import { liquidationTotalMg, waveBonusMg } from '../src/sim/economy';
-import { REMOVAL_TICKS } from '../src/sim/fixed';
 import {
   concede,
   injectEnemy,
@@ -179,9 +178,8 @@ describe('the solvency gate (run-lifecycle spec)', () => {
     sim.state.treasuryMg = -1000; // …so force the debt for the gate test
     sim.tick([startWave()]);
     expect(sim.state.waveIndex).toBe(1); // rejected: wave-locked
-    // Removal (with its normal delay) is available; the refund unlocks.
+    // Removal is available and immediate; its refund unlocks in that same tick.
     sim.tick([remove(3, 0)]);
-    for (let t = 0; t <= REMOVAL_TICKS; t++) sim.tick([]);
     expect(sim.state.treasuryMg).toBe(1000); // −1000 + 2000 refund
     sim.tick([startWave()]);
     expect(sim.state.waveIndex).toBe(2);
@@ -228,12 +226,9 @@ describe('winning (run-lifecycle spec)', () => {
     sim.state.runPhase = 'settled-locked';
     for (let t = 0; t < 5; t++) sim.tick([]);
     expect(sim.state.runPhase).toBe('settled-locked'); // still in debt, not lost
+    // Liquidation stays open in settled-locked, and it is immediate: +2000
+    // lands in step 2, step 9 judges ≥ 0 → won, all in the command's tick.
     sim.tick([remove(3, 0)]);
-    for (let t = 0; t < REMOVAL_TICKS; t++) {
-      expect(sim.state.runPhase).toBe('settled-locked');
-      sim.tick([]);
-    }
-    // The refund tick: +2000 lands in step 3, step 9 judges ≥ 0 → won.
     expect(sim.state.treasuryMg).toBe(500);
     expect(sim.state.runPhase).toBe('won');
   });

@@ -86,7 +86,7 @@ Three types for the POC, each designed to punish a missing tower:
 ## Build Rules & Anti-Juggling
 
 - **No timer in the build phase** — plan as long as you like. Building during waves is allowed and instant.
-- **Removing a wall/tower takes 3–5 seconds** (removal delay). This is the anti-juggling rule: open/close treadmill exploits require fast removal cycles; a delay kills them without banning legitimate mid-wave construction.
+- **Selling a wall/tower is instant, but only between waves.** This is the anti-juggling rule: open/close treadmill exploits need removal cycles *during* a wave, so removal is simply refused while one runs — which bans the exploit outright without taxing deliberate re-mazing, and without banning legitimate mid-wave construction. The 50% refund is what makes re-mazing cost something.
 - Fully sealing the path is impossible (placement validation rejects it).
 - Fallback if juggling persists in testing: penalize enemies whose new waypoint equals their previous tile (turn-around detection) — the hook already exists in the waypoint cache.
 
@@ -172,7 +172,7 @@ are render-side only and never touch simulation state.
 ## Build Order
 
 1. Grid + dual flow fields + one enemy walking in and back out. **Watch the theft round-trip before building anything else** — if it feels good, everything else is layering.
-2. Placement + validation + removal delay.
+2. Placement + validation + removal (immediate, between waves).
 3. Towers (rapid fire first), damage, bounties.
 4. Full theft loop: carry, drop, pickup, flip-to-returning, end-of-wave return.
 5. Remaining towers, upgrades, slow + icons.

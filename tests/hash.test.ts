@@ -27,8 +27,8 @@ function makeState(): SimState {
     enemies: [makeEnemy(0), makeEnemy(1)],
     nextEnemyId: 2,
     structures: [
-      { id: 0, kind: 'wall', tx: 4, ty: 5, archetypeId: -1, level: 0, paidMg: 4000, removalCompleteTick: -1, nextFireTick: 0 },
-      { id: 1, kind: 'tower', tx: 8, ty: 5, archetypeId: 0, level: 1, paidMg: 50_000, removalCompleteTick: -1, nextFireTick: 20 },
+      { id: 0, kind: 'wall', tx: 4, ty: 5, archetypeId: -1, level: 0, paidMg: 4000, nextFireTick: 0 },
+      { id: 1, kind: 'tower', tx: 8, ty: 5, archetypeId: 0, level: 1, paidMg: 50_000, nextFireTick: 20 },
     ],
     nextStructureId: 2,
     sacks: [{ id: 0, tx: 6, ty: 5, amountMg: 25_000 }],
@@ -79,7 +79,6 @@ describe('state hash', () => {
       (s) => s.structures[0]!.tx++,
       (s) => s.structures[0]!.ty--,
       (s) => s.structures[0]!.paidMg++,
-      (s) => (s.structures[0]!.removalCompleteTick = 97),
       (s) => s.structures[1]!.nextFireTick++,
       (s) => s.nextSackId++,
       (s) => s.sacks.pop(),
