@@ -78,8 +78,12 @@ interface SegmentSet {
  *
  * Lanes are paired by index — inbound lane i against inbound lane i, return
  * against return — so one spawn's reroute is never attributed to another's.
- * With no projection every segment lands in `shared`, which is exactly the
- * plain-lane look the unarmed-hover state wants.
+ * The sim orders every lane array identically (inbound lanes first, then one
+ * return lane per active spawn — return-to-origin-spawn design D6), so index
+ * pairing stays lane-to-lane; a consumer that ever styles the directions
+ * apart splits at the active-spawn count. With no projection every segment
+ * lands in `shared`, which is exactly the plain-lane look the unarmed-hover
+ * state wants.
  *
  * Distances accumulate from each lane's start, so a lane that changes
  * classification mid-route keeps one continuous dash rhythm across the seam.

@@ -26,6 +26,15 @@
 // per structure. The trajectory is untouched: the flag is read only by the
 // removal path, this script issues no removals, and every milestone below still
 // holds (kills included, at 156). GOLDEN_IDLE_HASH again did NOT move.
+// Return-to-origin-spawn note: NEITHER golden moved, deliberately verified.
+// `Enemy.originSpawn` adds one mixed field per enemy, but both checkpoints
+// sample states whose enemies array is empty (the idle run never spawns; the
+// scripted run has won), so the walk never reaches it — hash.test.ts pins its
+// visibility instead. The trajectory is bit-identical too: level_01 declares a
+// single spawn flush against the map edge, so no-transit spawn routing and the
+// per-origin returning field change nothing it does (kills still 156). A
+// multi-spawn level's mid-run hashes DO shift; that break lands here the first
+// time a golden is minted on one.
 import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import levelJson from '../src/data/levels/level_01.json';

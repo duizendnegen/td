@@ -141,6 +141,8 @@ export interface InjectOptions {
   speed?: number;
   hp?: number;
   carriedMg?: number;
+  /** Declared-spawn index the enemy counts as entered from; defaults to 0. */
+  originSpawn?: number;
 }
 
 /** Hand-place an enemy at a tile centre; speed 0 keeps it parked there. */
@@ -150,6 +152,7 @@ export function injectEnemy(sim: Sim, tx: number, ty: number, opts: InjectOption
   const enemy: Enemy = {
     id: sim.state.nextEnemyId++,
     typeId: opts.typeId ?? 0,
+    originSpawn: opts.originSpawn ?? 0,
     pos: { x, y },
     prevPos: { x, y },
     waypoint: { x, y },

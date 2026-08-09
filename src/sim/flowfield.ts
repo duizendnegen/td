@@ -1,9 +1,10 @@
-// Dual Dijkstra flow fields
+// Dijkstra flow fields
 // See ARCHITECTURE.md §7
 //
 // Responsibilities:
 //   - Inbound field: multi-source from the treasury
-//   - Returning field: multi-source from all active spawns at once
+//   - Returning fields: one per declared spawn, that spawn the sole source
+//   - No-transit tiles (declared spawns): relaxed into, never expanded from
 //   - 8-connected, integer costs 1024 orthogonal / 1448 diagonal
 //   - Corner-cutting prevented at field-build time, not at move time
 //   - Bucket queue keyed on cost — deterministic pop order, no tie-break rule needed
@@ -45,10 +46,20 @@ export function allocField(grid: Grid): FlowField {
  * Multi-source Dijkstra outward from `sources`. A diagonal edge exists only
  * if both orthogonally adjacent tiles between its endpoints are walkable, so
  * no field can ever express a corner cut.
+ *
+ * `noTransit` tiles are endpoints, not corridors (return-to-origin-spawn
+ * design D2): such a tile may be relaxed *into* — it receives a cost and a
+ * direction, so an enemy standing on it can step off — but is never expanded
+ * *from*, so no route traced from any other tile enters it. A field's own
+ * sources are exempt: they sit at cost 0 and expand normally.
  */
-export function buildField(grid: Grid, sources: readonly { x: number; y: number }[]): FlowField {
+export function buildField(
+  grid: Grid,
+  sources: readonly { x: number; y: number }[],
+  noTransit: readonly { x: number; y: number }[] = [],
+): FlowField {
   const field = allocField(grid);
-  buildFieldInto(grid, sources, field);
+  buildFieldInto(grid, sources, field, noTransit);
   return field;
 }
 
@@ -61,6 +72,7 @@ export function buildFieldInto(
   grid: Grid,
   sources: readonly { x: number; y: number }[],
   out: FlowField,
+  noTransit: readonly { x: number; y: number }[] = [],
 ): void {
   const { dir, cost } = out;
   dir.fill(UNREACHABLE);
@@ -74,6 +86,9 @@ export function buildFieldInto(
     (buckets[c] ??= []).push(tileIdx);
     pending++;
   };
+
+  const noExpand = new Set<number>();
+  for (const t of noTransit) noExpand.add(grid.idx(t.x, t.y));
 
   for (const s of sources) {
     const i = grid.idx(s.x, s.y);
@@ -90,6 +105,9 @@ export function buildFieldInto(
     for (const i of bucket) {
       pending--;
       if (cost[i] !== c) continue; // stale entry, superseded by a cheaper path
+      // A no-transit tile keeps the cost and direction it was relaxed with
+      // but relaxes nothing itself; sources (cost 0) expand as ever.
+      if (c !== 0 && noExpand.has(i)) continue;
       const tx = i % grid.width;
       const ty = (i - tx) / grid.width;
       for (let d = 0; d < 8; d++) {

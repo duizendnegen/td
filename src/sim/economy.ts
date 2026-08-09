@@ -37,7 +37,7 @@ export function dropSack(state: SimState, tx: number, ty: number, amountMg: numb
 export function resolveArrivals(
   state: SimState,
   treasury: { x: number; y: number },
-  activeSpawns: readonly { x: number; y: number }[],
+  allSpawns: readonly { x: number; y: number }[],
   carryMgByType: readonly number[],
   events: RenderEvent[],
 ): void {
@@ -76,16 +76,17 @@ export function resolveArrivals(
       e.mode = 'returning';
     }
 
-    // Spawn escape: the enemy and its gold leave play permanently. The event
-    // is render-only (leak feedback, harness instrumentation) — not hashed.
+    // Spawn escape, origin-only (return-to-origin-spawn design D5): the one
+    // tile compared is the enemy's own spawn — no-transit routing means it
+    // can never stand on a foreign spawn tile, so no other case exists. The
+    // event is render-only (leak feedback, harness instrumentation) — not
+    // hashed.
     if (e.mode === 'returning') {
-      for (const s of activeSpawns) {
-        if (e.pos.x === tileCentre(s.x) && e.pos.y === tileCentre(s.y)) {
-          e.alive = false;
-          state.escapedMg += e.carriedMg;
-          events.push({ kind: 'goldLeaked', enemyId: e.id, amountMg: e.carriedMg });
-          break;
-        }
+      const origin = allSpawns[e.originSpawn]!;
+      if (e.pos.x === tileCentre(origin.x) && e.pos.y === tileCentre(origin.y)) {
+        e.alive = false;
+        state.escapedMg += e.carriedMg;
+        events.push({ kind: 'goldLeaked', enemyId: e.id, amountMg: e.carriedMg });
       }
     }
   }

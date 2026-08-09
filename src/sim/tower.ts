@@ -4,8 +4,9 @@
 // Responsibilities:
 //   - "First along path" targeting (rapid/area/slow) = minimal inbound-field
 //     cost at the enemy's current tile, tie-broken by insertion order
-//   - Sniper cascade (D5): carriers (carried > 0) by minimal returning-field
-//     cost; else max stat-block hp, then minimal inbound cost, then insertion
+//   - Sniper cascade (D5): carriers (carried > 0) by minimal cost in each
+//     carrier's origin returning field; else max stat-block hp, then minimal
+//     inbound cost, then insertion
 //   - Area burst (D6): flat damage within radiusSq of the target's position
 //   - Slow (D4): slowUntil = max(...), no damage; slowImmune short-circuits
 //   - Within a tick towers fire in insertion order and skip the dead (D7)
@@ -71,12 +72,13 @@ export function selectTarget(
     }
 
     // Sniper (D5): every key is static over a target's in-range lifetime, so
-    // focus fire emerges with no persistence state. Carriers judged by the
-    // returning field (closest to escaping); the strongest bucket by
-    // stat-block hp (never current hp), then the inbound field.
+    // focus fire emerges with no persistence state. Carriers judged by their
+    // ORIGIN spawn's returning field (closest to escaping through its own
+    // exit — return-to-origin-spawn spec); the strongest bucket by stat-block
+    // hp (never current hp), then the inbound field.
     const carrier = e.carriedMg > 0 ? 1 : 0;
     const hp = carrier ? 0 : data.enemyTypes[e.typeId]!.hp;
-    const cost = (carrier ? fields.returning : fields.inbound).cost[tileIdx]!;
+    const cost = (carrier ? fields.returning[e.originSpawn]! : fields.inbound).cost[tileIdx]!;
     if (cost < 0) continue;
     const better =
       target === null ||

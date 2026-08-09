@@ -18,7 +18,10 @@ export type CommandBody =
   | { kind: 'startWave' }
   /** End the run as lost, from any live phase (run-lifecycle spec). */
   | { kind: 'concede' }
-  /** Typed debug/preset spawn: enemy type key, index into the active spawns. */
+  /**
+   * Typed debug/preset spawn: enemy type key, index into the DECLARED spawn
+   * list (stable across activations); dormant or out-of-range is rejected.
+   */
   | { kind: 'spawn'; type: string; spawn: number }
   | { kind: 'place'; structure: StructureKind; archetype?: TowerArchetype; tx: number; ty: number }
   /** Relocate the tower at (tx, ty) to (toTx, toTy) — build phase only. */

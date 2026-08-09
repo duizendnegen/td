@@ -63,6 +63,43 @@ describe('placement validation', () => {
     expect(sim.state.structures).toHaveLength(1);
   });
 
+  it('rejects cutting a carrier off from its origin even with another spawn reachable', () => {
+    // West (0,0) and mid (2,2) both active; treasury (4,0). The pocket row
+    // (2,3)–(4,3) exits two ways: east up column 4, and north over the mid
+    // spawn tile — which no route may transit. Walling (4,3) therefore cuts
+    // a west-origin carrier at (2,3) off from ITS spawn even though the mid
+    // spawn sits directly beside it, still reachable as an endpoint.
+    const wave = (spawn: string) => ({
+      groups: [{ spawn, type: 'runner', count: 1, spawnInterval: 1, delay: 0 }],
+    });
+    const level = () => ({
+      id: 'test',
+      grid: { width: 5, height: 4 },
+      treasury: { x: 4, y: 0 },
+      spawns: [
+        { id: 'west', x: 0, y: 0, activeFromWave: 1 },
+        { id: 'mid', x: 2, y: 2, activeFromWave: 1 },
+      ],
+      terrain: { legend: { '.': 'dirt', r: 'rock' }, map: ['.....', '.....', 'rr.r.', 'rr...'] },
+      economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      waves: [wave('west'), wave('mid')],
+    });
+    const strand = makeSim(level()).sim;
+    injectEnemy(strand, 2, 3, { mode: 'returning', carriedMg: 10_000, originSpawn: 0 });
+    expect(strand.previewPlacement('wall', 4, 3)).toBe('strands-enemy');
+    strand.tick([place('wall', 4, 3)]);
+    expect(strand.state.structures).toHaveLength(0);
+    expect(strand.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+
+    // The identical placement is legal when the pocket carrier's origin IS
+    // the adjacent mid spawn — the strand check is genuinely per-origin.
+    const legal = makeSim(level()).sim;
+    injectEnemy(legal, 2, 3, { mode: 'returning', carriedMg: 10_000, originSpawn: 1 });
+    expect(legal.previewPlacement('wall', 4, 3)).toBe('ok');
+    legal.tick([place('wall', 4, 3)]);
+    expect(legal.state.structures).toHaveLength(1);
+  });
+
   it('a tower occupies exactly one tile and slots into a wall line', () => {
     // Wall line across x=3 with gaps at (3,1) and (3,2).
     const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
@@ -139,7 +176,7 @@ describe('placement validation', () => {
     expect(sim.state.treasuryMg).toBe(afterBuildMg + 4000);
     // And both live fields reflect the reopened mask that same tick.
     expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
-    expect(sim.returning.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
+    expect(sim.returning[0]!.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
   });
 
   it('a removal refused mid-wave leaves the state hash untouched', () => {
@@ -213,7 +250,7 @@ describe('placement validation', () => {
     // The tile is walkable and back in both fields in the removal's own tick.
     expect(sim.grid.isBlocked(3, 1)).toBe(false);
     expect(sim.inbound.cost[sim.grid.idx(3, 1)]).toBeGreaterThan(0);
-    expect(sim.returning.cost[sim.grid.idx(3, 1)]).toBeGreaterThan(0);
+    expect(sim.returning[0]!.cost[sim.grid.idx(3, 1)]).toBeGreaterThan(0);
 
     // The enemy keeps its standing one-tile commitment — an unblock never
     // invalidates one — and routes through the reopened tile once it re-reads.
@@ -506,7 +543,7 @@ describe('the provisional window', () => {
     expect(sim.state.treasuryMg).toBe(beforeBuild); // net zero round trip
     expect(sim.grid.isBlocked(2, 0)).toBe(false);
     expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
-    expect(sim.returning.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
+    expect(sim.returning[0]!.cost[sim.grid.idx(2, 0)]).toBeGreaterThan(0);
   });
 
   it('closes the window the moment time advances', () => {
@@ -564,8 +601,8 @@ describe('move command', () => {
     // Both live fields reflect the new mask in the move's own tick.
     expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
     expect(sim.inbound.cost[sim.grid.idx(3, 2)]).toBe(-1);
-    expect(sim.returning.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
-    expect(sim.returning.cost[sim.grid.idx(3, 2)]).toBe(-1);
+    expect(sim.returning[0]!.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+    expect(sim.returning[0]!.cost[sim.grid.idx(3, 2)]).toBe(-1);
   });
 
   it('moving is free and preserves the refund basis of a committed tower', () => {
@@ -636,8 +673,8 @@ describe('move command', () => {
     expect(sim.grid.isBlocked(3, 2)).toBe(true);
     expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
     expect(sim.inbound.cost[sim.grid.idx(3, 2)]).toBe(-1);
-    expect(sim.returning.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
-    expect(sim.returning.cost[sim.grid.idx(3, 2)]).toBe(-1);
+    expect(sim.returning[0]!.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+    expect(sim.returning[0]!.cost[sim.grid.idx(3, 2)]).toBe(-1);
     expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(false);
 
     // Still provisional, so removal still refunds in full — the move changed
@@ -1083,10 +1120,13 @@ describe('previewRoutes (path-preview spec)', () => {
     const preview = sim.previewRoutes('wall', 1, 0);
     expect(preview.verdict).toBe('seals-spawn');
     expect(preview.orphaned).toEqual([{ x: 0, y: 0 }]);
-    // North blanks; south still routes, and so does the treasury's way out.
+    // Four lanes: north-in, south-in, north-return, south-return. North
+    // blanks in both directions; south still routes both ways.
+    expect(preview.lanes).toHaveLength(4);
     expect(preview.lanes![0]).toEqual([]);
     expect(preview.lanes![1]!.at(-1)).toEqual({ x: 6, y: 1 });
-    expect(preview.lanes![2]![0]).toEqual({ x: 6, y: 1 });
-    expect(preview.lanes![2]!.at(-1)).toEqual({ x: 0, y: 2 });
+    expect(preview.lanes![2]).toEqual([]);
+    expect(preview.lanes![3]![0]).toEqual({ x: 6, y: 1 });
+    expect(preview.lanes![3]!.at(-1)).toEqual({ x: 0, y: 2 });
   });
 });
