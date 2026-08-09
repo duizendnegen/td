@@ -78,6 +78,9 @@ export function testBalance(
 ): Record<string, unknown> {
   return {
     build: { wallCost: 4, removalRefundFraction: 0.5 },
+    // 80/1000 keeps the synthetic fixture at the historical carrier slowdown
+    // and full sack return; production values live in balance.json.
+    theft: { carrierSpeedPer100: 80, sackRecoveryPer1000: 1000 },
     waveBonus,
     towers: {
       rapid: {

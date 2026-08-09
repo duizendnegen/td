@@ -33,11 +33,11 @@ describe('level and balance schemas', () => {
   it('accepts the shipped level_01 + balance pair, with 10 waves and the palette', () => {
     const data = loadGameData(level01Json, balanceJson);
     expect(data.level.waves).toHaveLength(10);
-    expect(data.grid.isBlocked(4, 0)).toBe(true); // wall A is rock
-    expect(data.grid.terrainAt(4, 4)).toBe(TERRAIN.socket);
-    expect(data.grid.isBlocked(4, 4)).toBe(true); // sockets are never navigable
+    expect(data.grid.isBlocked(8, 0)).toBe(true); // wall A is rock (2× coords)
+    expect(data.grid.terrainAt(8, 8)).toBe(TERRAIN.socket);
+    expect(data.grid.isBlocked(8, 8)).toBe(true); // sockets are never navigable
     expect(data.grid.terrainAt(0, 0)).toBe(TERRAIN.grass);
-    expect(data.grid.terrainAt(0, 5)).toBe(TERRAIN.dirt); // spawn tile
+    expect(data.grid.terrainAt(0, 10)).toBe(TERRAIN.dirt); // spawn tile
   });
 
   it('accepts the shipped level_02: two spawns, second dormant, brute in the back half', () => {
@@ -180,7 +180,7 @@ describe('level and balance schemas', () => {
 
   it('converts build and tower blocks to integers at load', () => {
     const data = loadGameData(baseLevel(), balanceJson);
-    expect(data.wallCostMg).toBe(20_000);
+    expect(data.wallCostMg).toBe(5_000);
     expect(data.refundPer1000).toBe(500);
     // Canonical archetype order pins archetypeId assignment.
     expect(data.towers.map((t) => t.archetype)).toEqual(['rapid', 'sniper', 'area', 'slow']);
@@ -194,8 +194,8 @@ describe('level and balance schemas', () => {
       }
       expect(Number.isInteger(tower.burstRadiusUnits)).toBe(true);
     }
-    // The rapid baseline: 2.5 tiles × 1024 units.
-    expect(data.towers[0]!.levels[0]!.rangeUnits).toBe(2560);
+    // The rapid baseline: 7.5 tiles × 1024 units (scale-world-experiment).
+    expect(data.towers[0]!.levels[0]!.rangeUnits).toBe(7680);
     expect(Number.isInteger(data.slowSpeedPer100)).toBe(true);
     // Tuned values stay in balance.json; only the ×1000 gold scaling is pinned.
     const runner = data.enemyTypes.find((t) => t.key === 'runner')!;

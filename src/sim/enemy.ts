@@ -4,7 +4,7 @@
 // Responsibilities:
 //   - Waypoint commitment and re-evaluation on arrival
 //   - Commitment invalidation on mask changes (phase-2 design D2)
-//   - Carriers move at 80% speed
+//   - Carrier speed factor from balance data (carrierSpeedPer100)
 
 import { length, normalize, tileCentre, toTile } from './fixed';
 import type { FlowField } from './flowfield';
@@ -20,12 +20,17 @@ export interface Fields {
 
 /**
  * Effective per-tick speed, all integer math in one pinned order (design D4):
- * the carrier factor (80%) applies first, then the slow percentage while the
- * slow is unexpired. The two orders round differently, so this order is part
- * of the determinism contract and pinned by test.
+ * the carrier factor (carrierSpeedPer100) applies first, then the slow
+ * percentage while the slow is unexpired. The two orders round differently,
+ * so this order is part of the determinism contract and pinned by test.
  */
-export function effectiveSpeed(e: Enemy, tick: number, slowSpeedPer100: number): number {
-  let speed = e.carriedMg > 0 ? Math.trunc((e.speed * 4) / 5) : e.speed;
+export function effectiveSpeed(
+  e: Enemy,
+  tick: number,
+  carrierSpeedPer100: number,
+  slowSpeedPer100: number,
+): number {
+  let speed = e.carriedMg > 0 ? Math.trunc((e.speed * carrierSpeedPer100) / 100) : e.speed;
   if (tick < e.slowUntil) speed = Math.trunc((speed * slowSpeedPer100) / 100);
   return speed;
 }
@@ -42,12 +47,13 @@ export function stepEnemies(
   state: SimState,
   grid: Grid,
   fields: Fields,
+  carrierSpeedPer100: number,
   slowSpeedPer100: number,
 ): void {
   for (const e of state.enemies) {
     if (!e.alive) continue;
     const field = e.mode === 'inbound' ? fields.inbound : fields.returning;
-    let budget = effectiveSpeed(e, state.tick, slowSpeedPer100);
+    let budget = effectiveSpeed(e, state.tick, carrierSpeedPer100, slowSpeedPer100);
     // An enemy that lands mid-tick with movement budget left continues toward
     // the next waypoint, so speed is honoured exactly through turns.
     while (budget > 0) {

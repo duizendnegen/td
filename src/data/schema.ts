@@ -94,6 +94,16 @@ export const BalanceSchema = z.object({
     removalRefundFraction: z.number().min(0).max(1),
   }),
   /**
+   * Theft-economy knobs (scale-world-experiment): the carrier speed factor as
+   * a percentage of base speed (applied before slow in the pinned modifier
+   * order), and the per-1000 fraction of unclaimed sack gold that settlement
+   * credits — the remainder leaves play.
+   */
+  theft: z.object({
+    carrierSpeedPer100: z.int().positive(),
+    sackRecoveryPer1000: z.int().min(0).max(1000),
+  }),
+  /**
    * Settlement speed bonus (balance-ux-tweaks design D4): full baseGold when a
    * wave settles within graceTicks of its last scheduled spawn, then decaying
    * linearly to zero over decayTicks.
@@ -172,6 +182,10 @@ export interface GameData {
   towers: TowerDef[];
   /** The single global slow multiplier: slowed speed = speed × this / 100. */
   slowSpeedPer100: number;
+  /** Carrier speed factor: carrying speed = speed × this / 100, before slow. */
+  carrierSpeedPer100: number;
+  /** Settlement credits floor(sackMg × this / 1000) per unclaimed sack. */
+  sackRecoveryPer1000: number;
 }
 
 /**
@@ -322,5 +336,7 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
       };
     }),
     slowSpeedPer100: balance.towers.slow.slowSpeedPercent ?? 100,
+    carrierSpeedPer100: balance.theft.carrierSpeedPer100,
+    sackRecoveryPer1000: balance.theft.sackRecoveryPer1000,
   };
 }

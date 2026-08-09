@@ -57,18 +57,18 @@ describe('treasury grab', () => {
     expect(sim.state.sacks[0]!.amountMg).toBe(25_000);
     // Settlement's sack return recovers the raid (minus nothing here).
     const bounty = 6000; // the kill credited the runner bounty
-    returnSacks(sim.state);
+    returnSacks(sim.state, 1000);
     expect(sim.state.treasuryMg).toBe(-15_000 + bounty + 25_000);
   });
 });
 
 describe('carrier speed', () => {
-  it('is 80% via integer math when carrying, full when not', () => {
+  it('applies carrierSpeedPer100 via integer math when carrying, full speed when not', () => {
     const { sim } = makeSim(corridor(), testBalance({ speed: 128 }));
     const carrier = injectEnemy(sim, 3, 1, { speed: 128, carriedMg: 25_000 });
     const empty = injectEnemy(sim, 3, 0, { speed: 128 });
-    expect(effectiveSpeed(carrier, sim.state.tick, 55)).toBe(102); // trunc(128 * 4 / 5)
-    expect(effectiveSpeed(empty, sim.state.tick, 55)).toBe(128);
+    expect(effectiveSpeed(carrier, sim.state.tick, 80, 55)).toBe(102); // trunc(128 * 80 / 100)
+    expect(effectiveSpeed(empty, sim.state.tick, 80, 55)).toBe(128);
   });
 
   it('a full round trip: steal at the treasury, walk back slower, escape at the spawn', () => {

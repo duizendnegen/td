@@ -1036,29 +1036,32 @@ describe('previewRoutes (path-preview spec)', () => {
   });
 
   it('shades the whole orphaned quarter when the last gap in level_01 closes', () => {
-    // Rock wall A runs down x=4 from y=0 to y=7 (the socket at (4,4) is
-    // blocked terrain too); walls at (4,8) and (4,9) complete it.
+    // Rock wall A runs down x=8..9 from y=0 to y=15 on the doubled board
+    // (the socket block at (8..9, 8..9) is blocked terrain too); walls at
+    // (8,16..18) leave one gap tile, and the ghost at (8,19) completes the
+    // seal across the south gap.
     const sim = new Sim(loadGameData(level01Json, balanceJson), 1);
-    sim.tick([place('wall', 4, 9)]);
-    expect(sim.state.structures).toHaveLength(1);
+    sim.tick([place('wall', 8, 16), place('wall', 8, 17), place('wall', 8, 18)]);
+    expect(sim.state.structures).toHaveLength(3);
 
-    const preview = sim.previewRoutes('wall', 4, 8);
+    const preview = sim.previewRoutes('wall', 8, 19);
     expect(preview.verdict).toBe('seals-spawn');
     expect(preview.lanes).not.toBeNull();
     // Neither lane has a route left: the west spawn is level_01's only one,
     // so it is also the return field's only source.
     expect(preview.lanes).toEqual([[], []]);
 
-    // Columns 0–3 entirely: 39 walkable tiles (only (0,0) is grass).
+    // Columns 0–7 entirely: 156 walkable tiles (only the 2×2 grass block at
+    // the top-left corner is out).
     const orphaned = preview.orphaned!;
-    expect(orphaned).toHaveLength(39);
-    expect(orphaned.every((t) => t.x < 4)).toBe(true);
-    expect(orphaned).toContainEqual({ x: 0, y: 5 }); // the spawn itself
+    expect(orphaned).toHaveLength(156);
+    expect(orphaned.every((t) => t.x < 8)).toBe(true);
+    expect(orphaned).toContainEqual({ x: 0, y: 10 }); // the spawn itself
     // The ghost tile is the cause, not part of the cut-off region.
-    expect(orphaned).not.toContainEqual({ x: 4, y: 8 });
+    expect(orphaned).not.toContainEqual({ x: 8, y: 19 });
 
     // Moving off the sealing tile clears it.
-    expect(sim.previewRoutes('wall', 10, 5).orphaned).toBeNull();
+    expect(sim.previewRoutes('wall', 20, 10).orphaned).toBeNull();
   });
 
   it('sealing one of two active spawns leaves the other lane projected', () => {

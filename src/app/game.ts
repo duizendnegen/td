@@ -13,6 +13,7 @@
 import balanceJson from '../data/balance.json';
 import { loadGameData } from '../data/schema';
 import { levelForParam, nextLevelUrl } from './levels';
+import { applyTuning, parseTuning } from './tuning';
 import { CommandQueue } from '../sim/commands';
 import { moveOpenIn, removalOpenIn } from '../sim/placement';
 import { Sim } from '../sim/sim';
@@ -134,9 +135,20 @@ export interface GameHandles {
 }
 
 export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles> {
-  // Load + validate data — a bad level stops the boot here, before rendering.
-  const levelEntry = levelForParam(new URLSearchParams(window.location.search).get('level'));
-  const data = loadGameData(levelEntry.json, balanceJson);
+  // Load + validate data — a bad level or tuning dial stops the boot here,
+  // before rendering. Dial errors are surfaced on the page, not just the
+  // console (debug-tooling spec: invalid dials fail loudly).
+  const search = new URLSearchParams(window.location.search);
+  const levelEntry = levelForParam(search.get('level'));
+  let tuned;
+  try {
+    tuned = applyTuning(levelEntry.json, balanceJson, parseTuning(search));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    document.body.insertAdjacentText('afterbegin', message);
+    throw err;
+  }
+  const data = loadGameData(tuned.levelJson, tuned.balanceJson);
   const assets = await Assets.load(MODELS);
 
   // Sim: the seed flows only through Sim construction.

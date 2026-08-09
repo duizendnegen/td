@@ -137,11 +137,15 @@ export function waveBonusMg(
 }
 
 /**
- * Settlement's sack return: every unclaimed sack credits in full, in
- * insertion order (theft-economy spec).
+ * Settlement's sack return: every unclaimed sack credits the configured
+ * recovery fraction, floored per sack, in insertion order (theft-economy
+ * spec). The remainder leaves play — killing a carrier is damage control,
+ * not full recovery.
  */
-export function returnSacks(state: SimState): void {
-  for (const s of state.sacks) state.treasuryMg += s.amountMg;
+export function returnSacks(state: SimState, sackRecoveryPer1000: number): void {
+  for (const s of state.sacks) {
+    state.treasuryMg += Math.floor((s.amountMg * sackRecoveryPer1000) / 1000);
+  }
   state.sacks = [];
 }
 
