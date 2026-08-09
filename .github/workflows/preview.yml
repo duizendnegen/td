@@ -1,0 +1,107 @@
+# Advisory wave preview (openspec add-pr-wave-preview, design D10): builds the
+# app, captures the scenario clip headless, pushes it to the ci-media branch
+# and maintains one sticky PR comment. Never a required check.
+#
+# Opt-in per PR: renders only while the PR carries the `wave preview` label
+# AND is not a draft. Two events trigger it —
+#   labeled           — the `wave preview` label was added to a ready PR
+#   ready_for_review  — a PR already carrying the label left draft
+# Pushes never re-render; remove and re-add the label to refresh the clip.
+# Fork PRs are skipped, the token cannot write there. On failure the sticky
+# comment names the reason.
+name: Preview
+
+on:
+  pull_request:
+    types: [labeled, ready_for_review]
+
+jobs:
+  preview:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'wave preview') ||
+       (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'wave preview')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: pr-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # ubuntu-24.04 runner images no longer preinstall ffmpeg.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npm run build
+      - name: Capture preview clip
+        run: node .github/capture/capture.mjs
+      - name: Push clip to ci-media
+        id: media
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
+          PR=${{ github.event.pull_request.number }}
+          FILE="pr-${PR}/${SHORT}.webp"
+          cd "$RUNNER_TEMP"
+          if git clone --depth 1 -b ci-media \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" media 2>/dev/null; then
+            cd media
+          else
+            git clone --depth 1 \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" media
+            cd media
+            git switch --orphan ci-media
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p "pr-${PR}"
+          cp "$GITHUB_WORKSPACE/.github/capture/out/preview.webp" "$FILE"
+          # Keep only the newest clip per PR; superseded pushes are dead
+          # weight (the sticky comment always points at the newest SHA).
+          find "pr-${PR}" -name '*.webp' ! -name "${SHORT}.webp" -delete
+          git add -A "pr-${PR}"
+          # Re-adding the label on an unchanged head can produce an identical
+          # clip; an empty commit would fail the job.
+          if git diff --cached --quiet; then
+            echo "Clip identical to the previous render; nothing to push."
+          else
+            git commit -m "preview: PR #${PR} @ ${SHORT}"
+            git push origin ci-media
+          fi
+          echo "url=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/ci-media/${FILE}" >> "$GITHUB_OUTPUT"
+          echo "short=${SHORT}" >> "$GITHUB_OUTPUT"
+      - name: Update sticky comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BODY="<!-- pr-wave-preview -->
+          ### 🌊 Wave preview — \`${{ steps.media.outputs.short }}\`
+
+          ![wave preview](${{ steps.media.outputs.url }})
+
+          Staged demo on level_01: warm-up to wave 4, all four tower archetypes and all four enemy types on screen (~12 s at true speed). Remove and re-add the \`wave preview\` label to re-render after new pushes."
+          bash .github/capture/sticky-comment.sh "${{ github.event.pull_request.number }}" "$BODY"
+      - name: Report failure in the sticky comment
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BODY="<!-- pr-wave-preview -->
+          ### 🌊 Wave preview — capture failed
+
+          The preview clip could not be generated for \`$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)\` — see the [run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+          This job is advisory: the PR stays mergeable. The \`test\` job is the required check."
+          bash .github/capture/sticky-comment.sh "${{ github.event.pull_request.number }}" "$BODY"

@@ -192,7 +192,9 @@ are render-side only and never touch simulation state.
 
 ## CI
 
-Every PR runs a required `test` check (typecheck + vitest) and an advisory preview job that posts
-a short animated clip of a staged board to the PR as a sticky comment. The clips live on the
-long-lived `ci-media` branch (`pr-<n>/<sha>.webp`) — it holds generated media only, is pruned
-automatically when a PR closes, and can be force-reset without losing anything of value.
+Every ready (non-draft) PR runs a required `test` check (typecheck + vitest). Adding the
+`wave preview` label to a ready PR renders an advisory animated clip of a staged board and posts
+it to the PR as a sticky comment; pushes don't re-render — remove and re-add the label to refresh
+the clip. The clips live on the long-lived `ci-media` branch (`pr-<n>/<sha>.webp`) — it holds
+generated media only, is pruned automatically when a PR closes, and can be force-reset without
+losing anything of value.

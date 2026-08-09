@@ -718,12 +718,15 @@ git init  →  GitHub  →  Actions on push to main  →  GitHub Pages
 The live link exists from Phase 1 so every phase gate is playtestable by someone who is not you —
 which is the entire point of a POC.
 
-Pull requests run `ci.yml`: a required `test` job (typecheck + vitest, enforced on `main`) and an
-advisory `preview` job that captures the `.github/capture/` scenario headless (SwiftShader), pushes
-an animated WebP to the `ci-media` branch as `pr-<n>/<sha>.webp`, and maintains one sticky PR
-comment embedding it. Preview failures update the same comment with the run link and never block a
-merge; fork PRs skip the job (read-only token). `ci-media-prune.yml` deletes `pr-<n>/` when the PR
-closes.
+Pull requests run `ci.yml`: a required `test` job (typecheck + vitest, enforced on `main`; draft
+PRs skip it until marked ready). The advisory preview lives in `preview.yml`, opted into per PR
+via the `wave preview` label: when the label is added to a ready PR (or a labeled PR leaves
+draft), it
+captures the `.github/capture/` scenario headless (SwiftShader), pushes an animated WebP to the
+`ci-media` branch as `pr-<n>/<sha>.webp`, and maintains one sticky PR comment embedding it.
+Pushes never re-render — remove and re-add the label to refresh the clip. Preview failures update
+the same comment with the run link and never block a merge; fork PRs skip the preview (read-only
+token). `ci-media-prune.yml` deletes `pr-<n>/` when the PR closes.
 
 ---
 
