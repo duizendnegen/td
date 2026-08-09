@@ -40,7 +40,7 @@
 ## 4. Verify
 
 - [x] 4.1 `npm run typecheck` and `npm test` pass in the workspace
-- [ ] 4.2 Manual pass with `npm run dev`: wheel zooms about the cursor and clamps at both
+- [x] 4.2 Manual pass with `npm run dev`: wheel zooms about the cursor and clamps at both
       ends; right-drag pans clamped to the board; right click still cancels the active tool;
       left-click build/select unchanged; replay/state hash untouched by camera motion (F4
       readout)
