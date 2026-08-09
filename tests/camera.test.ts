@@ -1,6 +1,7 @@
-// See the aether-ui-redesign isometric-camera spec and design D5
+// See the aether-ui-redesign isometric-camera spec and design D5, and the
+// camera-controls change (wheel-zoom ladder, design D2)
 import { describe, expect, it } from 'vitest';
-import { IsometricCamera, MAX_ZOOM } from '../src/render/cameras';
+import { IsometricCamera, MAX_WHEEL_STEPS, MAX_ZOOM, ZOOM_STEP_FACTOR } from '../src/render/cameras';
 import { TouchCameraController } from '../src/ui/touch';
 
 const BOARD = { width: 30, height: 20 };
@@ -130,5 +131,69 @@ describe('isometric camera zoom + pan', () => {
     expect((after.left + after.right) / 2).toBeCloseTo(centre.x, 1);
     expect((after.top + after.bottom) / 2).toBeCloseTo(centre.y, 1);
     expect((after.right - after.left) / (after.top - after.bottom)).toBeCloseTo(4 / 3);
+  });
+});
+
+describe('wheel-zoom ladder (camera-controls D2)', () => {
+  it('zoom is always exactly 1.1^n, and k steps in / k steps out is bit-identical', () => {
+    const cam = new IsometricCamera(16 / 9, BOARD);
+    const fit = bounds(cam);
+    for (let i = 1; i <= 5; i++) {
+      cam.stepZoom(1, 0.5, -0.3);
+      expect(cam.zoom).toBe(Math.pow(ZOOM_STEP_FACTOR, i));
+    }
+    for (let i = 4; i >= 0; i--) {
+      cam.stepZoom(-1, 0.5, -0.3);
+      expect(cam.zoom).toBe(Math.pow(ZOOM_STEP_FACTOR, i));
+    }
+    // Rung 0 is the fit framing exactly — same guarantee the pinch
+    // round-trip test pins, now via the ladder.
+    expect(cam.zoom).toBe(1);
+    expect(bounds(cam)).toEqual(fit);
+  });
+
+  it('clamps at both ends with no pan drift from rejected steps', () => {
+    const cam = new IsometricCamera(16 / 9, BOARD);
+    const fit = bounds(cam);
+    cam.stepZoom(-1, 0.7, 0.7); // already at rung 0
+    expect(cam.zoom).toBe(1);
+    expect(bounds(cam)).toEqual(fit);
+    for (let i = 0; i < 40; i++) cam.stepZoom(1, 0.2, 0.1);
+    expect(cam.zoom).toBe(Math.pow(ZOOM_STEP_FACTOR, MAX_WHEEL_STEPS));
+    expect(cam.zoom).toBeLessThanOrEqual(MAX_ZOOM);
+    const atMax = bounds(cam);
+    cam.stepZoom(1, 0.2, 0.1); // rejected: must not nudge the pan either
+    expect(bounds(cam)).toEqual(atMax);
+  });
+
+  it('a step keeps the world point under the cursor fixed', () => {
+    const cam = new IsometricCamera(16 / 9, BOARD);
+    const ndc = { x: 0.4, y: -0.2 };
+    const before = bounds(cam);
+    const viewX = (before.left + before.right) / 2 + (ndc.x * (before.right - before.left)) / 2;
+    const viewY = (before.top + before.bottom) / 2 + (ndc.y * (before.top - before.bottom)) / 2;
+    cam.stepZoom(1, ndc.x, ndc.y);
+    const after = bounds(cam);
+    const viewX2 = (after.left + after.right) / 2 + (ndc.x * (after.right - after.left)) / 2;
+    const viewY2 = (after.top + after.bottom) / 2 + (ndc.y * (after.top - after.bottom)) / 2;
+    expect(viewX2).toBeCloseTo(viewX);
+    expect(viewY2).toBeCloseTo(viewY);
+  });
+
+  it('snaps back onto the ladder after a mid-rung pinch', () => {
+    const cam = new IsometricCamera(16 / 9, BOARD);
+    cam.pinch(1.3, 0, 0); // between rungs 2 (1.21) and 3 (1.331)
+    cam.stepZoom(1, 0, 0);
+    expect(cam.zoom).toBe(Math.pow(ZOOM_STEP_FACTOR, 4));
+  });
+
+  it('at the pinch ceiling a zoom-in step is a no-op, never a snap down', () => {
+    const cam = new IsometricCamera(16 / 9, BOARD);
+    cam.pinch(1000, 0, 0); // clamps to MAX_ZOOM, above the top rung
+    expect(cam.zoom).toBe(MAX_ZOOM);
+    cam.stepZoom(1, 0, 0);
+    expect(cam.zoom).toBe(MAX_ZOOM);
+    cam.stepZoom(-1, 0, 0); // out-step drops to the rung below the ceiling
+    expect(cam.zoom).toBe(Math.pow(ZOOM_STEP_FACTOR, MAX_WHEEL_STEPS - 1));
   });
 });

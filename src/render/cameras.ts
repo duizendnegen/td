@@ -7,9 +7,10 @@
 //     whole board framed at the default zoom, re-fit on resize
 //   - Orthographic so a 1-tile gap measures identically anywhere on screen;
 //     the low pitch is what lets height read by silhouette
-//   - Touch devices may pinch-zoom (1× fit … MAX_ZOOM) and pan; both are
-//     clamped to the fit extents and never leave the render side. Desktop
-//     never changes zoom, so its framing stays bit-identical to the fit.
+//   - Touch devices may pinch-zoom (1× fit … MAX_ZOOM) and pan; desktop
+//     wheel-zooms on the exact 1.1^n step ladder (stepZoom) and right-drag
+//     pans. All of it is clamped to the fit extents and never leaves the
+//     render side; ladder step 0 reproduces the fit framing bit-identically.
 
 import * as THREE from 'three';
 
@@ -21,13 +22,18 @@ const DIST = 60;
 const MARGIN = 1.2;
 /** Tallest thing the frustum must keep on screen (Phase-3 towers reach ~4.4). */
 const FIT_HEIGHT = 5;
-/** Deepest pinch-zoom; tuned for reliable single-tile taps on phones. */
+/** Deepest zoom (touch pinch, and the wheel ladder's ceiling); tuned for
+ * reliable single-tile taps on phones. */
 export const MAX_ZOOM = 4;
+/** One wheel step multiplies the zoom by exactly this (camera-controls D2). */
+export const ZOOM_STEP_FACTOR = 1.1;
+/** Highest ladder rung that stays within MAX_ZOOM (1.1^14 ≈ 3.80). */
+export const MAX_WHEEL_STEPS = Math.floor(Math.log(MAX_ZOOM) / Math.log(ZOOM_STEP_FACTOR));
 
 export class IsometricCamera {
   readonly camera: THREE.OrthographicCamera;
   private readonly board: { width: number; height: number };
-  /** 1 = whole board framed (the only value desktop ever sees). */
+  /** 1 = whole board framed. */
   private zoomLevel = 1;
   /** View-centre offset in camera space, clamped inside the fit extents. */
   private panX = 0;
@@ -88,8 +94,35 @@ export class IsometricCamera {
    * given NDC position (gesture midpoint) fixed on screen. Render-side only.
    */
   pinch(scale: number, ndcX: number, ndcY: number): void {
+    this.setZoomAnchored(Math.min(MAX_ZOOM, Math.max(1, this.zoomLevel * scale)), ndcX, ndcY);
+  }
+
+  /**
+   * Wheel step: move one rung along the exact 1.1^n ladder, keeping the world
+   * point at the cursor's NDC position fixed on screen. The zoom is always
+   * recomputed as Math.pow of an integer rung — never by multiplying the
+   * previous zoom — so equal step counts give bit-identical framing and rung 0
+   * is exactly the fit. A pinch may leave the zoom between rungs; the round()
+   * snaps to the nearest rung before stepping. A step already at a limit
+   * leaves zoom and pan untouched.
+   */
+  stepZoom(direction: 1 | -1, ndcX: number, ndcY: number): void {
+    const rung = Math.min(
+      MAX_WHEEL_STEPS,
+      Math.max(0, Math.round(Math.log(this.zoomLevel) / Math.log(ZOOM_STEP_FACTOR))),
+    );
+    const next = Math.min(MAX_WHEEL_STEPS, Math.max(0, rung + direction));
+    const target = Math.pow(ZOOM_STEP_FACTOR, next);
+    // A step must actually move in its own direction: at a limit (or when a
+    // pinch left the zoom past the top rung) it is a no-op — no pan drift.
+    if (direction > 0 ? target <= this.zoomLevel : target >= this.zoomLevel) return;
+    this.setZoomAnchored(target, ndcX, ndcY);
+  }
+
+  /** Set the zoom, keeping the world point at NDC (nx, ny) fixed on screen. */
+  private setZoomAnchored(zoom: number, ndcX: number, ndcY: number): void {
     const before = this.viewHalves();
-    this.zoomLevel = Math.min(MAX_ZOOM, Math.max(1, this.zoomLevel * scale));
+    this.zoomLevel = zoom;
     const after = this.viewHalves();
     // The point at NDC (nx, ny) sits at camera-space (pan + n × half); keep
     // it stationary while the half-extents shrink or grow.

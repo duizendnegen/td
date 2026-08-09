@@ -2,14 +2,14 @@
 
 ## 1. Camera: stepped zoom ladder
 
-- [ ] 1.1 In `src/render/cameras.ts`, extract the body of `pinch()` (set zoom, keep the NDC
+- [x] 1.1 In `src/render/cameras.ts`, extract the body of `pinch()` (set zoom, keep the NDC
       anchor fixed, `apply()`) into a private helper both `pinch()` and the new entry point
       share
-- [ ] 1.2 Add `stepZoom(direction: 1 | -1, ndcX: number, ndcY: number)` per design D2:
+- [x] 1.2 Add `stepZoom(direction: 1 | -1, ndcX: number, ndcY: number)` per design D2:
       recover the rung with `round(ln(zoom)/ln(1.1))`, clamp `n + direction` to
       `[0, MAX_WHEEL_STEPS]` (derived from `MAX_ZOOM`), set `zoomLevel = Math.pow(1.1, n')`,
       and skip the anchor adjustment entirely when the rung didn't change
-- [ ] 1.3 Extend `tests/camera.test.ts`: k steps in / k steps out is bit-identical and step 0
+- [x] 1.3 Extend `tests/camera.test.ts`: k steps in / k steps out is bit-identical and step 0
       equals the fit framing exactly; clamping at both ends leaves zoom and pan untouched;
       the cursor NDC point stays fixed across a step; after a mid-rung pinch the next step
       snaps back onto the ladder
