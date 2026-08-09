@@ -15,11 +15,19 @@
 - [x] 2.2 Update the hint line in `src/ui/input.ts`: `Space pause` becomes phase-aware copy
       (e.g. `Space start wave / pause`).
 
-## 3. Verify
+## 3. Settlement arming delay
 
-- [x] 3.1 `npm run typecheck` and `npm test` pass (no sim changes — replay goldens must be
+- [x] 3.1 In `src/app/game.ts`, stamp `performance.now() + 1000` on every transition into the
+      build phase (in the existing phase-change observer) and make the Space build branch inert
+      before that instant (design D5). Boot-time build phase stays immediately armed.
+- [x] 3.2 Playwright: settle a wave, press Space within the delay (no wave starts), press after
+      the delay (wave starts); the start-wave button stays immediate inside the delay.
+
+## 4. Verify
+
+- [x] 4.1 `npm run typecheck` and `npm test` pass (no sim changes — replay goldens must be
       untouched).
-- [x] 3.2 Playwright exploratory pass (per project apply guidance): Space starts a wave in a
+- [x] 4.2 Playwright exploratory pass (per project apply guidance): Space starts a wave in a
       solvent build phase; Space during that wave pauses and resumes; Space while wave-locked by
       debt starts nothing; holding Space in build starts exactly one wave and does not pause the
       new wave via auto-repeat; Space in build with debug-spawned enemies does not freeze them

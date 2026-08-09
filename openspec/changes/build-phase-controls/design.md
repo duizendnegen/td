@@ -62,16 +62,26 @@ Reuse the `hint('Space')` treatment from timehud.ts on the start-wave button (ex
 or duplicate the three lines — implementer's choice; extraction preferred). Hint line in
 `src/ui/input.ts` becomes phase-aware copy, e.g. `Space start wave / pause`.
 
+### D5: Arming delay after settlement, key-only, wall-clock
+
+A pause press aimed at the tail of a settling wave must not start the next one. The phase-change
+observer in game.ts (which already releases pause) stamps `performance.now() + 1000` whenever the
+run enters the build phase; the Space build branch is inert before that instant. Wall-clock and
+app-side only — nothing reaches the sim or the hash, and `__td.step()` drives it identically.
+The button is exempt: a click is aimed at a screen location, not at a rhythm, so misfiring is
+not a real hazard. The boot-time build phase never sets the stamp (no transition fires), so the
+first wave is startable immediately. Alternative rejected: gating inside the sim would put
+wall-clock in the command validator, breaking determinism.
+
 ## Risks / Trade-offs
 
 - [Losing build-phase pause as a debug tool — the old D6 rationale] → F fast-forward remains, and
   `__td.time.setPaused(true)` from the console covers the rare need to freeze debug-spawned
   enemies during build.
 - [Space now has two meanings; a player mashing Space at the wave→build settlement boundary could
-  start the next wave unintentionally] → Accepted: startWave requires a fresh keydown
-  (`!e.repeat`), settlement is visually loud (toast, slot swap), and this is the standard TD
-  convention (Space = start/pause). No debounce window is added; revisit in playtesting if it
-  bites.
+  start the next wave unintentionally] → The one-second arming delay after settlement (D5)
+  swallows the mistimed press; the fresh-keydown guard (`!e.repeat`) and the visually loud
+  settlement (toast, slot swap) back it up. Delay length is a playtesting knob.
 - [Tests: the keydown handler lives in game.ts, which the vitest suite does not mount] → The
   sim-side behavior (startWave validation) is already covered; the binding itself is verified by
   Playwright exploratory testing during apply, per project convention.

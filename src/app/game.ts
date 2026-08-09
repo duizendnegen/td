@@ -234,16 +234,24 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   );
   buildHintLine(hud);
 
-  // Pause releases on any run-phase change (design D7) — one rule covering
-  // startWave, concede and settlement, so time can never be left stopped in a
-  // phase whose controls cannot restart it. Observed from here, never from the
-  // sim: `startWave` and `concede` are commands, so they flip the phase during
-  // a commit while time is still stopped.
+  // Run-phase observer. Two app-side rules hang off it, never off the sim:
+  //   - Pause releases on any phase change (design D7) — one rule covering
+  //     startWave, concede and settlement, so time can never be left stopped
+  //     in a phase whose controls cannot restart it. `startWave` and `concede`
+  //     are commands, so they flip the phase during a commit while time is
+  //     still stopped.
+  //   - Entering the build phase disarms the Space start-wave binding for
+  //     START_KEY_ARM_MS (build-phase-controls design D5), so a pause press
+  //     aimed at the tail of a settling wave cannot start the next one. Boot
+  //     is no transition, so the first build phase is armed immediately.
+  const START_KEY_ARM_MS = 1000;
+  let spaceArmedAt = 0;
   let lastPhase = sim.state.runPhase;
   const releasePauseOnPhaseChange = (): void => {
     if (sim.state.runPhase === lastPhase) return;
     lastPhase = sim.state.runPhase;
     time.setPaused(false);
+    if (sim.state.runPhase === 'build') spaceArmedAt = performance.now() + START_KEY_ARM_MS;
   };
 
   // App-side instrumentation for the F4 readout; the sim never reads the clock.
@@ -317,8 +325,9 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     if (e.code === 'Space') {
       e.preventDefault();
       if (e.repeat) return;
-      if (sim.state.runPhase === 'build') commands.issue({ kind: 'startWave' });
-      else if (sim.state.runPhase === 'wave') time.togglePaused();
+      if (sim.state.runPhase === 'build') {
+        if (performance.now() >= spaceArmedAt) commands.issue({ kind: 'startWave' });
+      } else if (sim.state.runPhase === 'wave') time.togglePaused();
       return;
     }
     // Auto-repeat would re-engage a hold the release paths just cleared.

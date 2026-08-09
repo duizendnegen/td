@@ -15,6 +15,8 @@ start the next wave — needs a mouse trip to the button in the corner.
   same validation as the start-wave button (solvent, waves remaining) — and during a wave it
   keeps its pause-toggle meaning. In the remaining phases (settled-locked, won, lost) it does
   nothing beyond suppressing the browser's default activation of a focused control.
+- A ~1 s arming delay after a wave settles keeps a mistimed pause press at the settlement
+  boundary from starting the next wave; the delay applies to the key only, not the button.
 - The start-wave button carries a `Space` key hint in the same desktop treatment the transport
   buttons use, and the HUD hint line reflects the phase-dependent meaning.
 - Fast-forward (hold F) keeps its phase-agnostic binding — it remains the debug lever for

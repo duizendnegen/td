@@ -13,6 +13,11 @@ solvency lock as the button, SHALL start exactly one wave per press regardless o
 auto-repeat, and the control SHALL carry its key hint in the same treatment the transport
 controls use.
 
+The key SHALL be inert for a short arming delay (about one second of wall clock) after a wave
+settles into the build phase, so a pause press aimed at the tail of a settling wave cannot start
+the next one. The delay SHALL apply only to the key — the button stays immediate — and SHALL NOT
+apply to the run's first build phase.
+
 #### Scenario: Debt locks the button with guidance
 
 - **WHEN** settlement leaves the balance at −40
@@ -41,6 +46,12 @@ controls use.
 
 - **WHEN** the player presses the start-wave key while wave-locked by debt
 - **THEN** no wave starts and the locked control with its guidance remains
+
+#### Scenario: A settling wave does not eat a mistimed pause press
+
+- **WHEN** the player presses the pause key just after a wave settles into the build phase,
+  within the arming delay
+- **THEN** no wave starts, and a press after the delay starts the next wave
 
 #### Scenario: A held key starts exactly one wave
 
