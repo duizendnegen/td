@@ -18,7 +18,7 @@
  * serves skipping a wave's tail better. Override without a rebuild via `?ff=`
  * or `__td.time.speed`.
  */
-export const FF_SPEED = 4;
+export const FF_SPEED = 10;
 
 /** Resting rate while playing. Fixed: the player is offered no speed choice. */
 const PLAY_RATE = 1;
