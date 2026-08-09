@@ -78,6 +78,14 @@ function seedFromUrl(): number {
 }
 
 /**
+ * `?ff=` ceiling: far above where fast-forward stays useful (see FF_SPEED),
+ * low enough that one held frame can't run enough ticks to starve the event
+ * loop — which would also starve the keyup that ends the hold. The console
+ * path (`__td.time.speed`) stays unclamped as the deliberate escape hatch.
+ */
+const FF_URL_MAX = 100;
+
+/**
  * Fast-forward multiplier override (time-controls design D5). Retuning this is
  * a playtesting question, so it is answerable on the deployed link without a
  * rebuild. Purely render-loop: no value here can change a state hash.
@@ -89,6 +97,10 @@ function ffSpeedFromUrl(): number {
   if (!Number.isFinite(parsed) || parsed <= 1) {
     console.warn(`ignoring invalid ?ff=${raw}; using default`);
     return FF_SPEED;
+  }
+  if (parsed > FF_URL_MAX) {
+    console.warn(`clamping ?ff=${raw} to ${FF_URL_MAX}`);
+    return FF_URL_MAX;
   }
   return parsed;
 }

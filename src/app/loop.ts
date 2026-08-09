@@ -2,7 +2,7 @@
 // See ARCHITECTURE.md §7 and the time-controls change (design D2, D8)
 //
 // Responsibilities:
-//   - 20Hz, with catch-up clamped to 5 ticks per frame
+//   - 20Hz, with catch-up clamped to 5 ticks' worth of real time per frame
 //   - Passes alpha to the renderer for interpolation
 //   - Scales real time by the time control's rate, and freezes at rate 0
 //
@@ -12,7 +12,11 @@
 import { TICK_MS } from '../sim/fixed';
 import type { TimeControl } from './time';
 
-/** Frame-delta clamp: at most 5 ticks of catch-up per frame; the rest is dropped. */
+/**
+ * Frame-delta clamp: at most 5 ticks' worth of wall-clock catch-up per frame;
+ * the rest is dropped. Applied before the rate scales it, so fast-forward can
+ * run up to 5 × rate ticks in one frame.
+ */
 export const MAX_FRAME_MS = 5 * TICK_MS;
 
 export interface LoopHooks {
