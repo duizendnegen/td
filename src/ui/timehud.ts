@@ -49,8 +49,10 @@ export class TimeHud {
 
     this.playButton = document.createElement('button');
     this.playButton.className = BTN;
+    this.playButton.setAttribute('aria-label', 'Pause');
     this.playIcon = document.createElement('span');
     this.playIcon.className = ICON;
+    this.playIcon.setAttribute('aria-hidden', 'true');
     this.playIcon.textContent = 'pause';
     this.playButton.append(this.playIcon, hint('Space'));
     this.playButton.addEventListener('click', () => {
@@ -62,8 +64,10 @@ export class TimeHud {
 
     this.ffButton = document.createElement('button');
     this.ffButton.className = BTN;
+    this.ffButton.setAttribute('aria-label', 'Fast-forward (hold)');
     const ffIcon = document.createElement('span');
     ffIcon.className = ICON;
+    ffIcon.setAttribute('aria-hidden', 'true');
     ffIcon.textContent = 'fast_forward';
     this.ffButton.append(ffIcon, hint('F'));
     // Momentary: engage on press, and release on every path out (design D10).
@@ -95,6 +99,7 @@ export class TimeHud {
     if (!visible) return;
 
     this.playIcon.textContent = this.time.paused ? 'play_arrow' : 'pause';
+    this.playButton.setAttribute('aria-label', this.time.paused ? 'Play' : 'Pause');
     this.playButton.className = this.time.paused ? BTN_ACTIVE : BTN;
     this.ffButton.className = this.time.ffHeld ? BTN_ACTIVE : BTN;
   }
@@ -103,6 +108,7 @@ export class TimeHud {
 function hint(label: string): HTMLSpanElement {
   const el = document.createElement('span');
   el.className = KEY_HINT;
+  el.setAttribute('aria-hidden', 'true');
   el.textContent = label;
   return el;
 }

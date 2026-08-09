@@ -7,6 +7,9 @@
 //     archetype (square bases + weapon heads; round + crystals for slow),
 //     so level reads as height (tower-upgrades spec)
 //   - Weapon head yaws toward the tower's current target (cosmetic)
+//   - Provisional structures wear a pulsing footprint tell that clears the
+//     frame they commit (provisional-construction design D6) — render-only,
+//     read off hashed state, never written back
 //   - A removed structure's mesh is dropped in the frame it disappears; there
 //     is no countdown state to render (structure-placement spec)
 
@@ -27,6 +30,15 @@ const KIT: Record<TowerArchetype, { base: string; middle: string; head: string }
   area: { base: 'tower-square-bottom-a', middle: 'tower-square-middle-a', head: 'weapon-catapult' },
   slow: { base: 'tower-round-bottom-a', middle: 'tower-round-middle-a', head: 'tower-round-crystals' },
 };
+
+/**
+ * The provisional tell: the ghost preview's mint, so "not yet committed" reads
+ * in the same language as "not yet placed" — and it carries against both the
+ * orange dirt and the kit's purple-grey masonry, which gold does not.
+ */
+const PROVISIONAL_COLOR = 0x65f2b5;
+/** Full pulse period in ms — slow enough to read as a state, not an alarm. */
+const PULSE_MS = 1600;
 
 /** Stack model parts on top of each other, returning the total height. */
 function stack(group: THREE.Group, parts: THREE.Object3D[]): number {
@@ -49,10 +61,63 @@ export class StructureRenderer {
   private readonly heads = new Map<number, THREE.Object3D>();
   /** The level each mesh was built for; an upgrade triggers a rebuild. */
   private readonly builtLevels = new Map<number, number>();
+  /** The provisional footprint tell per structure, while it has one. */
+  private readonly marks = new Map<number, THREE.Object3D>();
+  /** Shared by every tell: one geometry pair, one material pair, one pulse. */
+  private readonly markOutline = StructureRenderer.squareGeometry(0.98);
+  private readonly markFill = new THREE.PlaneGeometry(0.98, 0.98).rotateX(-Math.PI / 2);
+  // The outline ignores depth: the structure stands on the very tile the tell
+  // marks, so a depth-tested ring would be hidden under its own base.
+  private readonly outlineMaterial = new THREE.LineBasicMaterial({
+    color: PROVISIONAL_COLOR,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  private readonly fillMaterial = new THREE.MeshBasicMaterial({
+    color: PROVISIONAL_COLOR,
+    transparent: true,
+    depthWrite: false,
+  });
 
   constructor(scene: THREE.Scene, assets: Assets) {
     this.scene = scene;
     this.assets = assets;
+  }
+
+  /** Flat unit-square outline on the XZ plane, centred on the origin. */
+  private static squareGeometry(size: number): THREE.BufferGeometry {
+    const h = size / 2;
+    return new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-h, 0, -h),
+      new THREE.Vector3(h, 0, -h),
+      new THREE.Vector3(h, 0, h),
+      new THREE.Vector3(-h, 0, h),
+    ]);
+  }
+
+  /** The tell for one structure: a ground outline over a faint fill. */
+  private buildMark(s: Structure): THREE.Object3D {
+    const group = new THREE.Group();
+    // Two loops, at the tile edge and just inside it: a single hairline is
+    // lost against the ground at this camera distance.
+    for (const scale of [1, 0.86]) {
+      const outline = new THREE.LineLoop(this.markOutline, this.outlineMaterial);
+      outline.scale.set(scale, 1, scale);
+      outline.renderOrder = 2; // drawn last, over the base it rings
+      group.add(outline);
+    }
+    const fill = new THREE.Mesh(this.markFill, this.fillMaterial);
+    fill.position.y = -0.01;
+    group.add(fill);
+    group.position.set(s.tx + 0.5, GROUND_TOP_Y + 0.04, s.ty + 0.5);
+    return group;
+  }
+
+  private dropMark(id: number): void {
+    const mark = this.marks.get(id);
+    if (mark) this.scene.remove(mark);
+    this.marks.delete(id);
   }
 
   private build(s: Structure): THREE.Group {
@@ -84,11 +149,32 @@ export class StructureRenderer {
   /**
    * Reflect sim structures into the scene; `targetFor` supplies each tower's
    * current target for the head yaw — read-only sim state, cosmetic result.
+   * `nowMs` drives the provisional pulse alone and reaches nothing else.
    */
-  sync(structures: readonly Structure[], targetFor: (s: Structure) => Enemy | null): void {
+  sync(
+    structures: readonly Structure[],
+    targetFor: (s: Structure) => Enemy | null,
+    nowMs = 0,
+  ): void {
+    // One pulse for every tell on the board, so what commits together reads as
+    // one set: the outline breathes between half and full, the fill stays a
+    // wash under it.
+    const pulse = 0.75 + 0.25 * Math.sin((nowMs / PULSE_MS) * Math.PI * 2);
+    this.fillMaterial.opacity = pulse * 0.3;
+    this.outlineMaterial.opacity = pulse;
+
     const live = new Set<number>();
     for (const s of structures) {
       live.add(s.id);
+      // The tell appears with the structure and clears the frame the wave's
+      // first advanced tick commits it.
+      if (s.provisional && !this.marks.has(s.id)) {
+        const mark = this.buildMark(s);
+        this.marks.set(s.id, mark);
+        this.scene.add(mark);
+      } else if (!s.provisional && this.marks.has(s.id)) {
+        this.dropMark(s.id);
+      }
       // An upgrade changes the composition: rebuild the mesh at the new level.
       if (this.meshes.has(s.id) && this.builtLevels.get(s.id) !== s.level) {
         this.dropMesh(s.id);
@@ -117,6 +203,9 @@ export class StructureRenderer {
     // so this drop is the whole removal animation.
     for (const id of this.meshes.keys()) {
       if (!live.has(id)) this.dropMesh(id);
+    }
+    for (const id of this.marks.keys()) {
+      if (!live.has(id)) this.dropMark(id);
     }
   }
 }

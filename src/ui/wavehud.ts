@@ -145,6 +145,8 @@ export class WaveHud {
     const inBuild = state.runPhase === 'build';
     const solvent = state.treasuryMg >= 0;
     const wavesLeft = state.waveIndex < totalWaves;
+    // Per structure, at the rate each would actually pay (provisional
+    // construction refunds in full), so a recoverable run is never called dead.
     const liquidation = liquidationTotalMg(state.structures, this.data.refundPer1000);
     const dead = !runOver && !solvent && state.treasuryMg + liquidation < 0;
 
