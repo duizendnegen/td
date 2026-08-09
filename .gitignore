@@ -21,3 +21,6 @@ coverage/
 # Playwright MCP exploration artifacts
 .playwright-mcp/
 /*.png
+
+# Capture probe/driver output
+.github/capture/out/

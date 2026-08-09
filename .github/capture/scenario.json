@@ -1,0 +1,25 @@
+{
+  "$note": "PR-preview capture scenario (openspec add-pr-wave-preview, design D11). Review tooling, not application data: played through __td.scheduler by .github/capture/capture.mjs against level_01 with the seed below. Opening rapid+sniper hold wall B's north gap through three off-camera waves; the bounties and wave bonuses fund the area+slow pair and the top-right maze walls; wave 4 is the on-camera window, with a tank and a brute injected so every declared enemy type appears (design D6). tests/coverage.test.ts asserts the roster coverage; the economy margins were measured by playing this file through the sim.",
+  "seed": 12648430,
+  "level": "level_01",
+  "commands": [
+    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "rapid", "tx": 10, "ty": 1 } },
+    { "tick": 0, "body": { "kind": "place", "structure": "tower", "archetype": "sniper", "tx": 9, "ty": 3 } },
+
+    { "tick": 60, "body": { "kind": "startWave" } },
+    { "tick": 370, "body": { "kind": "startWave" } },
+    { "tick": 980, "body": { "kind": "startWave" } },
+
+    { "tick": 1560, "body": { "kind": "place", "structure": "tower", "archetype": "area", "tx": 9, "ty": 2 } },
+    { "tick": 1560, "body": { "kind": "place", "structure": "tower", "archetype": "slow", "tx": 10, "ty": 2 } },
+    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 13, "ty": 0 } },
+    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 14, "ty": 0 } },
+    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 15, "ty": 0 } },
+    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 16, "ty": 0 } },
+    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 17, "ty": 0 } },
+
+    { "tick": 1580, "body": { "kind": "startWave" } },
+    { "tick": 1620, "body": { "kind": "spawn", "type": "tank", "spawn": 0 } },
+    { "tick": 1650, "body": { "kind": "spawn", "type": "brute", "spawn": 0 } }
+  ]
+}
