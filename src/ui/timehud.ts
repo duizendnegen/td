@@ -13,6 +13,7 @@
 
 import type { TimeControl } from '../app/time';
 import type { SimState } from '../sim/types';
+import { keyHint } from './keyhint';
 
 const ROW = 'pointer-events-auto flex items-center gap-2 [touch-action:none]';
 
@@ -26,9 +27,6 @@ const BTN_ACTIVE =
   'btn-mech bevel-panel relative flex h-14 w-14 translate-y-[2px] items-center justify-center rounded-xl ' +
   'border-2 border-primary-fixed bg-surface-dim text-primary-fixed shadow-[0_0_15px_rgba(255,215,0,0.3)] ' +
   '[touch-action:none] desktop:h-16 desktop:w-16';
-
-const KEY_HINT =
-  'pointer-events-none absolute left-1 top-0.5 font-mono text-label-xs text-on-surface-variant/60 mobile:hidden';
 
 const ICON = 'material-symbols-outlined text-3xl';
 
@@ -54,7 +52,7 @@ export class TimeHud {
     this.playIcon.className = ICON;
     this.playIcon.setAttribute('aria-hidden', 'true');
     this.playIcon.textContent = 'pause';
-    this.playButton.append(this.playIcon, hint('Space'));
+    this.playButton.append(this.playIcon, keyHint('Space'));
     this.playButton.addEventListener('click', () => {
       time.togglePaused();
       // Drop focus, or the Space binding would re-activate this button as well
@@ -69,7 +67,7 @@ export class TimeHud {
     ffIcon.className = ICON;
     ffIcon.setAttribute('aria-hidden', 'true');
     ffIcon.textContent = 'fast_forward';
-    this.ffButton.append(ffIcon, hint('F'));
+    this.ffButton.append(ffIcon, keyHint('F'));
     // Momentary: engage on press, and release on every path out (design D10).
     // Pointer capture keeps the release ours even if the pointer leaves.
     this.ffButton.addEventListener('pointerdown', (e) => {
@@ -103,12 +101,4 @@ export class TimeHud {
     this.playButton.className = this.time.paused ? BTN_ACTIVE : BTN;
     this.ffButton.className = this.time.ffHeld ? BTN_ACTIVE : BTN;
   }
-}
-
-function hint(label: string): HTMLSpanElement {
-  const el = document.createElement('span');
-  el.className = KEY_HINT;
-  el.setAttribute('aria-hidden', 'true');
-  el.textContent = label;
-  return el;
 }

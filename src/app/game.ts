@@ -234,16 +234,24 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   );
   buildHintLine(hud);
 
-  // Pause releases on any run-phase change (design D7) — one rule covering
-  // startWave, concede and settlement, so time can never be left stopped in a
-  // phase whose controls cannot restart it. Observed from here, never from the
-  // sim: `startWave` and `concede` are commands, so they flip the phase during
-  // a commit while time is still stopped.
+  // Run-phase observer. Two app-side rules hang off it, never off the sim:
+  //   - Pause releases on any phase change (design D7) — one rule covering
+  //     startWave, concede and settlement, so time can never be left stopped
+  //     in a phase whose controls cannot restart it. `startWave` and `concede`
+  //     are commands, so they flip the phase during a commit while time is
+  //     still stopped.
+  //   - Entering the build phase disarms the Space start-wave binding for
+  //     START_KEY_ARM_MS (build-phase-controls design D5), so a pause press
+  //     aimed at the tail of a settling wave cannot start the next one. Boot
+  //     is no transition, so the first build phase is armed immediately.
+  const START_KEY_ARM_MS = 1000;
+  let spaceArmedAt = 0;
   let lastPhase = sim.state.runPhase;
   const releasePauseOnPhaseChange = (): void => {
     if (sim.state.runPhase === lastPhase) return;
     lastPhase = sim.state.runPhase;
     time.setPaused(false);
+    if (sim.state.runPhase === 'build') spaceArmedAt = performance.now() + START_KEY_ARM_MS;
   };
 
   // App-side instrumentation for the F4 readout; the sim never reads the clock.
@@ -304,14 +312,22 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     }
   });
 
-  // Time-control keys (design D6): live in EVERY phase, unlike the buttons —
-  // the debug spawn panel is not phase-gated, so a build phase can hold moving
-  // enemies. Space is preventDefault-ed because a focused button would
-  // otherwise re-activate on it.
+  // Space is phase-sensitive (build-phase-controls design D3): it starts the
+  // wave in the build phase, toggles pause in a running wave, and is inert
+  // elsewhere — so no player-facing path can pause a build phase. The sim
+  // stays the sole validator of startWave (design D2); an insolvent press is
+  // an ignored command. F fast-forward keeps its every-phase binding — the
+  // debug spawn panel is not phase-gated, so a build phase can hold moving
+  // enemies; freezing those is now the console handle's job. Space is
+  // preventDefault-ed in every phase because a focused button would otherwise
+  // re-activate on it.
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
       e.preventDefault();
-      if (!e.repeat) time.togglePaused();
+      if (e.repeat) return;
+      if (sim.state.runPhase === 'build') {
+        if (performance.now() >= spaceArmedAt) commands.issue({ kind: 'startWave' });
+      } else if (sim.state.runPhase === 'wave') time.togglePaused();
       return;
     }
     // Auto-repeat would re-engage a hold the release paths just cleared.
