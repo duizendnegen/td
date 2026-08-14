@@ -7,6 +7,9 @@
 //     dragging or tapping elsewhere moves it; a floating ✓/✕ pair anchored
 //     to the ghost commits through the same InputCore path a desktop click
 //     uses, or dismisses with no state change
+//   - Move tool (tower-drag-move): a tap on a tower lifts it into the same
+//     pending-ghost-plus-✓/✕ flow, anchored at the tower's tile; confirm
+//     issues one move command through InputCore.commitMove
 //   - No tool: tap selects/deselects structures; one-finger drag pans and
 //     pinch zooms the camera
 //   - Two-finger gestures always drive the camera, tool or not
@@ -120,12 +123,21 @@ export class TouchDriver {
     this.confirmButton.className = BTN_OK;
     this.confirmButton.innerHTML = '<span class="material-symbols-outlined text-3xl">check</span>';
     this.confirmButton.addEventListener('click', () => {
-      if (this.pending && this.core.commitPlace(this.pending)) this.pending = null;
+      if (!this.pending) return;
+      const committed = this.moveToolActive
+        ? this.core.commitMove(this.pending)
+        : this.core.commitPlace(this.pending);
+      if (committed) this.pending = null;
     });
     const cancel = document.createElement('button');
     cancel.className = BTN_CANCEL;
     cancel.innerHTML = '<span class="material-symbols-outlined text-3xl">close</span>';
-    cancel.addEventListener('click', () => (this.pending = null));
+    cancel.addEventListener('click', () => {
+      this.pending = null;
+      // A cancelled pending move also puts the lifted tower down (touch-input
+      // delta: dismiss with no command and no state change).
+      this.core.cancelLift();
+    });
     this.affordance.append(this.confirmButton, cancel);
     hud.appendChild(this.affordance);
   }
@@ -133,6 +145,10 @@ export class TouchDriver {
   private get buildToolActive(): boolean {
     const tool = this.core.palette.selected;
     return tool !== null && toolStructure(tool) !== null;
+  }
+
+  private get moveToolActive(): boolean {
+    return this.core.palette.selected === 'move';
   }
 
   /** Gesture routing (design D4): build gestures never move the camera. */
@@ -144,6 +160,13 @@ export class TouchDriver {
         const tool = this.core.palette.selected;
         if (this.buildToolActive) {
           if (tile) this.pending = tile;
+        } else if (tool === 'move') {
+          // A tap on a tower lifts it into a pending move anchored at its own
+          // tile; with a lift standing, taps adjust the destination. The
+          // initial tap alone never issues a command (touch-input delta).
+          if (!tile) return;
+          if (this.core.lifted) this.pending = tile;
+          else if (this.core.liftAt(tile)) this.pending = tile;
         } else if (tool === 'remove') {
           if (tile) this.core.commitRemove(tile);
         } else if (tile) {
@@ -155,11 +178,14 @@ export class TouchDriver {
       }
       case 'drag-start':
       case 'drag-move': {
-        if (this.buildToolActive) {
+        // The move tool counts as an armed build tool for gesture routing:
+        // one finger adjusts the pending ghost — and with nothing lifted it
+        // deliberately does nothing at all (touch-input delta).
+        if (this.buildToolActive || (this.moveToolActive && this.core.lifted !== null)) {
           // One-finger drag adjusts the pending ghost.
           const tile = this.core.pickTile(ev.x, ev.y);
           if (tile) this.pending = tile;
-        } else if (ev.kind === 'drag-move') {
+        } else if (ev.kind === 'drag-move' && !this.moveToolActive) {
           this.camera.panByPixels(ev.dx, ev.dy, this.canvas.clientWidth, this.canvas.clientHeight);
         }
         return;
@@ -178,13 +204,20 @@ export class TouchDriver {
 
   /** Per-frame: pending ghost verdict loop + confirm/cancel anchoring. */
   update(): void {
-    if (!this.buildToolActive) {
+    if (!this.buildToolActive && !this.moveToolActive) {
       this.pending = null;
       this.affordance.style.display = 'none';
       this.core.updateIdleRings();
       return;
     }
-    this.core.updateBuildGhost(this.pending);
+    if (this.moveToolActive) {
+      this.core.updateMoveGhost(this.pending);
+      // The lift ended — the move applied, or was cancelled elsewhere — so
+      // the pending ghost and its affordances go with it.
+      if (this.core.lifted === null) this.pending = null;
+    } else {
+      this.core.updateBuildGhost(this.pending);
+    }
     if (!this.pending) {
       this.affordance.style.display = 'none';
       return;

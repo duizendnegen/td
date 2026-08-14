@@ -16,12 +16,13 @@
 
 import * as THREE from 'three';
 import type { CommandQueue } from '../sim/commands';
-import { canRemove, footprintFor, structureAt } from '../sim/placement';
+import { canMove, canRemove, footprintFor, structureAt } from '../sim/placement';
 import type { Sim } from '../sim/sim';
 import { towerStats } from '../sim/tower';
 import type { FxRenderer, GhostPreview, GhostTint } from '../render/fx';
 import { GROUND_TOP_Y } from '../render/renderer';
 import type { LaneRibbon } from '../render/ribbon';
+import type { Structure } from '../sim/types';
 import type { InspectorUI } from './inspector';
 import { toolStructure, type PaletteUI, type Tool } from './palette';
 
@@ -48,6 +49,18 @@ export class InputCore {
   private lastEvalTile = '';
   private lastVerdictOk = false;
 
+  /**
+   * The lifted tower while the move tool carries one (tower-drag-move design
+   * D6): its id plus the origin tile the move command will name. Entered only
+   * through liftAt; cleared by tool change/deselect (Esc, palette click, the
+   * phase-change deselect in palette.refresh), by cancelLift, and by the
+   * per-frame sweep in updateMoveGhost once the tower's tile changed — the
+   * move applied. Deliberately NOT cleared when a drop merely issues the
+   * command: a rejection at the applying tick then leaves the tower lifted,
+   * so another tile can be tried without re-lifting (build-ui delta).
+   */
+  lifted: { id: number; tx: number; ty: number } | null = null;
+
   constructor(
     canvas: HTMLCanvasElement,
     camera: THREE.Camera,
@@ -71,6 +84,9 @@ export class InputCore {
 
     palette.onChange = () => {
       this.inspector.select(null);
+      // Any tool change — arming, switching, Esc, the phase-change deselect —
+      // cancels a lift unconditionally, with no command (design D6).
+      this.lifted = null;
       this.forceReevaluate();
       this.onToolChange?.();
     };
@@ -165,6 +181,53 @@ export class InputCore {
   }
 
   /**
+   * Lift the tower at `tile` for the armed move tool. Only a movable tower
+   * takes the lift (canMove: build phase, towers only); a wall or an empty
+   * tile does nothing at all (build-ui delta). Returns whether a lift began.
+   */
+  liftAt(tile: Tile): boolean {
+    const s = structureAt(this.sim.state.structures, tile.tx, tile.ty);
+    if (!s || !canMove(this.sim.state.runPhase, s)) return false;
+    this.lifted = { id: s.id, tx: s.tx, ty: s.ty };
+    this.forceReevaluate();
+    return true;
+  }
+
+  /** Cancel a lift with no command — the touch ✕ affordance's path. */
+  cancelLift(): void {
+    this.lifted = null;
+    this.forceReevaluate();
+  }
+
+  /**
+   * Attempt to drop the lifted tower at `tile` — the one path behind a
+   * desktop release/click and a touch confirm. Re-runs the real validation at
+   * commit time; a red ghost or a stale green both end in the same local
+   * flash with no command issued when invalid, and the tower stays lifted so
+   * another tile can be tried without re-lifting (build-ui delta). A valid
+   * verdict may still lose the race at the applying tick — the sim's own
+   * reject event then plays the identical flash, and the lift survives until
+   * the tower actually moves. Returns whether a command was issued.
+   */
+  commitMove(tile: Tile): boolean {
+    const lifted = this.lifted;
+    if (!lifted) return false;
+    const verdict = this.sim.previewMove(lifted.tx, lifted.ty, tile.tx, tile.ty);
+    if (verdict === 'ok') {
+      this.commands.issue({
+        kind: 'move',
+        tx: lifted.tx,
+        ty: lifted.ty,
+        toTx: tile.tx,
+        toTy: tile.ty,
+      });
+      return true;
+    }
+    this.fx.flashReject(footprintFor(tile.tx, tile.ty), performance.now());
+    return false;
+  }
+
+  /**
    * Per-frame ghost maintenance for a build ghost at `tile` (hovered or
    * pending). The verdict and the lane ribbon are recomputed only when the
    * tile or the sim tick changed, so an enemy walking into the footprint
@@ -204,6 +267,64 @@ export class InputCore {
   /** The ghost's current verdict (as last evaluated). */
   get verdictOk(): boolean {
     return this.lastVerdictOk;
+  }
+
+  /**
+   * Per-frame ghost and ribbon maintenance for the armed move tool. With
+   * nothing lifted the ribbon shows the current lanes and no projection
+   * (path-preview delta). A lifted tower gets the move ghost — tinted by the
+   * origin-freed validation, never the debt tint: moves are free — with its
+   * own range ring at the candidate tile, and the projected routes,
+   * re-evaluated when the candidate tile, the sim tick, or the lifted id
+   * changes, so lifting a different tower on the same tile re-projects
+   * (design D5). Speculative only — never touches sim state.
+   */
+  updateMoveGhost(tile: Tile | null): void {
+    const mover = this.liftedStructure();
+    const tick = this.sim.state.tick;
+    const key =
+      mover === null
+        ? 'move:none'
+        : tile
+          ? `move:${mover.id}:${tile.tx},${tile.ty}`
+          : `move:${mover.id}:off`;
+    if (tick !== this.lastEvalTick || key !== this.lastEvalTile) {
+      this.lastEvalTick = tick;
+      this.lastEvalTile = key;
+      const preview =
+        mover && tile ? this.sim.previewMoveRoutes(mover.tx, mover.ty, tile.tx, tile.ty) : null;
+      this.lastVerdictOk = preview?.verdict === 'ok';
+      this.ribbon.update(this.sim.currentLanes(), preview?.lanes ?? null, preview?.orphaned ?? null);
+    }
+    if (!mover || !tile) {
+      this.ghost.hide();
+      return;
+    }
+    this.ghost.show(
+      'tower',
+      tile.tx,
+      tile.ty,
+      this.lastVerdictOk ? 'valid' : 'invalid',
+      towerStats(mover, this.sim.data).rangeUnits,
+    );
+    this.ghost.showPreviewRingAt(null);
+  }
+
+  /**
+   * The lifted tower's live structure, or null with the lift swept away when
+   * the tower stands on another tile (the move applied) or vanished — the
+   * completion end of the lift lifecycle.
+   */
+  private liftedStructure(): Structure | null {
+    const lifted = this.lifted;
+    if (!lifted) return null;
+    const s = this.sim.state.structures.find((x) => x.id === lifted.id);
+    if (!s || s.tx !== lifted.tx || s.ty !== lifted.ty) {
+      this.lifted = null;
+      this.forceReevaluate();
+      return null;
+    }
+    return s;
   }
 
   /**

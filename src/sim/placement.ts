@@ -138,6 +138,118 @@ export function validatePlacement(
 }
 
 /**
+ * The move validation pipeline (tower-drag-move design D2): the same
+ * conditions placement validates at the destination, with the path and enemy
+ * checks evaluated against the mask with the origin tile freed and the
+ * destination blocked, both applied together — so a tower can slide along its
+ * own wall line or swap into the space it opens up. A destination equal to
+ * the mover's own tile maps onto 'occupied' (the verdict vocabulary is
+ * reused, not extended).
+ *
+ * Pure in the observable sense, like validatePlacement: both mask edits are
+ * unconditionally restored before returning. On an 'ok' that changed the
+ * mask, `scratch` holds exactly the post-move fields, so an accepting caller
+ * applies both edits and swaps them in without a second rebuild.
+ *
+ * Socket asymmetry (D6): a socket destination skips path and enemy checks —
+ * the tile was never navigable, and freeing the origin can only lower costs,
+ * so no seal or strand is possible — but a mask-blocked origin still frees,
+ * so unlike placement's socket fast-path the scratch fields ARE rebuilt for
+ * the caller to swap in. A socket→socket move touches no mask and rebuilds
+ * nothing.
+ */
+export function validateMove(
+  grid: Grid,
+  mover: Structure,
+  toTx: number,
+  toTy: number,
+  structures: readonly Structure[],
+  enemies: readonly Enemy[],
+  allSpawns: readonly { x: number; y: number }[],
+  activeSpawns: readonly { x: number; y: number }[],
+  treasury: { x: number; y: number },
+  scratch: { inbound: FlowField; returning: FlowField },
+): PlacementVerdict {
+  if (toTx === mover.tx && toTy === mover.ty) return 'occupied';
+  if (!grid.inBounds(toTx, toTy)) return 'out-of-bounds';
+  const terrain = grid.terrainAt(toTx, toTy);
+  if (terrain === TERRAIN.grass || terrain === TERRAIN.rock) return 'not-buildable';
+  // A tower's origin is mask-blocked exactly when it stands off socket
+  // ground; a socket origin is terrain-blocked either way and never frees.
+  const originFrees = grid.terrainAt(mover.tx, mover.ty) !== TERRAIN.socket;
+  if (terrain === TERRAIN.socket) {
+    // Occupancy is the structure list — the mask says blocked for every
+    // socket. The mover reports itself only on its own tile, already rejected.
+    if (structureAt(structures, toTx, toTy)) return 'occupied';
+    if (originFrees) {
+      grid.setBlocked(mover.tx, mover.ty, false);
+      buildFieldInto(grid, [treasury], scratch.inbound);
+      buildFieldInto(grid, activeSpawns, scratch.returning);
+      grid.setBlocked(mover.tx, mover.ty, true);
+    }
+    return 'ok';
+  }
+  if (grid.isBlocked(toTx, toTy)) return 'occupied';
+  const footprint = footprintFor(toTx, toTy);
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const etx = toTile(e.pos.x);
+    const ety = toTile(e.pos.y);
+    if (footprint.some((t) => t.x === etx && t.y === ety)) return 'enemy-in-footprint';
+  }
+
+  // Both tentative mask edits together; every return path below restores them.
+  if (originFrees) grid.setBlocked(mover.tx, mover.ty, false);
+  for (const t of footprint) grid.setBlocked(t.x, t.y, true);
+  buildFieldInto(grid, [treasury], scratch.inbound);
+  buildFieldInto(grid, activeSpawns, scratch.returning);
+
+  let verdict: PlacementVerdict = 'ok';
+  for (const s of allSpawns) {
+    if (scratch.inbound.cost[grid.idx(s.x, s.y)]! < 0) {
+      verdict = 'seals-spawn';
+      break;
+    }
+  }
+  if (verdict === 'ok') {
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const field = e.mode === 'inbound' ? scratch.inbound : scratch.returning;
+      if (field.cost[grid.idx(toTile(e.pos.x), toTile(e.pos.y))]! < 0) {
+        verdict = 'strands-enemy';
+        break;
+      }
+    }
+  }
+
+  for (const t of footprint) grid.setBlocked(t.x, t.y, false);
+  if (originFrees) grid.setBlocked(mover.tx, mover.ty, true);
+  return verdict;
+}
+
+/**
+ * Whether `s` may be moved in `phase` (structure-placement delta): the build
+ * phase only — a wave refuses even provisional towers (remove + re-place
+ * already covers mid-wave revision, at full refund) — and towers only; walls
+ * are sold and rebuilt instead. Shared like canRemove: the authoritative
+ * apply, the speculative previews, and the UI lift all call this one
+ * predicate so they cannot drift.
+ */
+export function canMove(phase: RunPhase, s: Structure): boolean {
+  return phase === 'build' && s.kind === 'tower';
+}
+
+/**
+ * Whether ANY tower could be movable in `phase` — the gate for the palette's
+ * move tool, which has no target yet (the analogue of removalOpenIn). Build
+ * phase only, unlike removal: there is nothing a move could legally do in a
+ * wave or the settled lock.
+ */
+export function moveOpenIn(phase: RunPhase): boolean {
+  return phase === 'build';
+}
+
+/**
  * Whether `s` may be removed in `phase` (structure-placement spec).
  *
  * An allowlist, not `phase !== 'wave'`: 'won' and 'lost' are refused too,

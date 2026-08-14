@@ -27,10 +27,12 @@ import { TERRAIN } from './grid';
 import { hashState } from './hash';
 import type { PlacementVerdict } from './placement';
 import {
+  canMove,
   canRemove,
   footprintFor,
   removeStructure,
   structureAt,
+  validateMove,
   validatePlacement,
 } from './placement';
 import { fireTowers, selectTarget } from './tower';
@@ -293,6 +295,29 @@ export class Sim {
   }
 
   /**
+   * Speculative twin of applyMove's validation (the move analogue of
+   * previewPlacement): the verdict a move command issued now would get, with
+   * no observable mutation. 'not-buildable' doubles as "no movable tower at
+   * the origin" — the verdict vocabulary is reused, not extended (design D4).
+   */
+  previewMove(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementVerdict {
+    const s = structureAt(this.state.structures, fromTx, fromTy);
+    if (!s || !canMove(this.state.runPhase, s)) return 'not-buildable';
+    return validateMove(
+      this.grid,
+      s,
+      toTx,
+      toTy,
+      this.state.structures,
+      this.state.enemies,
+      this.allSpawns,
+      this.activeSpawns,
+      this.treasury,
+      this.scratch,
+    );
+  }
+
+  /**
    * The routes traffic takes right now (path-preview spec): one lane per
    * active spawn through the inbound field, then one from the treasury
    * through the returning field. Read-only and freshly allocated.
@@ -341,6 +366,56 @@ export class Sim {
     };
   }
 
+  /**
+   * previewMove plus the routing the move would produce — the origin-freed
+   * variant of previewRoutes (design D5), returning the same PlacementRoutes
+   * shape. `lanes` is null for every verdict reached before the scratch
+   * fields were rebuilt: no movable tower at the origin, the same-tile move,
+   * out-of-bounds, not-buildable, occupied, enemy-in-footprint, and the
+   * socket→socket move, which never touches the mask.
+   */
+  previewMoveRoutes(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementRoutes {
+    const mover = structureAt(this.state.structures, fromTx, fromTy);
+    if (!mover || !canMove(this.state.runPhase, mover)) {
+      return { verdict: 'not-buildable', lanes: null, orphaned: null };
+    }
+    const verdict = validateMove(
+      this.grid,
+      mover,
+      toTx,
+      toTy,
+      this.state.structures,
+      this.state.enemies,
+      this.allSpawns,
+      this.activeSpawns,
+      this.treasury,
+      this.scratch,
+    );
+    // Unlike placement, an origin-freeing move rebuilds even for a socket
+    // destination; only the socket→socket 'ok' leaves `scratch` stale.
+    const socketFrom = this.grid.terrainAt(fromTx, fromTy) === TERRAIN.socket;
+    const socketTo =
+      this.grid.inBounds(toTx, toTy) && this.grid.terrainAt(toTx, toTy) === TERRAIN.socket;
+    const rebuilt =
+      verdict === 'seals-spawn' ||
+      verdict === 'strands-enemy' ||
+      (verdict === 'ok' && !(socketFrom && socketTo));
+    if (!rebuilt) return { verdict, lanes: null, orphaned: null };
+    return {
+      verdict,
+      lanes: this.traceLanes(this.scratch.inbound, this.scratch.returning),
+      orphaned:
+        verdict === 'seals-spawn'
+          ? this.orphanedBy(
+              footprintFor(toTx, toTy),
+              // The freed origin is walkable post-move even though the live
+              // mask still blocks it, so it is eligible for the orphan set.
+              socketFrom ? undefined : { x: fromTx, y: fromTy },
+            )
+          : null,
+    };
+  }
+
   /** One inbound lane per active spawn, then the treasury's return lane. */
   private traceLanes(inbound: FlowField, returning: FlowField): TileXY[][] {
     const lanes = this.activeSpawns.map((s) => laneFrom(inbound, this.grid, s));
@@ -352,14 +427,20 @@ export class Sim {
    * Walkable tiles the projected inbound field marks unreachable (design D6)
    * — exactly the array 'seals-spawn' is derived from. The footprint itself
    * is excluded: it is the cause, not part of the cut-off region, and
-   * validation has already restored it to walkable.
+   * validation has already restored it to walkable. A move preview passes
+   * its freed origin as `alsoWalkable` — walkable in the projection while
+   * the live mask still blocks it.
    */
-  private orphanedBy(footprint: readonly { x: number; y: number }[]): TileXY[] {
+  private orphanedBy(
+    footprint: readonly { x: number; y: number }[],
+    alsoWalkable?: { x: number; y: number },
+  ): TileXY[] {
     const out: TileXY[] = [];
     const { cost } = this.scratch.inbound;
     for (let ty = 0; ty < this.grid.height; ty++) {
       for (let tx = 0; tx < this.grid.width; tx++) {
-        if (!this.grid.isWalkable(tx, ty)) continue;
+        const freed = alsoWalkable !== undefined && alsoWalkable.x === tx && alsoWalkable.y === ty;
+        if (!freed && !this.grid.isWalkable(tx, ty)) continue;
         if (cost[this.grid.idx(tx, ty)] !== UNREACHABLE) continue;
         if (footprint.some((t) => t.x === tx && t.y === ty)) continue;
         out.push({ x: tx, y: ty });
@@ -393,6 +474,9 @@ export class Sim {
         break;
       case 'place':
         this.applyPlace(command.structure, command.archetype ?? 'rapid', command.tx, command.ty);
+        break;
+      case 'move':
+        this.applyMove(command.tx, command.ty, command.toTx, command.toTy);
         break;
       case 'upgrade':
         this.applyUpgrade(command.tx, command.ty);
@@ -488,6 +572,54 @@ export class Sim {
       provisional: true,
     });
     s.treasuryMg -= costMg;
+  }
+
+  /**
+   * move (structure-placement delta): relocate a tower, free of charge and
+   * identity-preserving — id, paidMg, level and provisional all survive
+   * because the existing structure mutates in place. Refused outside the
+   * build phase, for walls, for bare origin tiles, and for any destination
+   * validateMove rejects — with the same reject event a refused placement
+   * emits on the DESTINATION footprint, and no other effect (atomicity).
+   *
+   * An accepted move applies both mask edits and swaps in the fields the
+   * validation just built for exactly this mask — one rebuild per attempt,
+   * mirroring applyPlace. A socket→socket move changed no mask and swaps
+   * nothing (D6).
+   */
+  private applyMove(tx: number, ty: number, toTx: number, toTy: number): void {
+    const s = this.state;
+    const found = structureAt(s.structures, tx, ty);
+    const target = found !== null && canMove(s.runPhase, found) ? found : null;
+    const verdict = target
+      ? validateMove(
+          this.grid,
+          target,
+          toTx,
+          toTy,
+          s.structures,
+          s.enemies,
+          this.allSpawns,
+          this.activeSpawns,
+          this.treasury,
+          this.scratch,
+        )
+      : 'occupied';
+    if (!target || verdict !== 'ok') {
+      this.events.push({ kind: 'placementRejected', tiles: footprintFor(toTx, toTy) });
+      return;
+    }
+
+    const originFrees = this.grid.terrainAt(target.tx, target.ty) !== TERRAIN.socket;
+    const destBlocks = this.grid.terrainAt(toTx, toTy) !== TERRAIN.socket;
+    if (originFrees) this.grid.setBlocked(target.tx, target.ty, false);
+    if (destBlocks) this.grid.setBlocked(toTx, toTy, true);
+    if (originFrees || destBlocks) {
+      this.swapScratchFields();
+      this.maskChanged = true;
+    }
+    target.tx = toTx;
+    target.ty = toTy;
   }
 
   /**

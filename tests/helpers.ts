@@ -179,6 +179,10 @@ export function upgrade(tx: number, ty: number): Command {
   return { kind: 'upgrade', tx, ty, seq: seq++ };
 }
 
+export function move(tx: number, ty: number, toTx: number, toTy: number): Command {
+  return { kind: 'move', tx, ty, toTx, toTy, seq: seq++ };
+}
+
 export function remove(tx: number, ty: number): Command {
   return { kind: 'remove', tx, ty, seq: seq++ };
 }

@@ -21,20 +21,26 @@ export type CommandBody =
   /** Typed debug/preset spawn: enemy type key, index into the active spawns. */
   | { kind: 'spawn'; type: string; spawn: number }
   | { kind: 'place'; structure: StructureKind; archetype?: TowerArchetype; tx: number; ty: number }
+  /** Relocate the tower at (tx, ty) to (toTx, toTy) — build phase only. */
+  | { kind: 'move'; tx: number; ty: number; toTx: number; toTy: number }
   | { kind: 'upgrade'; tx: number; ty: number }
   | { kind: 'remove'; tx: number; ty: number };
 
 export type Command = CommandBody & { seq: number };
 
 /** Drain sort key per kind; lower drains first. */
+// `move` sits between `place` and `upgrade`: a same-tick place-then-move sees
+// the placed structure. The tail renumbering preserves every pre-existing
+// pairwise order, so replays of existing scripts drain identically.
 const KIND_ORDER: Record<Command['kind'], number> = {
   noop: 0,
   startWave: 1,
   spawn: 2,
   place: 3,
-  upgrade: 4,
-  remove: 5,
-  concede: 6,
+  move: 4,
+  upgrade: 5,
+  remove: 6,
+  concede: 7,
 };
 
 export class CommandQueue {
