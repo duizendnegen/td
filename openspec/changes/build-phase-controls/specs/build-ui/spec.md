@@ -2,10 +2,10 @@
 
 ### Requirement: Start-wave control with solvency lock
 
-The UI SHALL provide a start-wave control that is enabled only in the build phase with balance
-≥ 0. While wave-locked by debt, the control SHALL show a locked state that names the reason and
-points at selling structures as the way out. During an active wave the control SHALL be
-unavailable, and its slot SHALL host the transport controls instead.
+The UI SHALL provide a start-wave control that is enabled only in the build phase while the
+treasury is solvent. While wave-locked by debt, the control SHALL show a locked state that names
+the reason and points at selling structures as the way out. During an active wave the control
+SHALL be unavailable, and its slot SHALL host the transport controls instead.
 
 On desktop the start-wave control SHALL additionally be activated by the same key that toggles
 pause during a wave, with the key's meaning selected by run phase. The key SHALL respect the same
@@ -20,13 +20,13 @@ apply to the run's first build phase.
 
 #### Scenario: Debt locks the button with guidance
 
-- **WHEN** settlement leaves the balance at −40
+- **WHEN** settlement leaves the treasury in debt
 - **THEN** the start-wave control is disabled, shows the debt, and directs the player to sell
   structures to recover
 
 #### Scenario: A refund unlocks the button in its own tick
 
-- **WHEN** the player is wave-locked at −40 and removes a structure refunding 50
+- **WHEN** the player is wave-locked by debt and removes a structure whose refund restores solvency
 - **THEN** the start-wave control reads enabled on the next rendered frame, with no countdown in
   between
 
