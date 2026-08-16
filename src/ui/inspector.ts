@@ -7,8 +7,9 @@
 //     as whole-literal class variants (design D1); maxed state at level 3
 //   - Move: arms the move tool and lifts this tower in one step — the
 //     inspector's route into the palette tool's lift/carry/drop, wired by
-//     InputCore through onMove (tower-drag-move design D9); build phase only,
-//     naming the wave when locked, like the remove action
+//     InputCore through onMove (tower-drag-move design D9), the tool armed
+//     for that one move only; build phase only, naming the wave when locked,
+//     like the remove action
 //   - Remove, immediate and refunding the amount it actually credits;
 //     unavailable while a wave runs only for committed towers — a provisional
 //     one stays sellable, framed as the revision window it is

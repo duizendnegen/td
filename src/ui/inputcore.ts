@@ -13,7 +13,8 @@
 //     projected routes come from one validation and cannot disagree
 //   - The inspector's Move action routes here too: arm the move tool, lift
 //     the inspected tower — the same two steps a palette click and a press
-//     perform, so both drivers see one lift lifecycle
+//     perform, so both drivers see one lift lifecycle — and disarm the tool
+//     again once that one lift ends
 //   - Never writes sim state directly — emits commands only
 //   - Every invalid commit plays the same red flash the sim's rejects use
 
@@ -60,11 +61,22 @@ export class InputCore {
    * (Esc, palette click, the phase-change deselect in palette.refresh), by
    * cancelLift — which a drop on the origin tile resolves to — and by the
    * per-frame sweep in updateMoveGhost once the structure's tile changed —
-   * the move applied. Deliberately NOT cleared when a drop merely issues the
+   * the move applied; the latter two run through endLift, which also disarms
+   * a tool the inspector armed for this lift alone. Deliberately NOT cleared when a drop merely issues the
    * command: a rejection at the applying tick then leaves the structure
    * lifted, so another tile can be tried without re-lifting (build-ui delta).
    */
   lifted: { id: number; tx: number; ty: number } | null = null;
+
+  /**
+   * True while the move tool was armed by the inspector's Move action for
+   * the current lift alone (design D9): that route is an action on one
+   * tower, not a mode the player chose, so the tool disarms when the lift
+   * ends — the move applied, or a put-down / cancel — through endLift. A
+   * failed drop keeps carrying and keeps the tool, as for any lift. Reset by
+   * any tool change, like the lift itself.
+   */
+  private toolArmedForLift = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -92,6 +104,7 @@ export class InputCore {
       // Any tool change — arming, switching, Esc, the phase-change deselect —
       // cancels a lift unconditionally, with no command (design D6).
       this.lifted = null;
+      this.toolArmedForLift = false;
       this.forceReevaluate();
       this.onToolChange?.();
     };
@@ -217,13 +230,16 @@ export class InputCore {
    * (the inspector deselects, touch drops its pending ghost, an old lift
    * clears), and everything downstream of a lift apply as they would for a
    * palette click; a refused arming — the tool stays unarmed outside the
-   * build phase — lifts nothing. Returns whether a lift began.
+   * build phase — lifts nothing. The tool is armed for this lift alone: it
+   * disarms when the lift ends (see toolArmedForLift). Returns whether a
+   * lift began.
    */
   liftInspected(s: Structure): boolean {
     if (this.palette.selected !== 'move') this.palette.select('move');
     if (this.palette.selected !== 'move') return false;
     const origin = { tx: s.tx, ty: s.ty };
     if (!this.liftAt(origin)) return false;
+    this.toolArmedForLift = true;
     this.onLift?.(origin);
     return true;
   }
@@ -233,8 +249,22 @@ export class InputCore {
    * path, and where a drop on the origin tile ends up.
    */
   cancelLift(): void {
+    this.endLift();
+  }
+
+  /**
+   * The one exit for a lift that ran its course — cancelled, applied, or the
+   * structure gone. A tool the inspector armed for this lift alone is
+   * disarmed here (design D9); that deselect fans out through palette.onChange
+   * exactly like an Esc, so both drivers wind down the same way.
+   */
+  private endLift(): void {
     this.lifted = null;
     this.forceReevaluate();
+    if (this.toolArmedForLift) {
+      this.toolArmedForLift = false;
+      if (this.palette.selected === 'move') this.palette.select(null);
+    }
   }
 
   /**
@@ -371,8 +401,7 @@ export class InputCore {
     if (!lifted) return null;
     const s = this.sim.state.structures.find((x) => x.id === lifted.id);
     if (!s || s.tx !== lifted.tx || s.ty !== lifted.ty) {
-      this.lifted = null;
-      this.forceReevaluate();
+      this.endLift();
       return null;
     }
     return s;

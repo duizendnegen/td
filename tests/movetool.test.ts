@@ -145,10 +145,12 @@ describe('move tool, pointer driver', () => {
     expect(drained).toHaveLength(1);
     expect(drained[0]).toMatchObject({ kind: 'move', tx: 3, ty: 0, toTx: 3, toTy: 2 });
 
-    // Once the move applies, the per-frame sweep ends the lift.
+    // Once the move applies, the per-frame sweep ends the lift; the tool the
+    // player armed stays armed — a mode, not a one-shot.
     r.sim.tick(drained);
     r.frame();
     expect(r.core.lifted).toBeNull();
+    expect(r.palette.selected).toBe('move');
     expect([r.sim.state.structures[0]!.tx, r.sim.state.structures[0]!.ty]).toEqual([3, 2]);
   });
 
@@ -185,6 +187,7 @@ describe('move tool, pointer driver', () => {
     expect(r.flashes).toBe(0);
     expect(r.drain()).toHaveLength(0);
     expect(r.core.lifted).toBeNull();
+    expect(r.palette.selected).toBe('move'); // the palette-armed tool survives a put-down
     expect([r.sim.state.structures[0]!.tx, r.sim.state.structures[0]!.ty]).toEqual([3, 0]);
     expect(r.sim.hash()).toBe(before);
   });
@@ -290,20 +293,95 @@ describe('inspector Move action', () => {
     expect(drained[0]).toMatchObject({ kind: 'move', tx: 3, ty: 0, toTx: 3, toTy: 2 });
     r.pointer('pointerup', 350, 250); // its release is inert
     expect(r.drain()).toHaveLength(0);
+    // Until the move applies the lift stands and the tool stays armed — a
+    // rejection at the applying tick would need it.
+    expect(r.core.lifted).toEqual({ id: 0, tx: 3, ty: 0 });
+    expect(r.palette.selected).toBe('move');
   });
 
-  it('a second click on the origin after the inspector lift puts the tower down', () => {
+  it('is one-shot: the tool disarms once the move applies', () => {
+    const r = rig();
+    r.palette.selected = null;
+    r.inspector.onMove!(r.sim.state.structures[0]!);
+    r.pointer('pointermove', 350, 250);
+    r.pointer('pointerdown', 350, 250);
+    r.pointer('pointerup', 350, 250);
+    const drained = r.drain();
+    expect(drained).toHaveLength(1);
+    r.sim.tick(drained);
+    r.frame(); // the sweep sees the tower on its new tile
+    expect([r.sim.state.structures[0]!.tx, r.sim.state.structures[0]!.ty]).toEqual([3, 2]);
+    expect(r.core.lifted).toBeNull();
+    expect(r.palette.selected).toBeNull(); // back to no tool, unlike a palette-armed lift
+    // A subsequent press with no tool armed selects rather than lifts.
+    r.pointer('pointermove', 350, 250);
+    r.pointer('pointerdown', 350, 250);
+    expect(r.core.lifted).toBeNull();
+    expect(r.drain()).toHaveLength(0);
+  });
+
+  it('is one-shot: putting the tower down on its origin disarms the tool', () => {
     const r = rig();
     r.palette.selected = null;
     const before = r.sim.hash();
     r.inspector.onMove!(r.sim.state.structures[0]!);
     r.pointer('pointermove', 350, 50);
-    r.pointer('pointerdown', 350, 50);
+    r.pointer('pointerdown', 350, 50); // second click on the origin: the put-down
     expect(r.flashes).toBe(0);
     expect(r.drain()).toHaveLength(0);
     expect(r.core.lifted).toBeNull();
-    expect(r.palette.selected).toBe('move'); // the tool stays armed, as after any put-down
+    expect(r.palette.selected).toBeNull();
     expect(r.sim.hash()).toBe(before);
+    r.pointer('pointerup', 350, 50); // its release is inert
+    expect(r.drain()).toHaveLength(0);
+  });
+
+  it('is one-shot: the cancel affordance disarms the tool', () => {
+    const r = rig();
+    r.palette.selected = null;
+    r.inspector.onMove!(r.sim.state.structures[0]!);
+    r.core.cancelLift(); // what the touch ✕ does
+    expect(r.core.lifted).toBeNull();
+    expect(r.palette.selected).toBeNull();
+    expect(r.drain()).toHaveLength(0);
+  });
+
+  it('a failed drop keeps carrying and keeps the tool armed, as for any lift', () => {
+    const r = rig();
+    r.sim.tick([place('tower', 5, 0)]); // the drop target below is occupied
+    r.palette.selected = null;
+    r.inspector.onMove!(r.sim.state.structures[0]!);
+    r.pointer('pointermove', 550, 50);
+    r.pointer('pointerdown', 550, 50); // occupied: rejected locally
+    expect(r.flashes).toBe(1);
+    expect(r.drain()).toHaveLength(0);
+    expect(r.core.lifted).toEqual({ id: 0, tx: 3, ty: 0 });
+    expect(r.palette.selected).toBe('move');
+    r.pointer('pointerup', 550, 50);
+    // The next drop still lands, and then the tool disarms.
+    r.pointer('pointermove', 350, 250);
+    r.pointer('pointerdown', 350, 250);
+    const drained = r.drain();
+    expect(drained).toHaveLength(1);
+    r.sim.tick(drained);
+    r.frame();
+    expect(r.palette.selected).toBeNull();
+  });
+
+  it('a lift the player re-arms from the palette after an inspector move is a mode again', () => {
+    const r = rig();
+    r.palette.selected = null;
+    r.inspector.onMove!(r.sim.state.structures[0]!);
+    r.palette.select(null); // Esc mid-carry: cancels, and clears the one-shot flag with it
+    expect(r.core.lifted).toBeNull();
+    r.palette.select('move'); // the player arms the mode by hand…
+    r.pointer('pointermove', 350, 50);
+    r.pointer('pointerdown', 350, 50);
+    r.pointer('pointerup', 351, 50); // …lifts with a click…
+    r.pointer('pointermove', 352, 48);
+    r.pointer('pointerdown', 352, 48); // …and puts down on the origin
+    expect(r.core.lifted).toBeNull();
+    expect(r.palette.selected).toBe('move'); // the mode survives: no stale one-shot
   });
 
   it('does nothing when the palette refuses the move tool (outside the build phase)', () => {

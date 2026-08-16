@@ -11,7 +11,8 @@
 //     pending-ghost-plus-✓/✕ flow, anchored at its own tile; confirm
 //     issues one move command through InputCore.commitMove. The inspector
 //     sheet's Move action lands in the same flow: the core arms the tool and
-//     lifts, and its onLift hook anchors the pending ghost at the origin
+//     lifts, its onLift hook anchors the pending ghost at the origin, and the
+//     core disarms the tool again once that one lift ends
 //   - No tool: tap selects/deselects structures; one-finger drag pans and
 //     pinch zooms the camera
 //   - Two-finger gestures always drive the camera, tool or not
