@@ -13,6 +13,14 @@ export interface Tuning {
   rangeScale?: number;
   /** Multiplier on every enemy's hp, rounded once. */
   hpScale?: number;
+  /**
+   * Wave-length multiplier: scales every wave group's count and delay (rounded
+   * once, count clamped to ≥ 1) while leaving spawnInterval alone, so the wave
+   * lasts ~waveScale× longer at the same spawned-hp-per-tick. Single-enemy
+   * groups (count 1 — the set-piece spawns) keep their count; only their delay
+   * scales.
+   */
+  waveScale?: number;
   carrierSpeedPer100?: number;
   wallCost?: number;
   /** Overrides the level's interestRatePerTick, given in parts-per-million. */
@@ -36,6 +44,7 @@ interface DialSpec {
 const DIALS: readonly DialSpec[] = [
   { key: 'rangeScale', integer: false, min: Number.MIN_VALUE, max: 100 },
   { key: 'hpScale', integer: false, min: Number.MIN_VALUE, max: 1000 },
+  { key: 'waveScale', integer: false, min: Number.MIN_VALUE, max: 100 },
   { key: 'carrierSpeedPer100', integer: true, min: 1, max: 1000 },
   { key: 'wallCost', integer: true, min: 0, max: 100_000 },
   { key: 'interestRatePpm', integer: true, min: 0, max: 1_000_000 },
@@ -96,6 +105,14 @@ export function applyTuning(
   if (tuning.hpScale !== undefined) {
     for (const enemy of Object.values(balance.enemies) as any[]) {
       enemy.hp = Math.round(enemy.hp * tuning.hpScale);
+    }
+  }
+  if (tuning.waveScale !== undefined) {
+    for (const wave of level.waves as any[]) {
+      for (const g of wave.groups) {
+        if (g.count > 1) g.count = Math.max(1, Math.round(g.count * tuning.waveScale));
+        g.delay = Math.round(g.delay * tuning.waveScale);
+      }
     }
   }
   if (tuning.carrierSpeedPer100 !== undefined) balance.theft.carrierSpeedPer100 = tuning.carrierSpeedPer100;

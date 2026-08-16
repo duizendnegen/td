@@ -38,14 +38,15 @@ dial sweep settled one notch gentler across the board.
 - Wave speed bonus windows stretch to match ×2 paths: `graceTicks` 150 → 300, `decayTicks`
   600 → 1500.
 - New dev tuning-dial layer: URL query parameters (same pattern as `?level=2`) override balance
-  values once at load, before fixed-point conversion — `rangeScale`, `hpScale`,
-  `carrierSpeedPer100`, `wallCost`, `interestRatePpm`, `startingTreasury`, `bonusGraceTicks`,
-  `bonusDecayTicks`, `sackRecoveryPer1000`, `refundPer1000`. Restart per tweak; no live re-tune.
-  Map size is not a dial.
+  values once at load, before fixed-point conversion — `rangeScale`, `hpScale`, `waveScale`
+  (wave length: group counts and delays ×N at unchanged spawn intervals, single-enemy groups
+  stay single), `carrierSpeedPer100`, `wallCost`, `interestRatePpm`, `startingTreasury`,
+  `bonusGraceTicks`, `bonusDecayTicks`, `sackRecoveryPer1000`, `refundPer1000`. Restart per
+  tweak; no live re-tune. Map size is not a dial.
 
 Explicitly unchanged: interest rate (0.0002/tick — the ×2 wave duration already lifts per-wave
-accrual from ~+22% to ~+49%), damage values, tower costs, bounties, carry capacities, wave
-compositions and spawn intervals, committed-removal refund fraction (50%, though exposed as a
+accrual from ~+22% to ~+49%), damage values, tower costs, bounties, carry capacities, authored wave
+compositions and spawn intervals (though wave length is exposed as a dial), committed-removal refund fraction (50%, though exposed as a
 dial), the provisional/committed placement rules, and the enemy speed-modifier order (carrier
 factor before slow — determinism contract). Construction time is out of scope.
 

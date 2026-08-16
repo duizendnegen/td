@@ -63,3 +63,13 @@
       escapes, solvent win)
 - [x] 6.4 Retime `.github/capture/scenario.json` (PR-preview capture) to the new board using the
       replay golden's proven timeline
+
+## 7. Wave-length dial (added after the calibration playtest)
+
+- [x] 7.1 Add the `waveScale` dial: multiply every wave group's `count` and `delay` (round once,
+      count clamped to ≥ 1), leave `spawnInterval` alone so spawned hp per tick holds; groups
+      authored with `count` 1 keep count 1 (only their delay scales) so set-piece spawns don't
+      stack (design D6)
+- [x] 7.2 Test: `waveScale=5` on level 1 gives 5× counts at unchanged intervals and 5× delays;
+      level 2's lone tank stays a single tank; fractional scales never drop a group below one
+      enemy; `waveScale=0` fails loudly

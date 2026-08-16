@@ -88,6 +88,31 @@ overrides object handed to the data loader; the sim never learns dials exist, it
 balance data. `interestRatePpm` and `startingTreasury` override the level's parsed economy
 values.
 
+### D6: `waveScale` multiplies group counts and delays, never spawn intervals; singletons stay single
+
+Added after the calibration playtest, when wave length became the next thing to explore. The
+dial applies to raw level JSON like the rest (D1): every wave group's `count` and `delay` are
+multiplied and rounded once (count clamped to ≥ 1); `spawnInterval` is untouched. A group's
+span is `delay + (count − 1) × spawnInterval`, so scaling count at a fixed interval makes the
+span ≈ `waveScale`× longer with `waveScale`× the total hp — spawned hp per tick holds, and the
+player's defense has to sustain the same DPS for longer. Scaling the interval too would go
+≈ `waveScale`² on span and *thin* the density. Scaling `delay` alongside keeps multi-group
+choreography proportional (level 1 wave 5's swarm still arrives mid-tank-stream). The bonus par
+anchor (`lastSpawnOffset`) is derived from the resolved groups, so it stretches for free.
+
+Groups authored with `count` 1 keep a count of 1 and only their delay scales. *Why*: a lone
+spawn (level 2's wave-2 tank and wave-8 brute) is a set-piece event, not pressure-per-tick —
+"the same hp per tick for 5× longer" has no meaning for one indivisible lump — and both are
+authored with `spawnInterval` 1 (irrelevant at count 1), so multiplying them would stack five
+bosses in four ticks: a 5× spike, the opposite of the dial's intent. *Alternative rejected*:
+authoring real intervals for those groups and letting them stream; that changes what the level
+says, which is the author's call, not the dial's.
+
+Known second-order effect, left for playtest: bounty, theft exposure and interest ticks all
+scale with the wave while placement stays ungated mid-wave, so a longer wave lets the player
+reinvest more *during* it — longer waves are somewhat easier per enemy, not neutral. `hpScale`
+and `startingTreasury` are the retreat path if that matters.
+
 ## Risks / Trade-offs
 
 - [Effective hp scaling can make mid-run waves economically unwinnable] → This risk FIRED at the
