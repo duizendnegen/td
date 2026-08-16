@@ -12,6 +12,9 @@
 //     read off hashed state, never written back
 //   - A removed structure's mesh is dropped in the frame it disappears; there
 //     is no countdown state to render (structure-placement spec)
+//   - A moved structure's mesh (and its provisional tell) repositions in the
+//     frame its tile changes; a lifted structure's origin mesh renders dimmed
+//     while it is carried (tower-drag-move)
 
 import * as THREE from 'three';
 import { ARCHETYPES, type TowerArchetype } from '../data/schema';
@@ -63,6 +66,10 @@ export class StructureRenderer {
   private readonly builtLevels = new Map<number, number>();
   /** The provisional footprint tell per structure, while it has one. */
   private readonly marks = new Map<number, THREE.Object3D>();
+  /** The structure whose origin mesh renders dimmed — the carried lift. */
+  private liftedId: number | null = null;
+  /** Shared translucent variant of the atlas material, built on first lift. */
+  private dimMaterial: THREE.MeshLambertMaterial | null = null;
   /** Shared by every tell: one geometry pair, one material pair, one pulse. */
   private readonly markOutline = StructureRenderer.squareGeometry(0.98);
   private readonly markFill = new THREE.PlaneGeometry(0.98, 0.98).rotateX(-Math.PI / 2);
@@ -147,6 +154,43 @@ export class StructureRenderer {
   }
 
   /**
+   * Dim (or restore) the origin mesh of the lifted structure, by id — the
+   * "reads as lifted" treatment while the move tool carries it (build-ui
+   * delta). Null restores whatever was dimmed. Render-only, like everything
+   * here: the id comes from the UI's lift state, never from sim state.
+   */
+  setLifted(id: number | null): void {
+    if (id === this.liftedId) return;
+    if (this.liftedId !== null) {
+      const prev = this.meshes.get(this.liftedId);
+      if (prev) this.applyDim(prev, false);
+    }
+    this.liftedId = id;
+    if (id !== null) {
+      const mesh = this.meshes.get(id);
+      if (mesh) this.applyDim(mesh, true);
+    }
+  }
+
+  /**
+   * Swap one group's meshes between the shared atlas material and its
+   * translucent clone. A material swap, not a mutation: the atlas material
+   * is shared by every model in the scene.
+   */
+  private applyDim(group: THREE.Object3D, dim: boolean): void {
+    if (dim && !this.dimMaterial) {
+      this.dimMaterial = this.assets.material.clone();
+      this.dimMaterial.transparent = true;
+      this.dimMaterial.opacity = 0.35;
+    }
+    group.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.material = dim ? this.dimMaterial! : this.assets.material;
+      }
+    });
+  }
+
+  /**
    * Reflect sim structures into the scene; `targetFor` supplies each tower's
    * current target for the head yaw — read-only sim state, cosmetic result.
    * `nowMs` drives the provisional pulse alone and reaches nothing else.
@@ -185,6 +229,15 @@ export class StructureRenderer {
         this.meshes.set(s.id, mesh);
         this.builtLevels.set(s.id, s.level);
         this.scene.add(mesh);
+        if (s.id === this.liftedId) this.applyDim(mesh, true);
+      }
+      // A moved structure repositions in the frame its tile changes — the
+      // mesh and its provisional tell alike (tower-drag-move).
+      const px = s.tx + 0.5;
+      const pz = s.ty + 0.5;
+      if (mesh.position.x !== px || mesh.position.z !== pz) {
+        mesh.position.set(px, GROUND_TOP_Y, pz);
+        this.marks.get(s.id)?.position.set(px, GROUND_TOP_Y + 0.04, pz);
       }
 
       // Cosmetic head yaw toward the current target; holds the last bearing

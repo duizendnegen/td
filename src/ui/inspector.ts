@@ -5,6 +5,11 @@
 //   - Archetype, level, current stats, next-level cost
 //   - Upgrade action with palette-consistent affordable/debt/blocked states
 //     as whole-literal class variants (design D1); maxed state at level 3
+//   - Move: arms the move tool and lifts this tower in one step — the
+//     inspector's route into the palette tool's lift/carry/drop, wired by
+//     InputCore through onMove (tower-drag-move design D9), the tool armed
+//     for that one move only; build phase only, naming the wave when locked,
+//     like the remove action
 //   - Remove, immediate and refunding the amount it actually credits;
 //     unavailable while a wave runs only for committed towers — a provisional
 //     one stays sellable, framed as the revision window it is
@@ -17,7 +22,7 @@ import { ARCHETYPES } from '../data/schema';
 import type { CommandQueue } from '../sim/commands';
 import { refundMg } from '../sim/economy';
 import { GOLD, TICK_HZ, TILE } from '../sim/fixed';
-import { canRemove } from '../sim/placement';
+import { canRemove, moveOpenIn } from '../sim/placement';
 import { MAX_TOWER_LEVEL } from '../sim/sim';
 import { towerStats } from '../sim/tower';
 import type { SimState, Structure } from '../sim/types';
@@ -62,6 +67,12 @@ const REM_LOCKED =
 const REM_UNDO =
   REM_BASE + 'flex-wrap border-primary-fixed/60 bg-surface-dim text-primary-fixed hover:bg-primary-fixed/10';
 const REM_WINDOW_NOTE = 'font-mono text-label-xs uppercase opacity-70';
+// Moving is free and keeps the investment — a revision, not a divestment — so
+// it shares the provisional undo's primary-accent language, never the
+// dismantle's hover-to-red.
+const MOVE_IDLE =
+  REM_BASE + 'border-primary-fixed/60 bg-surface-dim text-primary-fixed hover:bg-primary-fixed/10';
+const MOVE_LOCKED = REM_LOCKED;
 
 /** Milli-gold as a gold figure, keeping the half a 50% refund can leave. */
 function goldText(mg: number): string {
@@ -97,6 +108,7 @@ export class InspectorUI {
   private readonly headerIcon: HTMLSpanElement;
   private readonly stats: HTMLDivElement;
   private readonly upgradeButton: HTMLButtonElement;
+  private readonly moveButton: HTMLButtonElement;
   private readonly removeButton: HTMLButtonElement;
   private readonly data: GameData;
   private readonly commands: CommandQueue;
@@ -106,8 +118,16 @@ export class InspectorUI {
   private lastContentKey = '';
   /** The removal phase gate, re-read every frame — the sim's own predicate. */
   private removalAllowed = false;
+  /** The move phase gate (moveOpenIn), re-read every frame like removal's. */
+  private moveAllowed = false;
   /** True while the pointer is over the upgrade action (range preview hook). */
   upgradeHovered = false;
+  /**
+   * The Move action's hook, fired with the inspected tower while the move
+   * gate is open. InputCore wires it to arm the move tool and lift the tower;
+   * the inspector itself stays command-only towards the sim.
+   */
+  onMove: ((s: Structure) => void) | null = null;
 
   constructor(slot: HTMLElement, data: GameData, commands: CommandQueue) {
     this.data = data;
@@ -160,6 +180,13 @@ export class InspectorUI {
     this.upgradeButton.addEventListener('pointerenter', () => (this.upgradeHovered = true));
     this.upgradeButton.addEventListener('pointerleave', () => (this.upgradeHovered = false));
 
+    this.moveButton = document.createElement('button');
+    this.moveButton.className = MOVE_IDLE;
+    this.moveButton.addEventListener('click', () => {
+      const s = this.selected;
+      if (s && this.moveAllowed) this.onMove?.(s);
+    });
+
     this.removeButton = document.createElement('button');
     this.removeButton.className = REM_IDLE;
     this.removeButton.addEventListener('click', () => {
@@ -169,7 +196,7 @@ export class InspectorUI {
       }
     });
 
-    this.root.append(header, this.stats, this.upgradeButton, this.removeButton);
+    this.root.append(header, this.stats, this.upgradeButton, this.moveButton, this.removeButton);
   }
 
   /** The inspected tower, or null; the id survives re-selection checks. */
@@ -217,6 +244,7 @@ export class InspectorUI {
     }
 
     this.removalAllowed = canRemove(state.runPhase, s);
+    this.moveAllowed = moveOpenIn(state.runPhase);
     const contentKey = [
       s.id,
       s.level,
@@ -264,6 +292,20 @@ export class InspectorUI {
       this.removeButton.className = REM_LOCKED;
       this.removeButton.disabled = true;
       this.removeButton.textContent = 'Dismantle locked · wave in progress';
+    }
+
+    // Two states: open in the build phase, locked everywhere else — the
+    // move gate has no per-structure split (tower-drag-move design D7). Like
+    // the remove action, the locked face names the reason.
+    if (this.moveAllowed) {
+      this.moveButton.className = MOVE_IDLE;
+      this.moveButton.disabled = false;
+      this.moveButton.textContent = 'Move · free';
+    } else {
+      this.moveButton.className = MOVE_LOCKED;
+      this.moveButton.disabled = true;
+      this.moveButton.textContent =
+        state.runPhase === 'wave' ? 'Move locked · wave in progress' : 'Move locked · between waves only';
     }
 
     if (s.level >= MAX_TOWER_LEVEL) {

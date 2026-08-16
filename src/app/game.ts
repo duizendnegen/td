@@ -14,7 +14,7 @@ import balanceJson from '../data/balance.json';
 import { loadGameData } from '../data/schema';
 import { levelForParam, nextLevelUrl } from './levels';
 import { CommandQueue } from '../sim/commands';
-import { removalOpenIn } from '../sim/placement';
+import { moveOpenIn, removalOpenIn } from '../sim/placement';
 import { Sim } from '../sim/sim';
 import { formatHash } from '../sim/hash';
 import { Assets } from '../render/assets';
@@ -355,6 +355,8 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   // read here (debug-tooling spec: "Frames depend on tick, not elapsed time").
   const renderFrame = (nowMs: number, alpha = 0): void => {
     enemies.sync(sim.state.enemies, alpha, nowMs, sim.state.tick);
+    // The lifted structure's origin mesh dims while the move tool carries it.
+    structures.setLifted(inputCore.lifted?.id ?? null);
     structures.sync(sim.state.structures, (s) => sim.currentTarget(s), nowMs);
     sacks.sync(sim.state.sacks, nowMs);
     fx.drain(sim.events, nowMs);
@@ -362,7 +364,11 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     input.update();
     ribbon.animate(nowMs);
     treasuryHud.update(sim.state.treasuryMg);
-    palette.refresh(sim.state.treasuryMg, removalOpenIn(sim.state.runPhase));
+    palette.refresh(
+      sim.state.treasuryMg,
+      removalOpenIn(sim.state.runPhase),
+      moveOpenIn(sim.state.runPhase),
+    );
     waveHud.update(sim.state, sim.totalWaves);
     timeHud.update(sim.state);
     // Paused presentation (design D9): a stopped board must not read as a

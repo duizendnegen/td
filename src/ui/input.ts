@@ -6,15 +6,34 @@
 //     step). The right button belongs wholesale to MouseCameraController
 //     (drag pans; a sub-slop click still cancels the tool via its callback);
 //     this driver only suppresses the context menu for it
+//   - Move tool (tower-drag-move design D6): a press on a structure — tower
+//     or wall — lifts it; release past the drag slop drops at the release
+//     tile, a sub-slop release keeps carrying and a second click drops — both
+//     drop paths run through InputCore.commitMove, where a drop on the origin
+//     tile is the put-down (no command). Slop latching mirrors the
+//     MouseCameraController right-drag pattern. The inspector's Move action
+//     arms the tool and lifts through the core with no press standing, which
+//     is already the click-click carry — nothing here to add
 //   - All picking, validation, selection, and command emission live in the
-//     shared InputCore; this driver only owns the hovered tile
+//     shared InputCore; this driver only owns the hovered tile and the
+//     press-to-release slop state
 
+import { SLOP_PX } from './gestures';
 import type { InputCore, Tile } from './inputcore';
 import { toolStructure } from './palette';
+
+interface MovePress {
+  startX: number;
+  startY: number;
+  /** Latched once past the slop: the release becomes a drag-drop. */
+  dragging: boolean;
+}
 
 export class PointerDriver {
   private readonly core: InputCore;
   private hovered: Tile | null = null;
+  /** The press that started the current lift, until its release. */
+  private press: MovePress | null = null;
 
   constructor(canvas: HTMLCanvasElement, core: InputCore) {
     this.core = core;
@@ -24,10 +43,23 @@ export class PointerDriver {
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'touch') return;
       this.hovered = core.pickTile(e.clientX, e.clientY);
+      const press = this.press;
+      if (
+        press &&
+        !press.dragging &&
+        Math.hypot(e.clientX - press.startX, e.clientY - press.startY) > SLOP_PX
+      ) {
+        press.dragging = true;
+      }
     });
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'touch') return;
-      if (e.button === 0) this.onClick();
+      if (e.pointerType === 'touch' || e.button !== 0) return;
+      if (this.core.palette.selected === 'move') this.onMovePress(e);
+      else this.onClick();
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'touch' || e.button !== 0) return;
+      this.onMoveRelease(e);
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
@@ -45,11 +77,46 @@ export class PointerDriver {
     }
   }
 
+  /**
+   * A left press with the move tool armed: nothing lifted, on a structure →
+   * lift and start slop tracking; already carrying (a sub-slop click left
+   * the lift standing) → this second click attempts the drop here — on the
+   * origin, that puts the structure down. Presses on empty tiles with
+   * nothing lifted do nothing (build-ui delta).
+   */
+  private onMovePress(e: { clientX: number; clientY: number }): void {
+    this.hovered = this.core.pickTile(e.clientX, e.clientY);
+    const tile = this.hovered;
+    if (!tile) return;
+    if (this.core.lifted) {
+      this.core.commitMove(tile);
+      return;
+    }
+    if (this.core.liftAt(tile)) {
+      this.press = { startX: e.clientX, startY: e.clientY, dragging: false };
+    }
+  }
+
+  /**
+   * The lifting press's release: past the slop it drops at the release tile
+   * (back over the origin, that is the put-down); sub-slop it is a click —
+   * the carry continues until the second click.
+   */
+  private onMoveRelease(e: { clientX: number; clientY: number }): void {
+    const press = this.press;
+    this.press = null;
+    if (!press || !press.dragging || !this.core.lifted) return;
+    this.hovered = this.core.pickTile(e.clientX, e.clientY);
+    if (this.hovered) this.core.commitMove(this.hovered);
+  }
+
   /** Per-frame ghost maintenance from the hovered tile. */
   update(): void {
     const tool = this.core.palette.selected;
     if (tool !== null && toolStructure(tool)) {
       this.core.updateBuildGhost(this.hovered);
+    } else if (tool === 'move') {
+      this.core.updateMoveGhost(this.hovered);
     } else {
       this.core.updateIdleRings();
     }
@@ -64,7 +131,7 @@ export function buildHintLine(hud: HTMLElement): void {
     'border-outline/20 bg-surface-container/80 px-3 py-2 font-mono text-label-xs ' +
     'leading-relaxed text-on-surface-variant desktop:block';
   el.innerHTML =
-    '1 wall · 2-5 towers · 6 remove<br>click tower to inspect · Esc cancels<br>' +
+    '1 wall · 2-5 towers · 6 remove · 7 move<br>click tower to inspect · Esc cancels<br>' +
     'Space start wave / pause · hold F to fast-forward<br>' +
     'F2 waypoints · F3 ranges<br>F4 readout · F8 probe';
   hud.appendChild(el);

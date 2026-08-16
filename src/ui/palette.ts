@@ -15,12 +15,12 @@
 import type { TowerArchetype } from '../data/schema';
 import { GOLD } from '../sim/fixed';
 
-export type Tool = 'wall' | TowerArchetype | 'remove';
+export type Tool = 'wall' | TowerArchetype | 'remove' | 'move';
 
-/** The structure a tool places, or null for the removal tool. */
+/** The structure a tool places, or null for the removal and move tools. */
 export function toolStructure(tool: Tool): { kind: 'wall' } | { kind: 'tower'; archetype: TowerArchetype } | null {
   if (tool === 'wall') return { kind: 'wall' };
-  if (tool === 'remove') return null;
+  if (tool === 'remove' || tool === 'move') return null;
   return { kind: 'tower', archetype: tool };
 }
 
@@ -67,7 +67,11 @@ const ICONS: Record<Tool, string> = {
   area: 'flare',
   slow: 'ac_unit',
   remove: 'delete',
+  move: 'open_with',
 };
+
+/** Badge text for the free tools; cost-bearing tools show their price. */
+const FREE_BADGES: Partial<Record<Tool, string>> = { remove: '50%', move: 'free' };
 
 interface Item {
   tool: Tool;
@@ -92,6 +96,8 @@ export class PaletteUI {
   private blocked = false;
   /** The removal phase gate: false only once the run has ended (removalOpenIn). */
   private removalAllowed = false;
+  /** The move phase gate: true in the build phase only (moveOpenIn). */
+  private moveAllowed = false;
   onChange: ((tool: Tool | null) => void) | null = null;
 
   constructor(slot: HTMLElement, costs: PaletteCosts) {
@@ -110,6 +116,7 @@ export class PaletteUI {
       ['area', 'Area', '4', costs.towerMg.area],
       ['slow', 'Slow', '5', costs.towerMg.slow],
       ['remove', 'Remove', '6', 0],
+      ['move', 'Move', '7', 0],
     ];
     for (const [tool, label, key, costMg] of defs) {
       const button = document.createElement('button');
@@ -124,7 +131,7 @@ export class PaletteUI {
       name.textContent = label;
       const badge = document.createElement('div');
       badge.className = BADGE_OK;
-      badge.textContent = costMg > 0 ? `${costMg / GOLD}` : '50%';
+      badge.textContent = costMg > 0 ? `${costMg / GOLD}` : FREE_BADGES[tool]!;
       const hint = document.createElement('div');
       hint.className = KEY_HINT;
       hint.textContent = key;
@@ -164,37 +171,46 @@ export class PaletteUI {
     return this.items.find((i) => i.tool === tool)?.costMg ?? 0;
   }
 
+  /** Whether `tool`'s own gate refuses arming it right now. */
+  private gated(tool: Tool): boolean {
+    if (tool === 'remove') return !this.removalAllowed;
+    // The move tool is free like removal, so the treasury never gates it —
+    // only the phase does (build-ui delta).
+    if (tool === 'move') return !this.moveAllowed;
+    return this.blocked;
+  }
+
   select(tool: Tool | null): void {
-    // Toggle off on reselect; ignore build tools while spending is blocked and
-    // the remove tool while a wave gates selling.
+    // Toggle off on reselect; ignore build tools while spending is blocked,
+    // the remove tool while a wave gates selling, and the move tool outside
+    // the build phase.
     const next = tool !== null && tool === this.selectedTool ? null : tool;
-    if (next !== null && (next === 'remove' ? !this.removalAllowed : this.blocked)) return;
+    if (next !== null && this.gated(next)) return;
     this.selectedTool = next;
     this.onChange?.(next);
     // refresh() runs every frame and repaints the buttons.
   }
 
   /**
-   * Per-frame state refresh from the treasury balance and the removal phase
-   * gate (the sim's own removalOpenIn). The start of a wave no longer drops a
-   * selected remove tool — provisional structures stay sellable, so a player
-   * mid-revision must not be interrupted (build-ui spec); a click on committed
-   * construction gets the ordinary reject feedback instead. The tool is still
-   * dropped once the run ends and nothing can be sold at all.
+   * Per-frame state refresh from the treasury balance and the two phase gates
+   * (the sim's own removalOpenIn / moveOpenIn). The start of a wave no longer
+   * drops a selected remove tool — provisional structures stay sellable, so a
+   * player mid-revision must not be interrupted (build-ui spec); a click on
+   * committed construction gets the ordinary reject feedback instead. The
+   * tool is still dropped once the run ends and nothing can be sold at all.
+   * The move tool IS dropped the moment a wave starts — nothing can legally
+   * move until the build phase resumes, and deselecting here is what
+   * force-cancels a lift in flight (tower-drag-move design D6).
    */
-  refresh(treasuryMg: number, removalAllowed: boolean): void {
+  refresh(treasuryMg: number, removalAllowed: boolean, moveAllowed: boolean): void {
     this.blocked = treasuryMg < 0;
     this.removalAllowed = removalAllowed;
-    if (this.selectedTool === 'remove') {
-      if (!removalAllowed) this.select(null);
-    } else if (this.blocked && this.selectedTool !== null) {
-      this.select(null);
-    }
+    this.moveAllowed = moveAllowed;
+    if (this.selectedTool !== null && this.gated(this.selectedTool)) this.select(null);
     for (const item of this.items) {
       const selected = item.tool === this.selectedTool;
       const debt = !this.blocked && item.costMg > 0 && item.costMg > treasuryMg;
-      const blocked =
-        item.tool === 'remove' ? !this.removalAllowed : this.blocked;
+      const blocked = this.gated(item.tool);
 
       let buttonClass: string;
       if (item.tool === 'remove') {
