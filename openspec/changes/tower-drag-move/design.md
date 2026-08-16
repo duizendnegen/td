@@ -24,15 +24,15 @@ See proposal.md for motivation. The mechanics this builds on:
 
 **Goals:**
 
-- A `move` command with placement-grade guarantees (atomic, never seals, never strands) whose
-  validation frees the origin and blocks the destination in the same evaluation.
+- A `move` command for towers and walls with placement-grade guarantees (atomic, never seals,
+  never strands) whose validation frees the origin and blocks the destination in the same
+  evaluation, under the moving kind's terrain rules.
 - A palette move mode whose lift/carry/drop reuses the existing ghost, validation-preview, and
   ribbon plumbing rather than growing a parallel path.
 - Zero impact on replay determinism: no new hashed fields, golden hashes unchanged.
 
 **Non-Goals:**
 
-- Moving walls (sell + rebuild stays the way to revise wall lines; wall cost is trivial).
 - Moves outside the build phase, including mid-wave moves of provisional towers — remove +
   re-place already covers that at full refund, in two commands.
 - Multi-select or drag-boxing, move undo, or a travel animation (the tower teleports on the
@@ -53,7 +53,8 @@ toTx, toTy }`.
 Rather than threading an "ignore this structure / pretend this tile is free" flag through
 `validatePlacement` (whose socket fast-path and occupancy checks would each need the flag),
 add `validateMove(grid, structure, toTx, toTy, ...)` that: rejects `to === from`; runs bounds,
-terrain-accepts-tower, occupancy (`structureAt` naturally reports the mover itself as
+terrain-accepts-the-mover's-kind (dirt takes both, a socket takes towers only — a wall bound for
+a socket is `not-buildable`, exactly as its placement would be), occupancy (`structureAt` naturally reports the mover itself as
 `occupied` only on its own tile, which the same-tile check already rejected), and
 enemy-in-footprint on the destination; then applies **both** mask edits — unblock origin if it
 was mask-blocked, block destination if it is navigable terrain — rebuilds the scratch fields
@@ -70,8 +71,11 @@ surprising reading.
 
 **4. Verdict vocabulary is reused, not extended.**
 `validateMove` returns the existing `PlacementVerdict` union; the same-tile case maps to
-`occupied`. The ribbon's "no projection for routing-independent rejections" rule then works
-unmodified, and the ghost tint logic needs no new states. Rejections emit the existing
+`occupied` — the sim has no notion of a cancel, and a move to where you already stand is not a
+move. The ribbon's "no projection for routing-independent rejections" rule then works
+unmodified. The interaction layer alone reinterprets the origin tile as a legal put-down (D6),
+so the UI never issues a same-tile command; the sim's rejection stays as the defensive backstop
+for scripted input. Rejections emit the existing
 `placementRejected` event with the destination footprint, so `flashReject` and the uniform
 feedback requirement come for free.
 
@@ -83,27 +87,43 @@ lifting a different tower on the same tile re-projects.
 
 **6. Lift state lives in `InputCore`, both drivers share it.**
 `InputCore` gains `lifted: { id, tx, ty } | null`, entered only while the move tool is armed
-in the build phase. Desktop (`PointerDriver`): press on a tower sets `lifted`; release past
-slop attempts the drop, sub-slop release keeps carrying (click-click). Slop tracking reuses
+in the build phase, for any structure — the ghost takes the mover's kind, and the range ring is
+drawn for towers only. Desktop (`PointerDriver`): press on a structure sets `lifted`; release
+past slop attempts the drop, sub-slop release keeps carrying (click-click). Slop tracking reuses
 the same pattern `MouseCameraController` uses for right-drag. Touch (`TouchDriver`): the
 pending-ghost flow is reused with the anchor initialized to the tower's tile and confirm
 issuing `move` instead of `place`. Tool deselection (Esc, palette click, phase change to wave)
 clears `lifted` unconditionally. A failed drop keeps `lifted` set, per the build-ui delta.
 
-**7. Phase gating mirrors removal's split.**
-`canMove(phase, s)` in placement.ts (`phase === 'build' && s.kind === 'tower'`) gates the
-authoritative apply; `moveOpenIn(phase)` (`phase === 'build'`) gates the palette tool's
-availability, wired through the same per-frame `palette.refresh` that carries
-`removalAllowed` today.
+The origin tile is the put-down: `commitMove(origin)` short-circuits before validation to
+`cancelLift()` — no command, no flash, lift cleared — and `updateMoveGhost` reports the origin
+as valid (ghost tint and the touch confirm class both read that one flag), so the highlight
+agrees with what the drop will do. Both drivers get this for free since both drop through
+`commitMove`; on touch the pending ghost starts on the origin, so an immediate ✓ is the
+put-down. Handling this in the UI rather than the sim keeps the sim's verdict honest (D4) and
+avoids special-casing a no-op "move" through `applyMove`'s field swap and the ribbon's
+rebuilt-scratch check.
+
+**7. Phase gating is one predicate.**
+`moveOpenIn(phase)` in placement.ts (`phase === 'build'`) gates everything: the palette tool's
+availability (wired through the same per-frame `palette.refresh` that carries
+`removalAllowed`), the authoritative apply, the speculative previews, and the UI lift. Unlike
+removal there is no per-structure split — every structure kind moves in the build phase and
+nothing moves outside it — so a `canMove(phase, s)` twin would only ignore its second argument.
 
 **8. Renderer learns to reposition, plus a lift treatment.**
 `StructureRenderer.sync` compares each surviving mesh's last-known tile to `s.tx/s.ty` and
 updates `group.position` (and the provisional `buildMark`) on change — needed for moves and
-harmless otherwise. While a tower is lifted, its origin mesh renders dimmed (per-id override
-set by `InputCore`); the carried preview is the ordinary `GhostPreview` with the archetype's
-range ring at the candidate tile.
+harmless otherwise. While a structure is lifted, its origin mesh renders dimmed (per-id
+override set by `InputCore`); the carried preview is the ordinary `GhostPreview` of the mover's
+kind, with the archetype's range ring at the candidate tile for towers.
 
-**Alternatives considered:** implicit drag-on-selected-tower with no mode (rejected by the
+**Alternatives considered:** towers-only moves (the first cut — walls were left to sell +
+rebuild, but nudging a maze line is exactly the revision the feature exists for, and the sim
+path is kind-agnostic once the terrain rule follows the mover); a same-tile move accepted by
+the sim as a no-op 'ok' (needs three special cases — validateMove's early return, applyMove's
+field swap, previewMoveRoutes' rebuilt check — where the UI needs one); implicit
+drag-on-selected-tower with no mode (rejected by the
 user in favor of a remove-style mode — it also collides with click-to-select on desktop and
 one-finger pan on touch); a move fee or provisional-only moves (friction against the
 feature's purpose — the dismantle penalty prices divestment, not relocation); extending
@@ -125,7 +145,7 @@ feature's purpose — the dismantle penalty prices divestment, not relocation); 
   lifted id to the re-evaluation key; the path-preview delta's "no stale routing" scenario
   pins it.
 - [Desktop click-click carrying can strand a lifted state if the pointer leaves the canvas] →
-  Esc and tool-switch always cancel; phase change to wave force-cancels via the same
+  Esc, tool-switch, and clicking the structure's own tile always cancel; phase change to wave force-cancels via the same
   `palette.refresh` path that flips the tool unavailable.
 
 ## Open Questions

@@ -62,3 +62,24 @@
   invalid-drop flash, click-click carry, Esc cancel, wave-time tool lockout, touch pending
   flow, and a moved tower rendering at its new tile with its provisional mark
 - [x] 5.3 `openspec validate tower-drag-move --strict` passes
+
+## 6. Iteration: walls move, own-tile drop puts the structure down
+
+- [ ] 6.1 Sim: collapse the gate to `moveOpenIn(phase)` alone (drop `canMove`; every structure
+  kind moves in the build phase) and make `validateMove` apply the mover's terrain rule — a
+  wall bound for a socket is `not-buildable`; update applyMove / previewMove /
+  previewMoveRoutes call sites
+- [ ] 6.2 Sim tests: replace "walls cannot move" with a wall move (mask + fields + free +
+  refund basis) and a wall→socket rejection; keep the same-tile rejection
+- [ ] 6.3 InputCore: `liftAt` lifts any structure; the ghost takes the mover's kind with a
+  range ring for towers only; `updateMoveGhost` reports the origin tile as valid;
+  `commitMove(origin)` puts the structure down — `cancelLift`, no command, no flash — and
+  returns true so touch dismisses the pending ghost
+- [ ] 6.4 Driver tests: the drag-back-to-origin case becomes a put-down (no flash, no command,
+  lift cleared); second click on the origin puts down; a wall lifts and drops with one move
+  command; the "presses on walls do nothing" case narrows to empty tiles
+- [ ] 6.5 Docs and comments: input.ts / touch.ts / inputcore.ts / palette headers, hint line
+  if it names towers
+- [ ] 6.6 `npm run typecheck`, `npm test`, `openspec validate tower-drag-move --strict`;
+  Playwright pass: lift and drop a wall, drop a tower back on its own tile (green ghost, no
+  flash, lift ends), touch ✓ on the origin dismisses
