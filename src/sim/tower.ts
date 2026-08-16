@@ -14,12 +14,17 @@
 //   - Every hit records its effective damage — min(hp, damage), never
 //     overkill — on the firing tower's waveDamage/totalDamage counters
 //     (tower-damage-stats D2); recorded, never read, by the sim
+//   - Step 7 is two passes (energy-infrastructure design D2): a target
+//     pre-pass over every tower — its engagement is what draws power — then,
+//     once the tick's coverage is known, the firing pass, which stretches the
+//     next-shot interval by 1/coverage and holds fire at coverage zero (D3)
 
 import type { GameData, TowerLevelStats } from '../data/schema';
 import { HALF, TILE, toTile } from './fixed';
 import type { Fields } from './enemy';
 import type { Grid } from './grid';
 import type { RenderEvent } from './events';
+import { COVERAGE_SCALE, drawOf, stretchedInterval } from './power';
 import type { Enemy, SimState, Structure } from './types';
 
 /** A tower's centre in fixed-point units: the middle of its single tile. */
@@ -98,6 +103,14 @@ export function selectTarget(
   return target;
 }
 
+/** The target pre-pass result: one slot per structure (null for non-towers and idle towers) and the tick's draw. */
+export interface TargetPass {
+  /** Aligned with state.structures; the pre-pass target of each tower, if any. */
+  targets: (Enemy | null)[];
+  /** The tick's total draw in mp: rated while engaged, standby otherwise. */
+  drawMp: number;
+}
+
 /**
  * One landed hit: the victim loses `damage` hp and the firing tower records
  * what actually landed (tower-damage-stats design D2). Selection and the
@@ -112,10 +125,40 @@ function hit(t: Structure, victim: Enemy, damage: number): void {
 }
 
 /**
- * Tick step 7: towers due to fire resolve in insertion order (D7); each with
- * a target in range fires once — hitscan, damage this tick, events for the
- * renderer. A tower with nothing in range holds its fire tick, so it shoots
- * the moment a target appears.
+ * Step 7, pass one (energy-infrastructure design D2): every tower selects its
+ * target once — engaged if it found one — and the tick's draw is summed from
+ * that. Pure over the state; the firing pass reuses these targets so the
+ * extra pass costs one selectTarget per tower, not two.
+ */
+export function preTargetTowers(state: SimState, grid: Grid, fields: Fields, data: GameData): TargetPass {
+  const targets: (Enemy | null)[] = [];
+  let drawMp = 0;
+  for (const t of state.structures) {
+    if (t.kind !== 'tower') {
+      targets.push(null);
+      continue;
+    }
+    const target = selectTarget(t, state, grid, fields, data);
+    targets.push(target);
+    drawMp += drawOf(t, target !== null, data);
+  }
+  return { targets, drawMp };
+}
+
+/**
+ * Tick step 7, pass two: towers due to fire resolve in insertion order (D7);
+ * each with a target in range fires once — hitscan, damage this tick, events
+ * for the renderer. A tower with nothing in range holds its fire tick, so it
+ * shoots the moment a target appears.
+ *
+ * `coverage` (COVERAGE_SCALE = full) stretches the NEXT shot's interval by
+ * 1/coverage (design D2/D3): the shot due now lands now, uniformly for every
+ * archetype — a slow tower's reapplication cadence stretches, its duration
+ * does not. At coverage zero a due tower holds without advancing its fire
+ * tick, so it fires on the first later tick with any coverage. `pre` is the
+ * pre-pass; a cached target that an earlier tower killed this tick is dead
+ * to selection exactly as before, so the tower re-selects among the living
+ * (skip-the-dead, D7) rather than firing at a corpse.
  */
 export function fireTowers(
   state: SimState,
@@ -123,16 +166,26 @@ export function fireTowers(
   fields: Fields,
   data: GameData,
   events: RenderEvent[],
+  coverage: number = COVERAGE_SCALE,
+  pre: TargetPass | null = null,
 ): void {
-  for (const t of state.structures) {
+  if (coverage <= 0) return; // brownout to nothing: every due tower holds
+  for (let i = 0; i < state.structures.length; i++) {
+    const t = state.structures[i]!;
     if (t.kind !== 'tower' || state.tick < t.nextFireTick) continue;
-    const target = selectTarget(t, state, grid, fields, data);
-    if (!target) continue;
+    // Between the passes only hp can fall, so a tower idle in the pre-pass is
+    // idle now; a cached target that died since is re-selected among the living.
+    let target = pre ? pre.targets[i]! : selectTarget(t, state, grid, fields, data);
+    if (target === null) continue;
+    if (!target.alive || target.hp <= 0) {
+      target = selectTarget(t, state, grid, fields, data);
+      if (target === null) continue;
+    }
 
     const def = data.towers[t.archetypeId]!;
     const stats = towerStats(t, data);
     const { x: cx, y: cy } = towerCentre(t);
-    t.nextFireTick = state.tick + stats.fireIntervalTicks;
+    t.nextFireTick = state.tick + stretchedInterval(stats.fireIntervalTicks, coverage);
 
     switch (def.archetype) {
       case 'rapid':

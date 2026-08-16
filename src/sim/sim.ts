@@ -5,7 +5,11 @@
 //   - Owns all state, the RNG, and the tick counter
 //   - Fixed 10-step tick order (see ARCHITECTURE.md §7)
 //   - The run state machine: waves in step 4, progression in step 9 (D2)
-//   - Exposes render-only events, which are outside the state hash
+//   - The power step inside step 7 (energy-infrastructure design D2/D4/D5):
+//     target pre-pass → draw → supply resolution → coverage → firing; the
+//     bill computed there is debited in step 9 before interest
+//   - Exposes render-only events, which are outside the state hash, and the
+//     tick's derived power figures, likewise unhashed
 
 import type { GameData, TowerArchetype } from '../data/schema';
 import { ARCHETYPES } from '../data/schema';
@@ -37,13 +41,39 @@ import {
   validateMove,
   validatePlacement,
 } from './placement';
-import { fireTowers, selectTarget } from './tower';
+import { COVERAGE_SCALE, resolvePower, solarOf, tierCapacityMp } from './power';
+import { fireTowers, preTargetTowers, selectTarget } from './tower';
 import { Rng } from './rng';
 import { cursorsExhausted, lastSpawnOffset, resolveWaves, stepWaveSpawns, type ResolvedGroup } from './waves';
 import type { Enemy, SimState, Structure, StructureKind } from './types';
 
 /** Towers may only upgrade to this level; the level-3 inspector reads maxed. */
 export const MAX_TOWER_LEVEL = 3;
+
+/**
+ * The tick's power figures (energy-infrastructure design D2/D9): DERIVED once
+ * per wave tick from hashed state — structures, gridTier, treasury — and
+ * exposed for the frame (meter, tower tint, F4). Never stored across ticks,
+ * never hashed, never written by anything but the sim. Idle outside a wave:
+ * nothing draws, coverage reads full, nothing is billed.
+ */
+export interface PowerReadout {
+  drawMp: number;
+  solarMp: number;
+  gridSupplyMp: number;
+  /** In COVERAGE_SCALE; below full is a brownout. */
+  coverage: number;
+  /** The bill step 9 debits this tick (0 on the settlement tick and outside waves). */
+  billMg: number;
+}
+
+const IDLE_POWER: Readonly<PowerReadout> = {
+  drawMp: 0,
+  solarMp: 0,
+  gridSupplyMp: 0,
+  coverage: COVERAGE_SCALE,
+  billMg: 0,
+};
 
 /**
  * A placement verdict together with the routing it would produce
@@ -87,6 +117,12 @@ export class Sim {
    * the renderer, never read back, excluded from the hash.
    */
   readonly events: RenderEvent[] = [];
+  /**
+   * The most recent tick's power resolution — read-only for render and
+   * tests. Overwritten every advance; the step-9 debit reads `billMg` from
+   * here within the same tick, which is the only sim read of it.
+   */
+  power: Readonly<PowerReadout> = IDLE_POWER;
 
   private readonly rng: Rng;
   private readonly treasury: { x: number; y: number };
@@ -251,12 +287,37 @@ export class Sim {
     stepEnemies(s, this.grid, fields, this.data.slowSpeedPer100);
     // 6. Arrival: treasury grab-and-flip, sack pickup, spawn escape
     resolveArrivals(s, this.treasury, this.allSpawns, this.carryMgByType, this.events);
-    // 7. Tower targeting and firing (damage applies this tick)
-    fireTowers(s, this.grid, fields, this.data, this.events);
+    // 7. Tower targeting and firing (damage applies this tick): the target
+    //    pre-pass, then — during a wave — the power resolution that yields
+    //    the tick's coverage, then the firing pass at that coverage
+    //    (energy-infrastructure design D2/D4). Nothing draws outside a wave:
+    //    the build phase fires at full coverage and bills nothing.
+    const pre = preTargetTowers(s, this.grid, fields, this.data);
+    if (s.runPhase === 'wave') {
+      const solarMp = solarOf(s.structures, this.data);
+      const r = resolvePower(
+        pre.drawMp,
+        solarMp,
+        tierCapacityMp(this.data, s.gridTier),
+        s.treasuryMg,
+        this.data.tariffMgPer1000,
+      );
+      this.power = {
+        drawMp: pre.drawMp,
+        solarMp,
+        gridSupplyMp: r.gridSupplyMp,
+        coverage: r.coverage,
+        billMg: r.billMg,
+      };
+    } else {
+      this.power = IDLE_POWER;
+    }
+    fireTowers(s, this.grid, fields, this.data, this.events, this.power.coverage, pre);
     // 8. Deaths: bounties, carrier sack drops, tombstones
     resolveDeaths(s, this.bountyMgByType);
-    // 9. Run progression (design D2): interest while a wave runs, settlement
-    //    when it drains, refund-driven win from the post-final-wave lock
+    // 9. Run progression (design D2): the grid bill, then interest while a
+    //    wave runs; settlement when it drains, refund-driven win from the
+    //    post-final-wave lock
     this.stepProgression();
     // 10. Compact tombstones; increment tick
     if (s.enemies.some((e) => !e.alive)) {
@@ -266,9 +327,11 @@ export class Sim {
   }
 
   /**
-   * Step 9 — the single progression point (design D2). No interest accrues
-   * on the settlement tick: the wave is already over when step 9 sees it
-   * drained.
+   * Step 9 — the single progression point (design D2). Bill, then interest
+   * on the post-bill balance (energy-infrastructure design D5) — neither on
+   * the settlement tick: the wave is already over when step 9 sees it
+   * drained. The bill was bounded in step 7 by what the positive balance
+   * could pay, and step 8 only raises the balance, so the debit lands at ≥ 0.
    */
   private stepProgression(): void {
     const s = this.state;
@@ -276,11 +339,15 @@ export class Sim {
       const drained =
         cursorsExhausted(s, this.waves[s.waveIndex - 1]!) && !s.enemies.some((e) => e.alive);
       if (!drained) {
+        s.treasuryMg -= this.power.billMg;
         accrueInterest(s, this.data.interestRatePpm);
         return;
       }
-      // Settlement: sack return, then the speed bonus, then the progression
-      // judgement on the post-return, post-bonus balance (run-lifecycle spec).
+      // Settlement: no bill (the readout reads idle from here, since the
+      // build phase that follows charges nothing), sack return, then the
+      // speed bonus, then the progression judgement on the post-return,
+      // post-bonus balance (run-lifecycle spec).
+      this.power = IDLE_POWER;
       returnSacks(s);
       s.lastWaveBonusMg = waveBonusMg(
         s.tick - s.waveStartTick,

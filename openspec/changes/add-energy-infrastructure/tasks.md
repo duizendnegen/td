@@ -39,22 +39,22 @@
 
 ## 3. Sim — Power Step
 
-- [ ] 3.1 New `src/sim/power.ts`: pure `resolvePower(draw, solar, tierCapacity, treasuryMg,
+- [x] 3.1 New `src/sim/power.ts`: pure `resolvePower(draw, solar, tierCapacity, treasuryMg,
       tariffMgPer1000)` → `{ gridSupply, coverage, billMg }` per design D4 (solar → [storage
       slot] → grid; `affordable` bound; coverage in SCALE 1024; floor once); `drawOf(structure,
       engaged, data)`; `solarOf(structures, data)`
-- [ ] 3.2 `src/sim/tower.ts`: split `fireTowers` into a target pre-pass (every tower,
+- [x] 3.2 `src/sim/tower.ts`: split `fireTowers` into a target pre-pass (every tower,
       `selectTarget` once, engaged flag + cached target, sum draw) and the firing pass; the
       firing pass re-checks the cached target's `hp > 0` (re-selects if dead, per tower-combat)
       and schedules `nextFireTick = tick + ceil(interval × 1024 / coverage)`; at coverage 0 a due
       tower holds (no advance). Slow towers included
-- [ ] 3.3 `src/sim/sim.ts`: step 7 computes draw → `resolvePower` → coverage → fires; the tick's
+- [x] 3.3 `src/sim/sim.ts`: step 7 computes draw → `resolvePower` → coverage → fires; the tick's
       `billMg` and coverage are carried on the sim (derived, unhashed) to step 9 and the
       snapshot; step 9 debits the bill before `accrueInterest`, none on the settlement tick;
       no power step outside `runPhase === 'wave'`
-- [ ] 3.4 Snapshot / render-facing read of coverage, draw, solar, grid supply, tier, capacity,
+- [x] 3.4 Snapshot / render-facing read of coverage, draw, solar, grid supply, tier, capacity,
       bill (for the meter, tower tint, F4) — read-only, never mutated by render
-- [ ] 3.5 ARCHITECTURE.md: §5 add the power unit and tariff conversion; §7 tick order step 7
+- [x] 3.5 ARCHITECTURE.md: §5 add the power unit and tariff conversion; §7 tick order step 7
       ("target pre-pass, power resolution, firing") and step 9 ("grid bill, then interest…");
       decision log entries for engagement-based draw, per-tick ceiling, merit order with the
       storage slot, uniform interval stretch, one-way tier

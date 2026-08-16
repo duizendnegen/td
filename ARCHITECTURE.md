@@ -24,6 +24,11 @@ rather than an accident.
 | D10 | Numeric model | **1/1024 tile units, milli-gold** | int32-safe headroom; per-tick interest accrues exactly |
 | D11 | Repo & deploy | **git init + GitHub Pages** | Shareable link exists from Phase 1, so every gate is externally playtestable |
 | D12 | Debug tooling | **First-class overlay in Phase 1** | Flow fields and fixed-point state cannot be verified by watching |
+| D13 | Power model | **Engagement-based draw**: a tower draws its rating while it has a target, a standby share otherwise; walls draw nothing; nothing draws outside a wave | Constant draw makes the load curve flat and leaves the follow-up battery nothing to shave; per-shot draw is a tax on damage and needs a rolling HUD |
+| D14 | Power ceiling | **Per-tick soft ceiling via brownout**: coverage = supplied ÷ draw, capped at 1, computed once per tick from an engaged pre-count | A hard cap (refuse placement) contradicts inform-don't-block; a soft cap unifies "over capacity" and "broke" under one mechanism |
+| D15 | Supply order | **Merit order solar → [storage] → grid**, the grid bounded by tier capacity and by the positive balance at the tariff; surplus solar discarded | The storage slot is reserved so the battery change slots in without reopening the order; the treasury bound is what makes "the bill lands at exactly zero, never below" true |
+| D16 | Brownout shape | **Uniform interval stretch**: every tower's next shot at interval ÷ coverage, integer ceiling; hold at zero | Probabilistic shot-skipping is replay-visible noise that reads as flaky; per-tower priority is a later lever, not this change |
+| D17 | Grid connection | **Hashed integer tier, one-way `upgradeGrid` command**, any live phase, no refund | A mid-wave "we need more power" is a legitimate rescue; the finality is stated in the UI rather than modelled as provisional state |
 
 ### D1 in detail — why 3D
 
@@ -118,7 +123,8 @@ src/
 │  ├─ flowfield.ts         Dijkstra fields + corner rule + no-transit spawns
 │  ├─ placement.ts         validation, removal + its phase gate
 │  ├─ enemy.ts             steering, state machine, theft
-│  ├─ tower.ts             targeting, firing, upgrades
+│  ├─ tower.ts             targeting (pre-pass), coverage-aware firing, upgrades
+│  ├─ power.ts             draw, solar, supply merit order, coverage, grid bill
 │  ├─ economy.ts           treasury, interest, bounties, settlement
 │  ├─ waves.ts             wave scheduling and spawn activation
 │  ├─ commands.ts          command types and application
@@ -138,7 +144,8 @@ src/
 │  ├─ ribbon.ts            lane ribbon: traced routes, projected reroute, orphaned region
 │  └─ debug.ts             waypoints, ranges, sim readout
 ├─ ui/
-│  ├─ hud.ts               treasury, wave
+│  ├─ hud.ts               treasury
+│  ├─ powerhud.ts          the power meter + connection-upgrade control
 │  ├─ palette.ts           build menu
 │  ├─ ghostbadges.ts       price badge on each box the placement ghost draws
 │  ├─ inspector.ts         selected tower panel
@@ -236,6 +243,27 @@ sacks returning, then the run-progression judgement) runs in that same step 9 sl
 empties, with no interest on the settlement tick. There is no bankruptcy threshold — theft may
 overdraw the balance arbitrarily far below zero, and the only consequences are the spending block
 below 0 and the solvency gate on starting the next wave.
+
+**Power** is held in **milli-power units** (`mp`, `POWER = 1000` per authored unit — the HUD
+reads a unit as a kW), for the same reason money is in thousandths: a per-tick standby share
+of a rating must not truncate to zero. Ratings, panel output and connection-tier capacity are
+authored in whole units and scaled once at load. The tariff is authored as gold per unit per
+*second* and converted once to `tariffMgPer1000` — milli-gold per 1000 mp per *tick* —
+mirroring `interestRatePpm`:
+
+```ts
+tariffMgPer1000 = Math.round(0.12 * GOLD / TICK_HZ);      // 0.12 g/kW/s → 6 mg per kW-tick
+gridSupplyMp    = Math.min(deficit, tierCapacityMp, affordable);
+billMg          = Math.floor(gridSupplyMp * tariffMgPer1000 / 1000);   // the one floor
+coverage        = Math.min(1024, Math.floor(supplied * 1024 / drawMp)); // full = 1024
+```
+
+`affordable` is `floor(treasuryMg × 1000 / tariffMgPer1000)` on a positive balance and 0 at
+or below zero — so the bill can bring the balance to exactly zero and never below it, and a
+broke treasury buys no grid power (a zero tariff is a free grid and skips the bound). Coverage
+is a fixed-point ratio in 1/1024, like positions; the stretched fire interval is
+`ceil(interval × 1024 / coverage)`. Coverage and the bill are derived per tick and never
+stored; only the connection tier is state (`SimState.gridTier`, hashed).
 
 **HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `nextFireTick`) are
 absolute tick numbers, never countdowns, so they need no per-tick decrement and survive
@@ -361,11 +389,18 @@ Fixed and documented, because order is part of the determinism contract:
 6. Enemy arrival: theft at treasury (full-capacity overdraw), escape at the enemy's origin
    spawn (origin-only — no-transit routing means no other spawn tile is ever reachable), gold
    pickup
-7. Tower targeting and firing (damage applies this tick)
+7. Tower targeting and firing (damage applies this tick): a **target pre-pass** over every
+   tower (engaged = has a target this tick; the tick's draw is rated-while-engaged plus
+   standby), then — during a wave — **power resolution** (solar → grid up to capacity and
+   the positive balance, yielding the tick's coverage and bill), then the **firing pass** at
+   that coverage: a firing tower schedules its next shot at `interval ÷ coverage`, and at
+   coverage zero every due tower holds without advancing. Outside a wave nothing draws and
+   towers fire at full coverage.
 8. Deaths, bounties, gold-sack drops
-9. Run progression: interest accrual while the wave is live; end-of-wave settlement (sack
-   return, then the won / wave-locked / build judgement) the tick it drains; refund-driven
-   win checks from the post-final-wave locked state
+9. Run progression: the **grid bill**, then interest accrual on the post-bill balance while
+   the wave is live; end-of-wave settlement (no bill, no interest; sack return, then the won /
+   wave-locked / build judgement) the tick it drains; refund-driven win checks from the
+   post-final-wave locked state
 10. Compact tombstones; increment tick
 
 ### Entity storage
@@ -503,13 +538,22 @@ if (sim.tick >= t.nextFireTick) {
 }
 ```
 
-Stats (`damage`, `fireIntervalTicks`, range, slow duration) come from the tower archetype's
-current level row in balance data. Within a tick, towers due to fire resolve in **insertion
-order**, and target selection skips enemies already at `hp ≤ 0` from an earlier same-tick shot —
-build order pins same-tick resolution, and no shot is wasted on the dead. Priorities read the
-flow fields: rapid/area/slow pick minimal *inbound* cost (first along path); the sniper's
-carrier rule picks minimal cost in each carrier's **origin** returning field (closest to escaping
-through its own exit), otherwise max stat-block hp.
+Stats (`damage`, `fireIntervalTicks`, range, slow duration, rated power) come from the tower
+archetype's current level row in balance data. Within a tick, towers due to fire resolve in
+**insertion order**, and target selection skips enemies already at `hp ≤ 0` from an earlier
+same-tick shot — build order pins same-tick resolution, and no shot is wasted on the dead.
+Priorities read the flow fields: rapid/area/slow pick minimal *inbound* cost (first along path);
+the sniper's carrier rule picks minimal cost in each carrier's **origin** returning field (closest
+to escaping through its own exit), otherwise max stat-block hp.
+
+Step 7 is two passes since energy-infrastructure (`preTargetTowers`, then `fireTowers`): every
+tower selects its target once up front — that engagement is what draws power — and the firing
+pass reuses the cached target, re-selecting only if an earlier tower killed it this tick (the
+skip-the-dead rule, unchanged). The pass in between (`sim/power.ts`) turns the tick's draw into
+a coverage ratio, and `t.nextFireTick = tick + ceil(fireIntervalTicks × 1024 / coverage)`
+stretches every archetype's cadence alike — a slow tower's reapplication slows, its authored
+duration does not. At coverage zero a due tower holds its fire tick and shoots on the first
+later tick with any supply.
 
 `events` is drained by the renderer each frame and never read by the sim, so it is outside the state
 hash. The known cost: a catapult boulder can visibly land after its target has already died.
@@ -696,6 +740,10 @@ const LevelSchema = z.object({
     map: z.array(z.string()),          // one row string per grid row, one char per tile
   }),
   economy: z.object({ startingTreasury: z.int(), interestRatePerTick: z.number() }),
+  power: z.object({
+    tiers: z.array(z.object({ capacity: z.number(), cost: z.int() })).min(1),  // strictly ascending
+    tariff: z.number(),                // gold per unit per second
+  }),
   waves: z.array(WaveSchema).min(1),
 });
 export type Level = z.infer<typeof LevelSchema>;
@@ -709,12 +757,16 @@ Validation goes beyond shape, and this is the main reason it is worth a dependen
 - Treasury and spawns are inside the grid and on dirt terrain.
 - **Every spawn can reach the treasury on the level's starting terrain** — a graph check, run at load,
   that catches an unwinnable level before it ever renders.
+- The connection-tier table is non-empty and its capacities ascend strictly; every tower level
+  carries a rated power; the standby fraction is in [0, 1]; the panel block is present.
 
-Float rates in the file (`interestRatePerTick: 0.0004`) are converted to integers **once**, at load,
-and the sim only ever sees integers. Authoring stays readable; the sim stays deterministic.
+Float rates in the file (`interestRatePerTick: 0.0004`, `tariff: 0.12`, `standbyFraction: 0.2`,
+per-level `ratedPower`) are converted to integers **once**, at load, and the sim only ever sees
+integers. Authoring stays readable; the sim stays deterministic.
 
-`balance.json` holds tower and enemy stat blocks; level files are pure composition referencing them by
-`type`, exactly as the README specifies.
+`balance.json` holds tower and enemy stat blocks plus the power block (standby fraction, panel
+cost and output); level files are pure composition referencing them by `type` — plus the level's
+own connection tiers and tariff — exactly as the README specifies.
 
 ---
 
@@ -727,7 +779,7 @@ by watching the game:
 |---|---|
 | `F2` | Enemy state: committed waypoint line, inbound/returning, carried gold, slow timer |
 | `F3` | Tower ranges and current target lines; every active spawn's returning field as per-tile direction ticks |
-| `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count |
+| `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count — and, during a wave, the tick's draw, solar / grid supply, tier and capacity, coverage and bill |
 
 The player-facing **lane ribbon** (§9) remains the answer to "where do they go"; F3's returning
 fields exist because per-origin routing multiplies the fields, and "is spawn 2's field sane" can
@@ -764,7 +816,8 @@ Vitest, `sim/` only. No render or UI tests.
 | `theft.test.ts` | Full round trip: steal → carry at 80% → killed → sack drops → picked up → flip to returning → escape |
 | `economy.test.ts` | Interest only during waves and only on positive balance; settlement order; the solvency gate lock and refund-driven unlock; solvent-to-win |
 | `fixed.test.ts` | Normalisation exactness; no float leaks; division rounding at negatives |
-| `level.test.ts` | Schema rejects bad spawn refs, unknown enemy types, unreachable treasury |
+| `level.test.ts` | Schema rejects bad spawn refs, unknown enemy types, unreachable treasury, missing or malformed power data |
+| `power.test.ts` | Engaged vs standby draw; merit order and its bounds; the bill lands at zero, never below; cut-off and recovery; bill before interest, none on settlement; coverage stretches cadence, holds at zero, recovers |
 | `replay.test.ts` | Seed + recorded commands → state hash matches golden after N ticks |
 
 `replay.test.ts` is the enforcement mechanism for section 4 and is the one test that must never be
