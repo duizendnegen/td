@@ -174,7 +174,11 @@ The storage slot sits between solar and grid: the next change inserts
 surplus solar before discarding it. Nothing else in this order moves.
 
 The `affordable` bound is what makes "the bill can bring the balance to exactly zero, never
-below" true, and `treasury > 0` is the cut-off. This is deliberately stricter than the
+below" true, and `treasury > 0` is the cut-off. *Edge, settled in implementation:* a zero
+tariff (permitted by the schema) leaves the formula undefined; it is read as a **free grid** —
+nothing is bought, so the treasury bound does not apply and the connection never cuts off,
+while the capacity bound still holds. No shipped level uses it; the test fixtures that are not
+about power rely on it (`INERT_POWER`). This is deliberately stricter than the
 placement gate (which permits a purchase at balance ≥ 0 even into debt): a placement is a
 discrete player decision; the bill is automatic, and letting it run into debt would be the
 debt-accrual variant we rejected.

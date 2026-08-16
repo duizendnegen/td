@@ -355,3 +355,13 @@ Answered by playing, not by argument. Full list in
 3. Does uncapped interest self-balance?
 4. Is a flat per-wave stipend needed against the death spiral? (Only if testing demands it — never by
    softening theft itself.)
+5. Power: is a broke wave with no solar recoverable (else the debt / credit-line lever); do
+   panels-as-investment keep walls relevant; does the ceiling alone reward infrastructure enough
+   (overdrive lever); does uniform brownout frustrate (priority lever)?
+
+## Next up
+
+**Home battery** — the designed-for follow-up to energy infrastructure. Storage slots into the
+supply merit order between solar and grid (charge from surplus solar, discharge against the deficit,
+bounded by rate and charge), giving the wave's load curve something to shave: cheaper bills, and
+towers that keep firing through a broke tick. Nothing in the power model needs reopening for it.

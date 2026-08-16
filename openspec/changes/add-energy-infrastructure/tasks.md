@@ -98,12 +98,12 @@
 
 ## 6. Docs
 
-- [ ] 6.1 README.md: new "Power" section (rated draw while engaged, connection tiers, tariff,
+- [x] 6.1 README.md: new "Power" section (rated draw while engaged, connection tiers, tariff,
       solar, brownout, broke = cut off, one meter); economy and build-rules sections mention
       panels and the one-way connection upgrade
-- [ ] 6.2 ARCHITECTURE.md §15 / ROADMAP.md open questions: recoverability of a broke wave with
+- [x] 6.2 ARCHITECTURE.md §15 / ROADMAP.md open questions: recoverability of a broke wave with
       no solar; whether panels-as-investment keeps walls relevant; whether the ceiling alone
       rewards infrastructure enough (overdrive lever L1); whether uniform brownout frustrates
       (priority lever L2)
-- [ ] 6.3 Note the battery follow-up change as the next item after this one lands (proposal
+- [x] 6.3 Note the battery follow-up change as the next item after this one lands (proposal
       non-goals section already frames it)

@@ -692,9 +692,14 @@ so Tailwind's scanner sees every class verbatim.
 `#overlay` — that components mount into once; desktop vs. mobile placement is pure CSS
 (responsive variants at one breakpoint: ≥768px wide and ≥480px tall is desktop).
 
-- **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar.
-- **Palette** — four towers plus wall, remove and move, with costs, greyed out when unaffordable
-  or when `balance < 0` (the README's no-spending-while-negative rule). Tower items carry an
+- **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar, and
+  the **power meter** beside the treasury (`ui/powerhud.ts` over the pure `ui/powermeter.ts`
+  derivation): live draw against the ceiling (capacity + solar), solar/grid split, gold per
+  second and tier during a wave — red while coverage < 1 — the rated total between waves, and
+  the one-way connection-upgrade control with the palette's affordable / debt / blocked states.
+- **Palette** — four towers plus wall, solar panel, remove and move, with costs, and the rated
+  power on every tower card, greyed out when unaffordable or when `balance < 0` (the README's
+  no-spending-while-negative rule); lack of power never greys anything. Tower items carry an
   "on wall" caption, naming the foundation rule where a player first arms one. The remove tool
   ignores the balance and greys out while a wave runs instead.
 - **Placement ghost** — a translucent box on the hovered tile, tinted by the real validation.
@@ -702,11 +707,11 @@ so Tailwind's scanner sees every class verbatim.
   or two further back, so height is never used to say anything. Each box carries a small price
   badge at its mid-height while the placement reads valid. A tower tool over bare dirt draws the wall ghost inside the tower
   ghost — two boxes, two badges, the overlap denser — because that click lays the wall and mounts
-  the tower in one command.
-- **Inspector** — selected tower: level, damage, rate, range, a performance block (effective
-  damage this/last wave and in total, from the tower's own hashed counters), upgrade cost, and
-  sell/remove showing the refund it returns, locked while a wave runs. Right panel on desktop;
-  bottom sheet on mobile.
+  the tower in one command. The panel ghosts as a wall.
+- **Inspector** — selected tower: level, damage, rate, range, rated power, a performance block
+  (effective damage this/last wave and in total, from the tower's own hashed counters), upgrade
+  cost with the next level's rated power, and sell/remove showing the refund it returns, locked
+  while a wave runs. Right panel on desktop; bottom sheet on mobile. Panels are not inspectable.
 - **Lane ribbon** — shown only while a build tool is armed: one traced route per active spawn to
   the treasury plus one back out, drawn as marching dashes so direction reads without colour.
   While a ghost sits on a tile whose validation produced post-placement routing, the projected
@@ -889,3 +894,18 @@ To be answered by playtesting, not by argument:
 3. Does uncapped interest actually self-balance, or does hoarding dominate?
 4. Is a flat per-wave stipend needed to soften the death spiral? (Only if testing demands it — never
    by softening theft itself.)
+5. **Power (energy-infrastructure).** Four questions, each with its recorded lever:
+   - Is a broke wave with no solar recoverable? Broke means cut off, so towers stop; the between-wave
+     sell path and the stipend (4.) are the existing outs. If not recoverable in play, fall back to
+     debt accrual / a grid credit line (design lever L3) rather than softening the cut-off.
+   - Does panels-as-investment keep walls relevant, or do panels obsolete the maze piece? Panels are
+     priced at several walls each on purpose; the price is the knob.
+   - Does the ceiling alone reward infrastructure enough — do players *want* power — or does surplus
+     supply need to do something? Overdrive (lever L1: lift the coverage cap above 1) is a one-line
+     lever, but the battery is the better home for surplus.
+   - Does uniform brownout frustrate ("everything slows at once")? A priority / shedding order
+     (lever L2) turns brownouts into a per-tower puzzle and is the natural home of player-set budgets.
+6. **Next change: the home battery.** This change fixed the engagement-based draw and the supply
+   merit order so a battery slots in between solar and grid — charging from surplus solar,
+   discharging `min(deficit after solar, dischargeRate, charge)` — without reopening anything; it is
+   the designed-for follow-up once the ceiling is known to read at all.
