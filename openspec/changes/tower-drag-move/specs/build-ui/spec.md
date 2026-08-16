@@ -88,6 +88,42 @@ Speculative evaluation while carrying SHALL NOT change simulation state.
   while a replay of the same seed and commands runs without lifting anything
 - **THEN** both runs produce identical state hashes
 
+### Requirement: The inspector offers a move action
+
+The tower inspector — the desktop panel and the mobile bottom sheet alike — SHALL offer a move
+action alongside its upgrade and remove actions. Activating it SHALL arm the move tool and lift
+the inspected tower in one step, leaving the interaction exactly where selecting the move tool
+and then pressing on that tower would leave it: the tool reads armed, the inspector closes, the
+tower reads lifted at its origin, and no command has been issued. From there the carry, drop,
+put-down, cancel, and reject behaviour of the armed move tool applies unchanged — on pointer
+devices the tower is carried until the next click drops it; on touch the pending move ghost with
+its confirm and cancel affordances anchors at the tower's tile.
+
+The move action SHALL read as unavailable whenever the move tool is — outside the build phase —
+and, like the inspector's remove control, SHALL name the wave as the reason while one runs. While
+unavailable, activating it SHALL neither arm the tool, nor lift, nor issue any command.
+
+#### Scenario: The inspector's move action lifts the tower
+
+- **WHEN** the player inspects a tower during the build phase and activates the inspector's move
+  action
+- **THEN** the move tool reads armed, the inspector closes, the tower reads lifted at its origin
+  with no command issued, and the next click on a tile whose ghost shows valid queues exactly one
+  move command for that tile
+
+#### Scenario: The move action's lift ends like any other
+
+- **WHEN** the player lifts a tower through the inspector's move action and then clicks the
+  tower's own tile, presses Esc, or deselects the tool
+- **THEN** no command is issued, the tower reads as standing at its origin, and the simulation
+  state hash is unchanged
+
+#### Scenario: A wave locks the inspector's move action
+
+- **WHEN** a wave is running and a tower is inspected
+- **THEN** its move action reads unavailable naming the wave, and activating it arms no tool,
+  lifts nothing, and issues no command
+
 ### Requirement: Every failed drop gets the same reject feedback
 
 A drop that does not result in a confirmed move — whether the ghost already showed invalid, or

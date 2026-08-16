@@ -118,6 +118,21 @@ harmless otherwise. While a structure is lifted, its origin mesh renders dimmed 
 override set by `InputCore`); the carried preview is the ordinary `GhostPreview` of the mover's
 kind, with the archetype's range ring at the candidate tile for towers.
 
+**9. The inspector's Move action is arm-then-lift, not a third lift path.**
+`InputCore.liftInspected(s)` calls `palette.select('move')` and then `liftAt` on the tower's
+tile — the same two steps the player performs by hand — so the palette's phase gate, the
+tool-change fan-out (inspector deselect, touch pending reset, an old lift cleared), and every
+carry/drop/put-down/reject rule downstream apply by construction; a refused arming (the tool
+stays unarmed outside the build phase) lifts nothing. The one thing a driver cannot infer is
+that a lift began without its own press or tap: touch needs its pending ghost anchored at the
+origin for the ✓/✕ pair to appear (its own tap sets `pending` itself), so the core fires an
+`onLift(origin)` hook next to `onToolChange`; the pointer driver ignores it — a lift with no
+press standing already is the click-click carry. The inspector stays command-only towards the
+sim and never imports the core: it exposes an `onMove` hook the core wires at construction,
+mirroring how the core owns `palette.onChange`. The action is gated by the same `moveOpenIn`
+predicate (D7) and, like the inspector's remove control, names the wave when locked — the
+palette tool stays reason-less, per the existing build-ui convention.
+
 **Alternatives considered:** towers-only moves (the first cut — walls were left to sell +
 rebuild, but nudging a maze line is exactly the revision the feature exists for, and the sim
 path is kind-agnostic once the terrain rule follows the mover); a same-tile move accepted by
@@ -125,7 +140,10 @@ the sim as a no-op 'ok' (needs three special cases — validateMove's early retu
 field swap, previewMoveRoutes' rebuilt check — where the UI needs one); implicit
 drag-on-selected-tower with no mode (rejected by the
 user in favor of a remove-style mode — it also collides with click-to-select on desktop and
-one-finger pan on touch); a move fee or provisional-only moves (friction against the
+one-finger pan on touch; the inspector's Move action is the explicit, mode-respecting form of
+that wish); an inspector action that set `lifted` directly without arming the tool (leaves the
+palette reading no tool while a ghost is carried, and would need its own Esc/phase-change
+cancellation — arming through the palette gets all of that for free); a move fee or provisional-only moves (friction against the
 feature's purpose — the dismantle penalty prices divestment, not relocation); extending
 `validatePlacement` with an ignore-flag (more invasive than a sibling that shares helpers).
 

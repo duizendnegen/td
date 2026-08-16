@@ -11,7 +11,9 @@ the tapped structure's tile together with the same confirm and cancel affordance
 Dragging the ghost or tapping another tile SHALL move the pending destination. Confirming SHALL
 issue exactly one move command for the pending tile; cancelling or deselecting the tool SHALL
 dismiss the ghost with no command and no state change. No move command SHALL ever be issued by
-the initial tap alone.
+the initial tap alone. The inspector sheet's move action SHALL stage this same pending move for
+the inspected tower — the tool armed, the ghost anchored at the tower's tile — as if the tower
+had been tapped with the tool armed.
 
 The structure's own tile SHALL read as a legal pending destination — the ghost and the confirm
 affordance read valid there — and confirming with the pending destination on the structure's own
@@ -44,6 +46,14 @@ nothing lifted, a one-finger drag SHALL NOT pan the camera or lift a structure.
   destination, then confirms
 - **THEN** a single move command is issued for the final tile and the simulation state hash was
   unchanged until it applied
+
+#### Scenario: The inspector sheet's move action stages the same pending move
+
+- **WHEN** the player taps a tower with no tool armed and activates the inspector sheet's move
+  action during the build phase
+- **THEN** the sheet gives way to the build menu with the move tool armed, and the pending move
+  ghost with its confirm and cancel affordances anchors at the tower's tile — exactly as a tap on
+  the tower with the tool already armed would stage it — with no command issued
 
 #### Scenario: Confirming on the origin puts the structure down
 

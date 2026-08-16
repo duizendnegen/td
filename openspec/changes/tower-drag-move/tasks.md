@@ -83,3 +83,20 @@
 - [x] 6.6 `npm run typecheck`, `npm test`, `openspec validate tower-drag-move --strict`;
   Playwright pass: lift and drop a wall, drop a tower back on its own tile (green ghost, no
   flash, lift ends), touch ✓ on the origin dismisses
+
+## 7. Iteration: the inspector's Move action
+
+- [x] 7.1 InputCore: `liftInspected(s)` — arm the move tool through `palette.select('move')`,
+  then `liftAt` on the tower's tile; a refused arming lifts nothing; wire `inspector.onMove`
+  to it at construction; add the `onLift(origin)` driver hook, fired only from this route
+- [x] 7.2 Inspector: Move action between upgrade and remove, `onMove` hook, gated per frame
+  by `moveOpenIn(state.runPhase)` with a locked face naming the wave (design D9)
+- [x] 7.3 Touch driver: `core.onLift` anchors the pending ghost at the origin so the ✓/✕ pair
+  appears as after a tap; pointer driver needs nothing (no press standing = click-click carry)
+- [x] 7.4 Driver tests: the inspector route arms, deselects the inspector, lifts, fires
+  `onLift`, issues nothing, and the next click drops with one command; the second click on
+  the origin puts down; a gated palette leaves everything untouched
+- [x] 7.5 `npm run typecheck`, `npm test`, `openspec validate tower-drag-move --strict`;
+  Playwright pass: desktop Move from the inspector then click-drop, wave-time locked face,
+  mobile sheet Move staging the ✓/✕ pair at the tower
+
