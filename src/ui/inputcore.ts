@@ -11,6 +11,9 @@
 //     re-evaluated on ghost-tile change or new tick — never per move event
 //   - The same trigger drives the lane ribbon, so the ghost tint and the
 //     projected routes come from one validation and cannot disagree
+//   - The inspector's Move action routes here too: arm the move tool, lift
+//     the inspected tower — the same two steps a palette click and a press
+//     perform, so both drivers see one lift lifecycle
 //   - Never writes sim state directly — emits commands only
 //   - Every invalid commit plays the same red flash the sim's rejects use
 
@@ -52,7 +55,8 @@ export class InputCore {
   /**
    * The lifted structure — tower or wall — while the move tool carries one
    * (tower-drag-move design D6): its id plus the origin tile the move command
-   * will name. Entered only through liftAt; cleared by tool change/deselect
+   * will name. Entered only through liftAt — from a driver's press/tap or
+   * the inspector's Move action; cleared by tool change/deselect
    * (Esc, palette click, the phase-change deselect in palette.refresh), by
    * cancelLift — which a drop on the origin tile resolves to — and by the
    * per-frame sweep in updateMoveGhost once the structure's tile changed —
@@ -91,10 +95,20 @@ export class InputCore {
       this.forceReevaluate();
       this.onToolChange?.();
     };
+    inspector.onMove = (s) => this.liftInspected(s);
   }
 
   /** Driver hook, fired on every tool change (touch clears its pending ghost). */
   onToolChange: (() => void) | null = null;
+
+  /**
+   * Driver hook, fired with the origin tile when a lift begins outside the
+   * driver's own press/tap handling — the inspector's Move action. Touch
+   * stages its pending ghost there, exactly as its own tap on the structure
+   * would; the pointer driver needs nothing, since a lift with no press
+   * standing already is the click-click carry.
+   */
+  onLift: ((origin: Tile) => void) | null = null;
 
   /** Screen point → ground-plane raycast → tile, or null off the board. */
   pickTile(clientX: number, clientY: number): Tile | null {
@@ -192,6 +206,25 @@ export class InputCore {
     if (!s || !moveOpenIn(this.sim.state.runPhase)) return false;
     this.lifted = { id: s.id, tx: s.tx, ty: s.ty };
     this.forceReevaluate();
+    return true;
+  }
+
+  /**
+   * The inspector's Move action: arm the move tool and lift the inspected
+   * tower in one step — precisely what selecting the tool and then pressing
+   * on the tower does, so the two routes cannot drift (design D9). Arming
+   * goes through the palette, so its phase gate, the tool-change fan-out
+   * (the inspector deselects, touch drops its pending ghost, an old lift
+   * clears), and everything downstream of a lift apply as they would for a
+   * palette click; a refused arming — the tool stays unarmed outside the
+   * build phase — lifts nothing. Returns whether a lift began.
+   */
+  liftInspected(s: Structure): boolean {
+    if (this.palette.selected !== 'move') this.palette.select('move');
+    if (this.palette.selected !== 'move') return false;
+    const origin = { tx: s.tx, ty: s.ty };
+    if (!this.liftAt(origin)) return false;
+    this.onLift?.(origin);
     return true;
   }
 

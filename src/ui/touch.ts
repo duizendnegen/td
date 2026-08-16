@@ -9,7 +9,9 @@
 //     uses, or dismisses with no state change
 //   - Move tool (tower-drag-move): a tap on a structure lifts it into the same
 //     pending-ghost-plus-✓/✕ flow, anchored at its own tile; confirm
-//     issues one move command through InputCore.commitMove
+//     issues one move command through InputCore.commitMove. The inspector
+//     sheet's Move action lands in the same flow: the core arms the tool and
+//     lifts, and its onLift hook anchors the pending ghost at the origin
 //   - No tool: tap selects/deselects structures; one-finger drag pans and
 //     pinch zooms the camera
 //   - Two-finger gestures always drive the camera, tool or not
@@ -101,6 +103,9 @@ export class TouchDriver {
     this.camera = camera;
     this.canvas = canvas;
     core.onToolChange = () => (this.pending = null);
+    // A lift that began without a tap — the inspector sheet's Move action —
+    // stages its pending ghost at the origin, as the tap itself would.
+    core.onLift = (origin) => (this.pending = origin);
 
     canvas.addEventListener('pointerdown', (e) => {
       this.route(this.tracker.down(e.pointerId, e.clientX, e.clientY, e.timeStamp));

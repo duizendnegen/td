@@ -1,6 +1,7 @@
 // See the tower-drag-move change: the desktop lift/carry/drop lifecycle
-// (build-ui delta, design D6) — towers and walls, and the origin tile as the
-// put-down — over the stubbed-canvas pattern from mousecam.test.ts. The InputCore + PointerDriver pair runs against a real
+// (build-ui delta, design D6) — towers and walls, the origin tile as the
+// put-down, and the inspector's Move action as arm-then-lift (design D9) —
+// over the stubbed-canvas pattern from mousecam.test.ts. The InputCore + PointerDriver pair runs against a real
 // Sim and CommandQueue; picking is stubbed to a flat 100px-per-tile mapping
 // so the slop arithmetic stays real while the camera does not exist.
 import * as THREE from 'three';
@@ -12,26 +13,46 @@ import { PointerDriver } from '../src/ui/input';
 import { InputCore, type Tile } from '../src/ui/inputcore';
 import type { InspectorUI } from '../src/ui/inspector';
 import type { PaletteUI, Tool } from '../src/ui/palette';
+import type { Structure } from '../src/sim/types';
 import { makeSim, openLevel, place } from './helpers';
 
-/** Palette double: the mode machine alone — selection state + onChange. */
+/**
+ * Palette double: the mode machine alone — selection state + onChange, plus
+ * the move tool's phase gate (a refused select leaves the selection alone,
+ * as the real palette does outside the build phase).
+ */
 class StubPalette {
   selected: Tool | null = 'move';
+  moveGated = false;
   onChange: ((tool: Tool | null) => void) | null = null;
   costOf(): number {
     return 0;
   }
   select(tool: Tool | null): void {
+    if (tool === 'move' && this.moveGated) return;
     this.selected = tool;
     this.onChange?.(tool);
   }
 }
 
+/** Inspector double: the selection sink plus the Move action's hook. */
+interface StubInspector {
+  select: (s: Structure | null) => void;
+  current: Structure | null;
+  previewStats: null;
+  onMove: ((s: Structure) => void) | null;
+  /** Every select(null) the core issued — the tool-change deselect. */
+  deselects: number;
+}
+
 interface Rig {
   core: InputCore;
   palette: StubPalette;
+  inspector: StubInspector;
   commands: CommandQueue;
   flashes: number;
+  /** Every origin the core's onLift hook reported (the touch driver's cue). */
+  lifts: Tile[];
   /** The last ghost.show call, or null after hide. */
   ghostShown: { kind: string; tint: string; rangeUnits: number } | null;
   sim: ReturnType<typeof makeSim>['sim'];
@@ -66,8 +87,16 @@ function rig(): Rig {
     showPreviewRingAt: noop,
   };
   const ribbon = { update: noop, hide: noop };
-  const inspector = { select: noop, current: null, previewStats: null };
-  const r: Partial<Rig> = { flashes: 0, ghostShown: null };
+  const inspector: StubInspector = {
+    select: (s) => {
+      if (s === null) inspector.deselects += 1;
+    },
+    current: null,
+    previewStats: null,
+    onMove: null,
+    deselects: 0,
+  };
+  const r: Partial<Rig> = { flashes: 0, ghostShown: null, lifts: [] };
   const fx = { flashReject: () => (r.flashes = (r.flashes ?? 0) + 1) };
 
   const core = new InputCore(
@@ -88,9 +117,11 @@ function rig(): Rig {
     return sim.grid.inBounds(tx, ty) ? { tx, ty } : null;
   };
   const driver = new PointerDriver(canvas, core);
+  core.onLift = (origin) => r.lifts!.push(origin);
 
   r.core = core;
   r.palette = palette;
+  r.inspector = inspector;
   r.commands = commands;
   r.sim = sim;
   r.drain = () => commands.drain();
@@ -229,6 +260,61 @@ describe('move tool, pointer driver', () => {
     expect(r.core.lifted).toBeNull();
     r.pointer('pointerup', 150, 150);
     expect(r.core.lifted).toBeNull();
+    expect(r.drain()).toHaveLength(0);
+    expect(r.flashes).toBe(0);
+  });
+});
+
+describe('inspector Move action', () => {
+  it('arms the move tool and lifts the inspected tower, as a palette click and a press would', () => {
+    const r = rig();
+    r.palette.selected = null; // no tool armed: the tower was clicked to inspect
+    const tower = r.sim.state.structures[0]!;
+    expect(r.inspector.onMove).not.toBeNull(); // the core wired the hook
+
+    r.inspector.onMove!(tower);
+    expect(r.palette.selected).toBe('move');
+    expect(r.inspector.deselects).toBe(1); // the tool change closed the inspector
+    expect(r.core.lifted).toEqual({ id: 0, tx: 3, ty: 0 });
+    expect(r.lifts).toEqual([{ tx: 3, ty: 0 }]); // touch's cue to stage the pending ghost
+    expect(r.drain()).toHaveLength(0); // arming and lifting issue nothing
+
+    // No press is standing, so this is the click-click carry: hover shows the
+    // tower ghost, and the next click drops.
+    r.pointer('pointermove', 350, 250);
+    r.frame();
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid' });
+    r.pointer('pointerdown', 350, 250);
+    const drained = r.drain();
+    expect(drained).toHaveLength(1);
+    expect(drained[0]).toMatchObject({ kind: 'move', tx: 3, ty: 0, toTx: 3, toTy: 2 });
+    r.pointer('pointerup', 350, 250); // its release is inert
+    expect(r.drain()).toHaveLength(0);
+  });
+
+  it('a second click on the origin after the inspector lift puts the tower down', () => {
+    const r = rig();
+    r.palette.selected = null;
+    const before = r.sim.hash();
+    r.inspector.onMove!(r.sim.state.structures[0]!);
+    r.pointer('pointermove', 350, 50);
+    r.pointer('pointerdown', 350, 50);
+    expect(r.flashes).toBe(0);
+    expect(r.drain()).toHaveLength(0);
+    expect(r.core.lifted).toBeNull();
+    expect(r.palette.selected).toBe('move'); // the tool stays armed, as after any put-down
+    expect(r.sim.hash()).toBe(before);
+  });
+
+  it('does nothing when the palette refuses the move tool (outside the build phase)', () => {
+    const r = rig();
+    r.palette.selected = null;
+    r.palette.moveGated = true; // what a running wave does to the tool
+    r.inspector.onMove!(r.sim.state.structures[0]!);
+    expect(r.palette.selected).toBeNull();
+    expect(r.core.lifted).toBeNull();
+    expect(r.lifts).toHaveLength(0);
+    expect(r.inspector.deselects).toBe(0);
     expect(r.drain()).toHaveLength(0);
     expect(r.flashes).toBe(0);
   });

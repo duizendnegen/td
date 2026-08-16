@@ -11,7 +11,9 @@
 //     tile, a sub-slop release keeps carrying and a second click drops — both
 //     drop paths run through InputCore.commitMove, where a drop on the origin
 //     tile is the put-down (no command). Slop latching mirrors the
-//     MouseCameraController right-drag pattern
+//     MouseCameraController right-drag pattern. The inspector's Move action
+//     arms the tool and lifts through the core with no press standing, which
+//     is already the click-click carry — nothing here to add
 //   - All picking, validation, selection, and command emission live in the
 //     shared InputCore; this driver only owns the hovered tile and the
 //     press-to-release slop state
