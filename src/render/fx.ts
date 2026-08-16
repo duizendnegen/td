@@ -268,8 +268,10 @@ export class GhostPreview {
   ): void {
     const color = GHOST_COLORS[tint];
     const centre = { x: tx + 0.5, z: ty + 0.5 };
+    // The panel ghosts as a wall: same footprint, same tinting, no range ring
+    // (energy-infrastructure build-ui delta).
     const towerHere = kind === 'tower';
-    const wallHere = kind === 'wall' || (towerHere && withWall);
+    const wallHere = !towerHere || withWall;
     this.wallMesh.visible = wallHere;
     this.towerMesh.visible = towerHere;
     if (wallHere) {

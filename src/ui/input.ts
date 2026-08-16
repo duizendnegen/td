@@ -135,7 +135,7 @@ export function buildHintLine(hud: HTMLElement): void {
     'border-outline/20 bg-surface-container/80 px-3 py-2 font-mono text-label-xs ' +
     'leading-relaxed text-on-surface-variant desktop:block';
   el.innerHTML =
-    '1 wall · 2-5 towers · 6 remove<br>7 move · towers go on walls<br>' +
+    '1 wall · 2-5 towers · 6 solar · 7 remove<br>8 move · towers go on walls<br>' +
     'click tower to inspect · Esc cancels<br>Space start wave / pause<br>hold F to fast-forward<br>' +
     'F2 waypoints · F3 ranges<br>F4 readout · F8 probe';
   hud.appendChild(el);

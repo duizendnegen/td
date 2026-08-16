@@ -2,7 +2,8 @@
 // See ARCHITECTURE.md §9 and the aether-ui-redesign build-ui spec
 //
 // Responsibilities:
-//   - Archetype, level, current stats, next-level cost
+//   - Archetype, level, current stats — rated power among them — and the
+//     next level's cost with its rated power (energy-infrastructure delta)
 //   - Performance block (tower-damage-stats design D5): the sim's recorded
 //     wave damage — labelled "This wave" during a wave, "Last wave" in every
 //     other phase, a dash for a tower that has never dealt damage outside a
@@ -33,6 +34,7 @@ import { canRemove, moveOpenIn } from '../sim/placement';
 import { MAX_TOWER_LEVEL } from '../sim/sim';
 import { towerStats } from '../sim/tower';
 import type { SimState, Structure } from '../sim/types';
+import { formatKw } from './powermeter';
 
 const LABELS: Record<string, string> = {
   rapid: 'Rapid tower',
@@ -91,7 +93,8 @@ const STAT_ROW = 'flex items-baseline justify-between gap-3 mobile:flex-col mobi
 const STAT_LABEL = 'font-mono text-label-caps uppercase text-on-surface-variant';
 const STAT_VALUE = 'font-mono text-[15px] font-bold text-primary';
 
-function statRows(data: GameData, s: Structure, stats: TowerLevelStats): [string, string][] {
+/** The inspector's stat rows for a tower at `stats` — exported for the UI tests. */
+export function statRows(data: GameData, s: Structure, stats: TowerLevelStats): [string, string][] {
   const archetype = ARCHETYPES[s.archetypeId]!;
   const rows: [string, string][] = [['Range', `${(stats.rangeUnits / TILE).toFixed(2)} tiles`]];
   if (archetype !== 'slow') {
@@ -104,6 +107,8 @@ function statRows(data: GameData, s: Structure, stats: TowerLevelStats): [string
   if (archetype === 'slow') {
     rows.push(['Slow', `to ${data.slowSpeedPer100}% · ${(stats.slowDurationTicks / TICK_HZ).toFixed(1)}s`]);
   }
+  // Rated draw while engaged (power-grid spec); the meter shows what it costs.
+  rows.push(['Power', formatKw(stats.ratedPowerMp)]);
   return rows;
 }
 
@@ -134,6 +139,12 @@ function renderRows(rows: [string, string][]): string {
         `<span class="${STAT_VALUE}">${value}</span></div>`,
     )
     .join('');
+}
+
+/** The upgrade action's label: next level, its cost, and its rated power — exported for the UI tests. */
+export function upgradeLabel(data: GameData, s: Structure): string {
+  const next = data.towers[s.archetypeId]!.levels[s.level]!;
+  return `Upgrade → L${s.level + 1} · ${next.costMg / GOLD}g · ${formatKw(next.ratedPowerMp)}`;
 }
 
 export class InspectorUI {
@@ -361,11 +372,12 @@ export class InspectorUI {
       return;
     }
 
-    // Palette-consistent states: affordable / debt-warned / blocked.
+    // Palette-consistent states: affordable / debt-warned / blocked. Lack of
+    // power never blocks or warns here — the meter carries that.
     const costMg = this.data.towers[s.archetypeId]!.levels[s.level]!.costMg;
     const blocked = state.treasuryMg < 0;
     const debt = !blocked && costMg > state.treasuryMg;
-    this.upgradeButton.textContent = `Upgrade → L${s.level + 1} · ${costMg / GOLD}g`;
+    this.upgradeButton.textContent = upgradeLabel(this.data, s);
     this.upgradeButton.disabled = blocked;
     this.upgradeButton.className = blocked ? UPG_BLOCKED : debt ? UPG_DEBT : UPG_AFFORDABLE;
   }

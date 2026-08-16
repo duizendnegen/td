@@ -24,6 +24,13 @@
 //     build-over-walls design D5)
 //   - One provisional tell per tile: a wall's mark is suppressed while a
 //     provisional tower on the same tile shows one (design D7)
+//   - The solar panel is a placeholder built from primitives (no kit asset
+//     reads as one): a low plinth and a tilted cell face, 1×1 like everything
+//   - Brownout (energy-infrastructure design D9): while the sim's coverage is
+//     below full every TOWER swaps to a darkened atlas variant — a state
+//     distinct from the provisional ground tell and from the lift's
+//     translucency — and swaps back the frame coverage returns to full.
+//     Read off the derived readout, never written back
 
 import * as THREE from 'three';
 import { ARCHETYPES, type TowerArchetype } from '../data/schema';
@@ -51,6 +58,19 @@ const KIT: Record<TowerArchetype, { base: string; middle: string; head: string }
 const PROVISIONAL_COLOR = 0x65f2b5;
 /** Full pulse period in ms — slow enough to read as a state, not an alarm. */
 const PULSE_MS = 1600;
+
+/** Placeholder panel palette: slate plinth, deep-blue cell face with a frame. */
+const PANEL_PLINTH_COLOR = 0x3a4150;
+const PANEL_CELL_COLOR = 0x1a3a8a;
+const PANEL_FRAME_COLOR = 0x9aa3b5;
+/** Cell tilt in radians, toward +z (the camera's near side) so the face reads. */
+const PANEL_TILT = Math.PI / 7;
+/**
+ * The brownout tint: the atlas material multiplied down to a cold grey-blue,
+ * opaque — dimmer than normal, but solid where the lift is see-through and
+ * unmarked on the ground where the provisional tell rings the tile.
+ */
+const BROWNOUT_COLOR = 0x5c6478;
 
 /** Stack model parts on top of each other, returning the total height. */
 function stack(group: THREE.Group, parts: THREE.Object3D[]): number {
@@ -84,8 +104,19 @@ export class StructureRenderer {
   private readonly isSocket: (tx: number, ty: number) => boolean;
   /** The wall model's height, measured once: where a mounted tower starts. */
   private wallHeight: number | null = null;
-  /** Shared translucent variant of the atlas material, built on first lift. */
-  private dimMaterial: THREE.MeshLambertMaterial | null = null;
+  /** Translucent variant per home material (the atlas, the panel's three), built on first lift. */
+  private readonly dimVariants = new Map<THREE.Material, THREE.MeshLambertMaterial>();
+  /** Whether towers currently wear the brownout tint. */
+  private brownout = false;
+  /** Shared darkened variant of the atlas material, built on first brownout. */
+  private brownoutMaterial: THREE.MeshLambertMaterial | null = null;
+  /** Shared panel geometry and materials — one set for every panel on the board. */
+  private readonly panelPlinth = new THREE.BoxGeometry(0.9, 0.16, 0.9);
+  private readonly panelCell = new THREE.BoxGeometry(0.84, 0.05, 0.7);
+  private readonly panelPost = new THREE.BoxGeometry(0.1, 0.34, 0.1);
+  private readonly panelPlinthMaterial = new THREE.MeshLambertMaterial({ color: PANEL_PLINTH_COLOR });
+  private readonly panelCellMaterial = new THREE.MeshLambertMaterial({ color: PANEL_CELL_COLOR });
+  private readonly panelFrameMaterial = new THREE.MeshLambertMaterial({ color: PANEL_FRAME_COLOR });
   /** Shared by every tell: one geometry pair, one material pair, one pulse. */
   private readonly markOutline = StructureRenderer.squareGeometry(0.98);
   private readonly markFill = new THREE.PlaneGeometry(0.98, 0.98).rotateX(-Math.PI / 2);
@@ -155,10 +186,34 @@ export class StructureRenderer {
     return `${s.level}:${this.isSocket(s.tx, s.ty) ? 'socket' : 'dirt'}`;
   }
 
+  /**
+   * The placeholder panel: a plinth on the tile, a post, and a cell face tilted
+   * toward the camera with a lighter rim so it reads as a panel and not a slab.
+   */
+  private buildPanel(): THREE.Object3D {
+    const group = new THREE.Group();
+    const plinth = new THREE.Mesh(this.panelPlinth, this.panelPlinthMaterial);
+    plinth.position.y = 0.08;
+    const post = new THREE.Mesh(this.panelPost, this.panelFrameMaterial);
+    post.position.y = 0.16 + 0.17;
+    const frame = new THREE.Mesh(this.panelCell, this.panelFrameMaterial);
+    frame.scale.set(1.06, 0.6, 1.06);
+    const cell = new THREE.Mesh(this.panelCell, this.panelCellMaterial);
+    cell.position.y = 0.02;
+    const face = new THREE.Group();
+    face.add(frame, cell);
+    face.position.y = 0.16 + 0.34;
+    face.rotation.x = PANEL_TILT;
+    group.add(plinth, post, face);
+    return group;
+  }
+
   private build(s: Structure): THREE.Group {
     const group = new THREE.Group();
     if (s.kind === 'wall') {
       stack(group, [this.assets.instance(WALL_MODEL)]);
+    } else if (s.kind === 'panel') {
+      group.add(this.buildPanel());
     } else {
       // One middle segment per level above 1: level legibility is height. On
       // dirt the wall beneath is the base segment (design D7): the tower
@@ -178,8 +233,14 @@ export class StructureRenderer {
       }
       group.add(payload);
       this.heads.set(s.id, head);
+      group.userData['tower'] = true;
     }
     group.position.set(s.tx + 0.5, GROUND_TOP_Y, s.ty + 0.5);
+    // Every mesh remembers its home material, so the lift's translucency and
+    // the brownout tint can be applied and undone without guessing.
+    group.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) obj.userData['home'] = obj.material;
+    });
     return group;
   }
 
@@ -214,21 +275,54 @@ export class StructureRenderer {
   }
 
   /**
-   * Swap one group's meshes between the shared atlas material and its
-   * translucent clone. A material swap, not a mutation: the atlas material
-   * is shared by every model in the scene.
+   * Swap one group's meshes between their home materials and translucent
+   * clones of them. A material swap, not a mutation: the atlas material is
+   * shared by every model in the scene. "Restore" means back to whatever the
+   * board-wide state calls for — the brownout tint on a tower while one is on.
    */
   private applyDim(group: THREE.Object3D, dim: boolean): void {
-    if (dim && !this.dimMaterial) {
-      this.dimMaterial = this.assets.material.clone();
-      this.dimMaterial.transparent = true;
-      this.dimMaterial.opacity = 0.35;
-    }
     group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.material = dim ? this.dimMaterial! : this.assets.material;
-      }
+      if (!(obj instanceof THREE.Mesh)) return;
+      const home = obj.userData['home'] as THREE.MeshLambertMaterial;
+      obj.material = dim ? this.dimVariant(home) : this.restingMaterial(home, group);
     });
+  }
+
+  private dimVariant(home: THREE.MeshLambertMaterial): THREE.MeshLambertMaterial {
+    let variant = this.dimVariants.get(home);
+    if (!variant) {
+      variant = home.clone();
+      variant.transparent = true;
+      variant.opacity = 0.35;
+      this.dimVariants.set(home, variant);
+    }
+    return variant;
+  }
+
+  /** What an un-lifted mesh wears: its home material, or the brownout tint on a kit tower during one. */
+  private restingMaterial(home: THREE.MeshLambertMaterial, group: THREE.Object3D): THREE.MeshLambertMaterial {
+    const tower = group.userData['tower'] === true;
+    if (!this.brownout || !tower || home !== this.assets.material) return home;
+    if (!this.brownoutMaterial) {
+      this.brownoutMaterial = this.assets.material.clone();
+      this.brownoutMaterial.color.setHex(BROWNOUT_COLOR);
+    }
+    return this.brownoutMaterial;
+  }
+
+  /**
+   * Board-wide brownout tint (build-ui delta): on while the sim's coverage is
+   * below full, off the frame it is back. Applies to towers only — walls and
+   * panels draw nothing and are not "running" — and never overrides the lift's
+   * translucency on a carried mesh.
+   */
+  setBrownout(active: boolean): void {
+    if (active === this.brownout) return;
+    this.brownout = active;
+    for (const [id, mesh] of this.meshes) {
+      if (mesh.userData['tower'] !== true || this.liftedIds.has(id)) continue;
+      this.applyDim(mesh, false); // "resting" now means tinted, or no longer
+    }
   }
 
   /**
@@ -281,6 +375,7 @@ export class StructureRenderer {
         this.builtKeys.set(s.id, this.buildKey(s));
         this.scene.add(mesh);
         if (this.liftedIds.has(s.id)) this.applyDim(mesh, true);
+        else if (this.brownout && s.kind === 'tower') this.applyDim(mesh, false);
       }
       // A moved structure repositions in the frame its tile changes — the
       // mesh and its provisional tell alike (tower-drag-move).

@@ -78,22 +78,22 @@
 
 ## 5. Render & UI
 
-- [ ] 5.1 `src/render/towers.ts` (`StructureRenderer`): panel mesh (kit asset or placeholder)
+- [x] 5.1 `src/render/towers.ts` (`StructureRenderer`): panel mesh (kit asset or placeholder)
       at 1×1; brownout tint on every tower while coverage < 1, distinct from the provisional
       marking
-- [ ] 5.2 `src/ui/palette.ts`: panel card (cost, output, wall-style tinting; remove tool covers
+- [x] 5.2 `src/ui/palette.ts`: panel card (cost, output, wall-style tinting; remove tool covers
       it, not inspectable); rated power on every tower card; `toolStructure` / `costOf` learn
       the panel; touch and pointer drivers need no new branch beyond the tool
-- [ ] 5.3 `src/ui/hud.ts` + `hud.css`: the power meter beside the treasury readout — live draw
+- [x] 5.3 `src/ui/hud.ts` + `hud.css`: the power meter beside the treasury readout — live draw
       vs capacity, solar/grid split, gold/s, tier, warning state while coverage < 1; build-phase
       mode shows rated total vs capacity; the connection-upgrade control (next tier capacity +
       cost, affordability/debt/blocked/maxed states, "final — no refund" wording); mobile:
       compact into the top bar per the form-factor requirement
-- [ ] 5.4 `src/ui/inspector.ts`: rated power in the stat rows and next-level rated power beside
+- [x] 5.4 `src/ui/inspector.ts`: rated power in the stat rows and next-level rated power beside
       the upgrade cost
-- [ ] 5.5 `src/render/debug.ts`: `F4` shows draw, solar, grid, tier/capacity, coverage, bill
+- [x] 5.5 `src/render/debug.ts`: `F4` shows draw, solar, grid, tier/capacity, coverage, bill
       during a wave
-- [ ] 5.6 UI tests: palette panel card and remove flow; meter states (warning, maxed control,
+- [x] 5.6 UI tests: palette panel card and remove flow; meter states (warning, maxed control,
       blocked below 0); inspector rated-power rows
 
 ## 6. Docs

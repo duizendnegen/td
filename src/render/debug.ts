@@ -5,16 +5,19 @@
 //   - F2 enemy state and committed waypoints
 //   - F3 tower ranges and target lines (Phase 3), plus every active spawn's
 //     returning field as per-tile direction ticks (return-to-origin-spawn D6)
-//   - F4 tick / state hash / entity count / ms-per-tick
+//   - F4 tick / state hash / entity count / ms-per-tick — and, during a
+//     wave, the tick's power figures: draw, solar, grid, tier/capacity,
+//     coverage, bill (energy-infrastructure debug-tooling delta)
 //
 // "Where do enemies go" is a player surface now, not a debug one: the
 // path-preview lane ribbon answers it, and its orphaned-region shade covers
 // what F1's unreachable diamonds used to.
 
 import * as THREE from 'three';
-import { TILE } from '../sim/fixed';
+import { GOLD, POWER, TICK_HZ, TILE } from '../sim/fixed';
 import { DIR_DX, DIR_DY } from '../sim/flowfield';
 import { formatHash } from '../sim/hash';
+import { COVERAGE_SCALE } from '../sim/power';
 import type { Sim } from '../sim/sim';
 import { towerCentre, towerStats } from '../sim/tower';
 import { GROUND_TOP_Y } from './renderer';
@@ -110,12 +113,25 @@ export class DebugOverlay {
       // A pending commit is why the hash can move at a standing tick: the state
       // has absorbed intent but not advanced through it. Marked so that reads as
       // intended rather than as determinism drift (time-controls design D3).
+      // Power figures during a wave only: outside one nothing draws (power-grid spec).
+      let power = '';
+      if (s.runPhase === 'wave') {
+        const p = this.sim.power;
+        const kw = (mp: number): string => (mp / POWER).toFixed(2);
+        const tier = this.sim.data.gridTiers[s.gridTier]!;
+        power =
+          `\npower   draw ${kw(p.drawMp)} kW · solar ${kw(p.solarMp)} · grid ${kw(p.gridSupplyMp)}\n` +
+          `        tier ${s.gridTier + 1}/${this.sim.data.gridTiers.length} cap ${kw(tier.capacityMp)} kW` +
+          ` · coverage ${((p.coverage * 100) / COVERAGE_SCALE).toFixed(1)}%\n` +
+          `        bill ${p.billMg} mg/tick (${((p.billMg * TICK_HZ) / GOLD).toFixed(2)} g/s)`;
+      }
       this.readout.textContent =
         `tick    ${s.tick}${pendingCommit ? ' +pending' : ''}\n` +
         `hash    ${formatHash(this.sim.hash())}\n` +
         `enemies ${s.enemies.length} (${slowed} slowed)\n` +
         `        ${types}\n` +
-        `ms/tick ${lastTickMs.toFixed(3)}`;
+        `ms/tick ${lastTickMs.toFixed(3)}` +
+        power;
     }
   }
 

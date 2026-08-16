@@ -29,6 +29,7 @@ import { LaneRibbon } from '../render/ribbon';
 import { StructureRenderer } from '../render/towers';
 import { GhostBadges } from '../ui/ghostbadges';
 import { TreasuryHud } from '../ui/hud';
+import { PowerHud } from '../ui/powerhud';
 import { buildHintLine, PointerDriver } from '../ui/input';
 import { InputCore } from '../ui/inputcore';
 import { MouseCameraController } from '../ui/mousecam';
@@ -43,6 +44,7 @@ import { SpawnScheduler } from './presets';
 import { stepOnce } from './step';
 import { FF_SPEED, TimeControl } from './time';
 import { TICK_MS } from '../sim/fixed';
+import { COVERAGE_SCALE } from '../sim/power';
 
 // The kit subset grows as phases land; Phase 4 adds the terrain palette
 // tiles and the socket base.
@@ -197,6 +199,9 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     if (!el) throw new Error(`missing #${id} slot`);
     return el;
   };
+  // The power meter sits beside the treasury readout (energy-infrastructure
+  // build-ui delta): the two figures the run is managed by, side by side.
+  const powerHud = new PowerHud(slot('topbar-right'), sim, data, commands);
   const treasuryHud = new TreasuryHud(slot('topbar-right'));
   const palette = new PaletteUI(slot('rail'), {
     wallMg: data.wallCostMg,
@@ -206,6 +211,14 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
       area: data.towers[2]!.levels[0]!.costMg,
       slow: data.towers[3]!.levels[0]!.costMg,
     },
+    panelMg: data.panelCostMg,
+    towerRatedMp: {
+      rapid: data.towers[0]!.levels[0]!.ratedPowerMp,
+      sniper: data.towers[1]!.levels[0]!.ratedPowerMp,
+      area: data.towers[2]!.levels[0]!.ratedPowerMp,
+      slow: data.towers[3]!.levels[0]!.ratedPowerMp,
+    },
+    panelOutputMp: data.panelOutputMp,
   });
   const inspector = new InspectorUI(slot('inspector'), data, commands);
   const inputCore = new InputCore(
@@ -375,6 +388,9 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     enemies.sync(sim.state.enemies, alpha, nowMs, sim.state.tick);
     // The lifted stack's origin meshes dim while the move tool carries it.
     structures.setLifted(inputCore.liftedIds);
+    // Brownout: every tower reads dimmed while the tick's coverage is below
+    // full, and normal again the frame it is back (build-ui delta).
+    structures.setBrownout(sim.power.coverage < COVERAGE_SCALE);
     structures.sync(sim.state.structures, (s) => sim.currentTarget(s), nowMs);
     sacks.sync(sim.state.sacks, nowMs);
     fx.drain(sim.events, nowMs);
@@ -383,6 +399,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     badges.update(inputCore);
     ribbon.animate(nowMs);
     treasuryHud.update(sim.state.treasuryMg);
+    powerHud.update();
     palette.refresh(
       sim.state.treasuryMg,
       removalOpenIn(sim.state.runPhase),
