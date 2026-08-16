@@ -503,6 +503,10 @@ the tick order — and is the one place where travel time would carry real balan
 
 Slow does not stack: `slowUntil = Math.max(slowUntil, sim.tick + durationTicks)`.
 
+Each hit also records its **effective** damage — `min(hp, damage)`, never overkill — on the firing
+tower as hashed state (`waveDamage`, `totalDamage`); the wave counter is reset once per wave, at
+wave start, and neither is read by any simulation rule.
+
 ---
 
 ## 8. Rendering
@@ -625,8 +629,10 @@ so Tailwind's scanner sees every class verbatim.
 - **Palette** — four towers plus wall and remove, with costs, greyed out when unaffordable or
   when `balance < 0` (the README's no-spending-while-negative rule). The remove tool ignores the
   balance and greys out while a wave runs instead.
-- **Inspector** — selected tower: level, damage, rate, range, upgrade cost, and sell/remove showing
-  the refund it returns, locked while a wave runs. Right panel on desktop; bottom sheet on mobile.
+- **Inspector** — selected tower: level, damage, rate, range, a performance block (effective
+  damage this/last wave and in total, from the tower's own hashed counters), upgrade cost, and
+  sell/remove showing the refund it returns, locked while a wave runs. Right panel on desktop;
+  bottom sheet on mobile.
 - **Lane ribbon** — shown only while a build tool is armed: one traced route per active spawn to
   the treasury plus one back out, drawn as marching dashes so direction reads without colour.
   While a ghost sits on a tile whose validation produced post-placement routing, the projected

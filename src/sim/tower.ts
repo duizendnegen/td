@@ -11,6 +11,9 @@
 //   - Slow (D4): slowUntil = max(...), no damage; slowImmune short-circuits
 //   - Within a tick towers fire in insertion order and skip the dead (D7)
 //   - Damage applies on the firing tick; all events are render-only
+//   - Every hit records its effective damage — min(hp, damage), never
+//     overkill — on the firing tower's waveDamage/totalDamage counters
+//     (tower-damage-stats D2); recorded, never read, by the sim
 
 import type { GameData, TowerLevelStats } from '../data/schema';
 import { HALF, TILE, toTile } from './fixed';

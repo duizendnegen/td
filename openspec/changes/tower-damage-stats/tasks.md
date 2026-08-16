@@ -29,14 +29,14 @@
 
 ## 6. Inspector — the Performance block
 
-- [ ] 6.1 In `src/ui/inspector.ts`, add a second stats container below the existing one, separated by a `border-surface-bright` rule and using the same `STAT_ROW` / `STAT_LABEL` / `STAT_VALUE` variants; on mobile it is its own flex row, not an extension of the stat container's `mobile:flex-row` (design D5, build-ui delta)
-- [ ] 6.2 Render two rows for every archetype except `slow`: the wave figure labelled `This wave` when `runPhase === 'wave'` and `Last wave` otherwise — shown as `—` when outside a wave and `totalDamage === 0` — and `Total`; plain integers, no unit. Hide the container entirely for the slow tower
-- [ ] 6.3 Add `waveDamage` and `totalDamage` to the inspector's `contentKey` so the block refreshes as damage lands in every phase, including the build phase where nothing else in the key changes
-- [ ] 6.4 Playwright: select a rapid tower during a wave and confirm both figures rise as it fires; let the wave settle and confirm the label flips to `Last wave` with the figure retained; start the next wave and confirm it reads `This wave` at 0 while `Total` holds
-- [ ] 6.5 Playwright: a tower placed in the build phase shows `—` and `Total 0`; a slow tower shows no performance block; the mobile sheet (below the breakpoint) shows the block on its own row without widening the stat columns
+- [x] 6.1 In `src/ui/inspector.ts`, add a second stats container below the existing one, separated by a `border-surface-bright` rule and using the same `STAT_ROW` / `STAT_LABEL` / `STAT_VALUE` variants; on mobile it is its own flex row, not an extension of the stat container's `mobile:flex-row` (design D5, build-ui delta)
+- [x] 6.2 Render two rows for every archetype except `slow`: the wave figure labelled `This wave` when `runPhase === 'wave'` and `Last wave` otherwise — shown as `—` when outside a wave and `totalDamage === 0` — and `Total`; plain integers, no unit. Hide the container entirely for the slow tower
+- [x] 6.3 Add `waveDamage` and `totalDamage` to the inspector's `contentKey` so the block refreshes as damage lands in every phase, including the build phase where nothing else in the key changes
+- [x] 6.4 Playwright: select a rapid tower during a wave and confirm both figures rise as it fires; let the wave settle and confirm the label flips to `Last wave` with the figure retained; start the next wave and confirm it reads `This wave` at 0 while `Total` holds
+- [x] 6.5 Playwright: a tower placed in the build phase shows `—` and `Total 0`; a slow tower shows no performance block; the mobile sheet (below the breakpoint) shows the block on its own row without widening the stat columns
 
 ## 7. Documentation
 
-- [ ] 7.1 `ARCHITECTURE.md` §7 (attack resolution): one sentence that each hit records its effective damage on the firing tower as hashed state, reset per wave at wave start
-- [ ] 7.2 `ARCHITECTURE.md` §9 (inspector): add the performance block to the inspector's one-line description
-- [ ] 7.3 Update the `Responsibilities` header comments in `src/sim/tower.ts` and `src/ui/inspector.ts`
+- [x] 7.1 `ARCHITECTURE.md` §7 (attack resolution): one sentence that each hit records its effective damage on the firing tower as hashed state, reset per wave at wave start
+- [x] 7.2 `ARCHITECTURE.md` §9 (inspector): add the performance block to the inspector's one-line description
+- [x] 7.3 Update the `Responsibilities` header comments in `src/sim/tower.ts` and `src/ui/inspector.ts`
