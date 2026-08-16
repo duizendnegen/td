@@ -1,0 +1,113 @@
+# build-ui — delta for build-over-walls
+
+## ADDED Requirements
+
+### Requirement: The tower ghost reads the foundation rule
+
+With a tower tool armed, the ghost over a tile holding a bare wall SHALL read as a legal
+placement — tinted valid or debt by the same authoritative validation as any placement, drawn
+standing on the wall rather than at ground level, with the archetype's range ring — and the ghost
+over bare dirt SHALL read invalid. The ghost over a wall that already carries a tower SHALL read
+invalid. The palette's tower items and the desktop hint line SHALL state that towers stand on
+walls, so a player who first arms a tower tool over an empty board learns the rule from the
+interface rather than from a field of red.
+
+Selecting a stacked tile with no tool armed SHALL inspect the tower; the inspector's remove
+control on a mounted tower SHALL remove the tower alone, leaving the wall standing.
+
+#### Scenario: A wall invites the tower
+
+- **WHEN** the player hovers a bare wall with a tower tool armed and balance ≥ the tower's cost
+- **THEN** the ghost reads valid, sits on top of the wall, and shows the level-1 range ring
+  centred on that tile
+
+#### Scenario: Bare dirt refuses the tower
+
+- **WHEN** the player hovers a dirt tile with no wall on it with a tower tool armed
+- **THEN** the ghost reads invalid, and clicking there gives the ordinary reject feedback with no
+  command issued
+
+#### Scenario: The rule is named in the interface
+
+- **WHEN** the player views the palette or the desktop hint line
+- **THEN** the tower items and the hint line state that towers are built on walls
+
+#### Scenario: Inspecting and removing a mounted tower
+
+- **WHEN** the player selects a tile holding a wall and a tower, then activates the inspector's
+  remove control during the build phase
+- **THEN** the inspector showed the tower, one removal command is issued, and once it applies the
+  tower is gone while the wall stands
+
+## MODIFIED Requirements
+
+### Requirement: The armed move tool lifts, carries, and drops structures
+
+With the move tool armed during the build phase, on pointer-hover devices, pressing on a tile that
+holds structures SHALL lift that tile's stack — on dirt the wall together with any tower on it, on
+a socket the tower. A move ghost SHALL follow the hovered tile: the tower's ghost with its range
+ring when the stack holds a tower, otherwise the wall's ghost; tinted by the verdict of the same
+validation the simulation uses to accept moves — evaluated speculatively with the origin freed for
+a bare-dirt destination, and as a tower transfer for a foundation destination. Every structure in
+the lifted stack SHALL read as lifted at its origin for the duration.
+
+Dropping SHALL work both ways: releasing after a drag past a small slop attempts the move at the
+release tile, and a sub-slop press-and-release (a click) keeps the stack lifted following the
+hover until a second click attempts the move at that tile. A confirmed drop SHALL issue exactly
+one move command. Deselecting the tool or pressing Esc SHALL cancel the lift with no command,
+leaving every structure where it was. Pressing on an empty tile with the move tool armed and
+nothing lifted SHALL do nothing.
+
+The lifted stack's own tile SHALL read as a legal drop: the move ghost is tinted valid there, and
+dropping on it — by drag release or by the second click — SHALL put the stack down where it
+stands: the lift ends, no command is issued, no reject feedback plays, and the structures read as
+standing at their origin. Putting a stack down this way is a cancel, not a move.
+
+Speculative evaluation while carrying SHALL NOT change simulation state.
+
+#### Scenario: Drag and drop moves the wall with its tower
+
+- **WHEN** the player presses on a tile holding a wall and a tower with the move tool armed,
+  drags past the slop, and releases over a bare dirt tile whose ghost shows valid
+- **THEN** exactly one move command for that tile is queued, and once it applies both the wall
+  and the tower stand there
+
+#### Scenario: Dropping on a bare wall moves only the tower
+
+- **WHEN** the player lifts a wall-and-tower stack and drops it on a bare wall whose ghost shows
+  valid
+- **THEN** exactly one move command is queued, and once it applies the tower stands on the
+  destination wall while the origin wall still stands
+
+#### Scenario: A bare wall lifts and drops as before
+
+- **WHEN** the player presses on a bare wall with the move tool armed, drags past the slop, and
+  releases over a dirt tile whose ghost shows valid
+- **THEN** exactly one move command for that tile is queued, and the ghost that followed the drag
+  was a wall ghost with no range ring
+
+#### Scenario: Click to lift, click to drop
+
+- **WHEN** the player clicks a mounted tower's tile with the move tool armed, moves the pointer,
+  and clicks a tile whose ghost shows valid
+- **THEN** exactly one move command for that tile is queued, and the tower ghost followed the
+  hover between the two clicks
+
+#### Scenario: Dropping back on the origin puts the stack down
+
+- **WHEN** the player lifts a stack and drops it on its own tile — by releasing a drag over it or
+  by a second click on it — while the ghost there reads valid
+- **THEN** no command is issued, no reject feedback plays, the lift ends, and the structures read
+  as standing at their origin with an unchanged simulation state hash
+
+#### Scenario: Cancelling leaves no trace
+
+- **WHEN** the player lifts a stack and then presses Esc or deselects the move tool
+- **THEN** no command is issued, every structure reads as standing at its origin, and the
+  simulation state hash is unchanged
+
+#### Scenario: Carrying is free of side effects
+
+- **WHEN** the player carries a lifted stack across many candidate tiles without dropping, while
+  a replay of the same seed and commands runs without lifting anything
+- **THEN** both runs produce identical state hashes
