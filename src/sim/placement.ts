@@ -2,16 +2,26 @@
 // See ARCHITECTURE.md §7, phase-2 design D1–D3, and phase-4 designs D4/D6
 //
 // Responsibilities:
-//   - Terrain buildability: dirt takes walls, and towers on walls; a socket
-//     is a built-in foundation that takes towers directly and never walls;
-//     grass/rock nothing (structure-placement spec)
-//   - Only walls (and terrain) block: a tower is payload on a foundation
-//     (build-over-walls). Tower placements skip path and enemy validation
-//     entirely — the foundation tile is already blocked, so the mask and
-//     fields are unaffected — generalising the phase-4 socket fast path (D6)
-//   - Per-kind tile lookups (wallAt / towerAt / topAt): a tile holds at most
-//     one wall and one tower, so "the structure here" is not a well-defined
-//     question and every call site names which layer it means
+//   - Terrain buildability: dirt takes walls and solar panels, and towers on
+//     walls; a socket is a built-in foundation that takes towers directly and
+//     never walls or panels; grass/rock nothing (structure-placement spec,
+//     energy-infrastructure delta)
+//   - Two layers per tile: the GROUND layer — a wall or a panel, at most one,
+//     the only thing besides terrain that blocks — and the tower on top of
+//     it. A panel rides the wall's path everywhere here — validation, move,
+//     refund, removal gate — and differs from a wall in two ways only: it is
+//     not a foundation (a tower stands on a wall or a socket, never on a
+//     panel — otherwise the panel would strictly dominate the wall), and the
+//     power step reads an output off it (energy-infrastructure design D7)
+//   - Only the ground layer (and terrain) blocks: a tower is payload on a
+//     foundation (build-over-walls). Tower placements skip path and enemy
+//     validation entirely — the foundation tile is already blocked, so the
+//     mask and fields are unaffected — generalising the phase-4 socket fast
+//     path (D6)
+//   - Per-layer tile lookups (groundAt / wallAt / towerAt / topAt): a tile
+//     holds at most one ground structure and one tower, so "the structure
+//     here" is not a well-defined question and every call site names which
+//     layer it means
 //   - Bounds, occupancy, and no-enemy-in-footprint checks
 //   - Reachability: every DECLARED spawn (dormant included, D4) AND every
 //     live enemy — inbound enemies in the inbound field, returning enemies
@@ -23,11 +33,11 @@
 //     gates only committed construction
 //   - The move gate (moveOpenIn) — build phase only; validateMove takes the
 //     origin tile's stack and lets the destination decide what lands: bare
-//     dirt relocates the wall with its tower, a foundation takes the tower
-//     alone (build-over-walls design D4)
+//     dirt relocates the ground structure (a wall with its tower, or a
+//     panel), a foundation takes the tower alone (build-over-walls design D4)
 //   - Immediate removal: refund and drop in the calling tick; the tile is
-//     unblocked only when the structure owned the mask there — a wall on
-//     dirt — never for a tower, never on a socket (D6)
+//     unblocked only when the structure owned the mask there — a wall or a
+//     panel on dirt — never for a tower, never on a socket (D6)
 
 import { refundMg } from './economy';
 import { toTile } from './fixed';
@@ -52,7 +62,18 @@ export function footprintFor(tx: number, ty: number): FootprintTile[] {
   return [{ x: tx, y: ty }];
 }
 
-/** The wall on tile (tx, ty), or null. */
+/**
+ * The ground structure on tile (tx, ty) — the wall or the panel, whichever
+ * stands there — or null. The layer that owns the tile's mask on dirt.
+ */
+export function groundAt(structures: readonly Structure[], tx: number, ty: number): Structure | null {
+  for (const s of structures) {
+    if ((s.kind === 'wall' || s.kind === 'panel') && s.tx === tx && s.ty === ty) return s;
+  }
+  return null;
+}
+
+/** The wall on tile (tx, ty), or null — a panel is not a wall (it is no foundation). */
 export function wallAt(structures: readonly Structure[], tx: number, ty: number): Structure | null {
   for (const s of structures) {
     if (s.kind === 'wall' && s.tx === tx && s.ty === ty) return s;
@@ -70,28 +91,31 @@ export function towerAt(structures: readonly Structure[], tx: number, ty: number
 
 /**
  * The topmost structure on tile (tx, ty) — the tower if one stands there,
- * else the wall, else null. What a removal peels and what the move tool
- * names when it lifts a tile (design D3/D5).
+ * else the ground structure (wall or panel), else null. What a removal peels
+ * and what the move tool names when it lifts a tile (design D3/D5).
  */
 export function topAt(structures: readonly Structure[], tx: number, ty: number): Structure | null {
-  return towerAt(structures, tx, ty) ?? wallAt(structures, tx, ty);
+  return towerAt(structures, tx, ty) ?? groundAt(structures, tx, ty);
 }
 
-/** The origin tile's stack, as validateMove and the sim's move path see it. */
+/**
+ * The origin tile's stack, as validateMove and the sim's move path see it:
+ * the ground layer (a wall or a panel) and the tower layer.
+ */
 export interface Stack {
-  wall: Structure | null;
+  ground: Structure | null;
   tower: Structure | null;
 }
 
 /** Both layers of tile (tx, ty) at once. */
 export function stackAt(structures: readonly Structure[], tx: number, ty: number): Stack {
-  return { wall: wallAt(structures, tx, ty), tower: towerAt(structures, tx, ty) };
+  return { ground: groundAt(structures, tx, ty), tower: towerAt(structures, tx, ty) };
 }
 
 /**
  * Whether tile (tx, ty) is a foundation a tower can stand on: an in-bounds
- * socket, or a dirt tile holding a wall (design D2/D4). Says nothing about
- * whether a tower already stands there.
+ * socket, or a dirt tile holding a wall (design D2/D4) — never a panel. Says
+ * nothing about whether a tower already stands there.
  */
 export function isFoundation(
   grid: Grid,
@@ -155,13 +179,16 @@ export function validatePlacement(
     if (kind === 'tower') {
       // The foundation branch (D2): occupancy is the structure list — the
       // mask says blocked for every foundation — and no path or enemy checks
-      // apply. Returns before any mask work, whatever the verdict.
+      // apply. Returns before any mask work, whatever the verdict. A panel is
+      // not a foundation: bare dirt and a panel both read 'needs-wall'.
       if (terrain !== TERRAIN.socket && !wallAt(structures, t.x, t.y)) return 'needs-wall';
       if (towerAt(structures, t.x, t.y)) return 'occupied';
       return 'ok';
     }
+    // A wall or a panel on a socket is not-buildable — sockets are free
+    // tower platforms, never free maze tiles or free power.
     if (terrain === TERRAIN.socket) return 'not-buildable';
-    if (wallAt(structures, t.x, t.y)) return 'occupied';
+    if (groundAt(structures, t.x, t.y)) return 'occupied';
   }
   for (const e of enemies) {
     if (!e.alive) continue;
@@ -201,21 +228,25 @@ export function validatePlacement(
 
 /**
  * The move validation pipeline (build-over-walls design D4). The unit of a
- * move is the origin tile's `stack` — on dirt the wall with any tower on it,
- * on a socket the tower — and the destination decides what lands:
+ * move is the origin tile's `stack` — on dirt the ground structure (a wall
+ * with any tower on it, or a panel), on a socket the tower — and the
+ * destination decides what lands:
  *
- *   - bare dirt (no wall) → the wall relocates with its tower: the same
- *     conditions wall placement verifies at the destination, with the path
- *     and enemy checks evaluated against the mask with the origin tile freed
- *     and the destination blocked, both applied together — so a maze line
- *     can shift into the space it opens up. A stack with no wall (a socket
- *     origin) is 'needs-wall' there.
+ *   - bare dirt (no ground structure) → the ground structure relocates, a
+ *     wall with its tower: the same conditions ground placement verifies at
+ *     the destination, with the path and enemy checks evaluated against the
+ *     mask with the origin tile freed and the destination blocked, both
+ *     applied together — so a maze line can shift into the space it opens
+ *     up. A stack with no ground structure (a socket origin) is 'needs-wall'
+ *     there.
  *   - a foundation — a bare wall, or an empty socket — → the tower alone
  *     transfers: the origin wall stays, no tile changes walkability, so no
  *     path or enemy check applies and the mask is never touched. A stack
  *     with no tower is 'occupied' on a wall and 'not-buildable' on a socket,
  *     exactly as a wall placement there would be.
  *   - a foundation already carrying a tower → 'occupied'.
+ *   - a panel → 'occupied': it is no foundation (energy-infrastructure
+ *     design D7), so nothing transfers onto it and nothing relocates there.
  *   - the stack's own tile → 'occupied' (the verdict vocabulary is reused,
  *     not extended; the UI treats that drop as a put-down and never issues
  *     it — tower-drag-move design D4/D6).
@@ -239,7 +270,7 @@ export function validateMove(
   treasury: { x: number; y: number },
   scratch: { inbound: FlowField; returning: FlowField[] },
 ): PlacementVerdict {
-  const origin = (stack.tower ?? stack.wall)!;
+  const origin = (stack.tower ?? stack.ground)!;
   if (toTx === origin.tx && toTy === origin.ty) return 'occupied';
   if (!grid.inBounds(toTx, toTy)) return 'out-of-bounds';
   const terrain = grid.terrainAt(toTx, toTy);
@@ -251,14 +282,17 @@ export function validateMove(
     if (towerAt(structures, toTx, toTy)) return 'occupied';
     return stack.tower ? 'ok' : 'not-buildable';
   }
-  if (wallAt(structures, toTx, toTy)) {
-    if (towerAt(structures, toTx, toTy)) return 'occupied';
+  const there = groundAt(structures, toTx, toTy);
+  if (there) {
+    // A panel is no foundation: occupied for every mover.
+    if (there.kind === 'panel' || towerAt(structures, toTx, toTy)) return 'occupied';
     return stack.tower ? 'ok' : 'occupied';
   }
 
-  // Relocate branch: bare dirt takes the wall — and its tower with it.
-  const wall = stack.wall;
-  if (!wall) return 'needs-wall';
+  // Relocate branch: bare dirt takes the ground structure — a wall with its
+  // tower, or a panel.
+  const ground = stack.ground;
+  if (!ground) return 'needs-wall';
   const footprint = footprintFor(toTx, toTy);
   for (const e of enemies) {
     if (!e.alive) continue;
@@ -268,7 +302,7 @@ export function validateMove(
   }
 
   // Both tentative mask edits together; every return path below restores them.
-  grid.setBlocked(wall.tx, wall.ty, false);
+  grid.setBlocked(ground.tx, ground.ty, false);
   for (const t of footprint) grid.setBlocked(t.x, t.y, true);
   buildFieldInto(grid, [treasury], scratch.inbound, allSpawns);
   allSpawns.forEach((s, i) => {
@@ -294,7 +328,7 @@ export function validateMove(
   }
 
   for (const t of footprint) grid.setBlocked(t.x, t.y, false);
-  grid.setBlocked(wall.tx, wall.ty, true);
+  grid.setBlocked(ground.tx, ground.ty, true);
   return verdict;
 }
 
@@ -355,10 +389,11 @@ export function removalOpenIn(phase: RunPhase): boolean {
  * equal or falls), so a removal can never seal a spawn or strand an enemy,
  * and no enemy can stand on a blocked tile to begin with.
  *
- * Only a wall on dirt owns its tile's mask (build-over-walls design D3): a
- * tower's tile is held by the wall or socket beneath it, and a socket tile is
- * terrain-blocked — so neither removal unblocks anything or counts as a mask
- * change; the refund is the only effect.
+ * Only a ground structure — a wall or a panel — on dirt owns its tile's mask
+ * (build-over-walls design D3): a tower's tile is held by the wall or socket
+ * beneath it, and a socket tile is terrain-blocked — so neither removal
+ * unblocks anything or counts as a mask change; the refund is the only
+ * effect.
  */
 export function removeStructure(
   state: SimState,
@@ -367,7 +402,7 @@ export function removeStructure(
   refundPer1000: number,
 ): boolean {
   let changed = false;
-  if (s.kind === 'wall' && grid.terrainAt(s.tx, s.ty) !== TERRAIN.socket) {
+  if (s.kind !== 'tower' && grid.terrainAt(s.tx, s.ty) !== TERRAIN.socket) {
     grid.setBlocked(s.tx, s.ty, false);
     changed = true;
   }

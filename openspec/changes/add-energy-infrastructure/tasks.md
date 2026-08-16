@@ -21,18 +21,18 @@
 
 ## 2. Sim — Panel Structure & Grid Tier State
 
-- [ ] 2.1 `src/sim/types.ts`: `StructureKind` gains `panel` (`STRUCTURE_KIND_ID.panel = 2`);
+- [x] 2.1 `src/sim/types.ts`: `StructureKind` gains `panel` (`STRUCTURE_KIND_ID.panel = 2`);
       `SimState.gridTier` (initial 0). `src/sim/hash.ts`: mix `gridTier` — same commit
       (standing rule)
-- [ ] 2.2 `src/sim/placement.ts` + `src/sim/sim.ts` (`applyPlace`): panel takes the wall branch
+- [x] 2.2 `src/sim/placement.ts` + `src/sim/sim.ts` (`applyPlace`): panel takes the wall branch
       (dirt only, blocking, path/enemy validation, cost from `panelCostMg`); `move` and
       `remove` need no new branch beyond the kind check; confirm `refundMg` /
       `liquidationTotalMg` treat panels as any structure
-- [ ] 2.3 `src/sim/commands.ts`: `{ kind: 'upgradeGrid' }` in `KIND_ORDER` after `upgrade`,
+- [x] 2.3 `src/sim/commands.ts`: `{ kind: 'upgradeGrid' }` in `KIND_ORDER` after `upgrade`,
       before `remove` (renumber the tail; existing pairwise order preserved); `sim.ts`
       `applyUpgradeGrid`: spending gate (≥ 0, may go into debt), reject at last tier, charge
       next tier cost, `gridTier++`, no provisional state
-- [ ] 2.4 `tests/placement.test.ts`: panel seal attempt rejected; panel on socket rejected;
+- [x] 2.4 `tests/placement.test.ts`: panel seal attempt rejected; panel on socket rejected;
       panel provisional refund in full, committed at the fraction, refused during a wave;
       `tests/movetool.test.ts`: a panel moves like a wall. `tests/upgrade.test.ts` (or new):
       `upgradeGrid` gate, last-tier refusal, charge, hash changes on tier

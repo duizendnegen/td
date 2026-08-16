@@ -416,6 +416,56 @@ describe('terrain buildability (phase-4)', () => {
     expect(sim.previewPlacement('tower', 3, 0)).toBe('ok');
   });
 
+  it('a panel is a wall on the terrain rules: dirt yes, socket no, scenery no', () => {
+    const { sim } = makeSim(paletteLevel());
+    expect(sim.previewPlacement('panel', 3, 0)).toBe('not-buildable'); // socket
+    expect(sim.previewPlacement('panel', 5, 0)).toBe('not-buildable'); // grass
+    expect(sim.previewPlacement('panel', 1, 0)).toBe('not-buildable'); // rock
+    expect(sim.previewPlacement('panel', 2, 0)).toBe('ok'); // dirt
+    sim.tick([place('panel', 3, 0), place('panel', 5, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(2);
+    // On dirt: one tile blocked, charged at the panel's price (40g in the
+    // test balance), archetype-less at level 0 like a wall, provisional.
+    const before = sim.state.treasuryMg;
+    sim.tick([place('panel', 2, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(sim.state.structures[0]).toMatchObject({
+      kind: 'panel',
+      tx: 2,
+      ty: 0,
+      archetypeId: -1,
+      level: 0,
+      paidMg: 40_000,
+      provisional: true,
+    });
+    expect(sim.state.treasuryMg).toBe(before - 40_000);
+    expect(sim.grid.isBlocked(2, 0)).toBe(true);
+    // Blocked like a wall: the inbound field routes around it.
+    expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBe(-1);
+  });
+
+  it('a panel that would seal every path is rejected, unpaid', () => {
+    const { sim } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
+    sim.tick([place('panel', 2, 0), place('wall', 2, 2)]);
+    expect(sim.state.structures).toHaveLength(2);
+    const before = sim.state.treasuryMg;
+    expect(sim.previewPlacement('panel', 2, 1)).toBe('seals-spawn');
+    sim.tick([place('panel', 2, 1)]);
+    expect(sim.state.structures).toHaveLength(2);
+    expect(sim.state.treasuryMg).toBe(before);
+    expect(sim.grid.isBlocked(2, 1)).toBe(false);
+  });
+
+  it('a panel cannot be upgraded: it is not a tower', () => {
+    const { sim } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
+    sim.tick([place('panel', 2, 0)]);
+    const before = sim.state.treasuryMg;
+    sim.tick([upgrade(2, 0)]);
+    expect(sim.state.structures[0]!.level).toBe(0);
+    expect(sim.state.treasuryMg).toBe(before);
+  });
+
   it('rejects a placement that seals a dormant spawn (D4)', () => {
     // The dormant north spawn (0,0) exits only east through (1,0): the rocks
     // at (0,1)/(1,1) block both the southern step and the diagonal.
@@ -873,6 +923,32 @@ describe('the provisional window', () => {
     expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
   });
 
+  it('a panel refunds like any structure: in full while provisional, the fraction once committed, never mid-wave once committed', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    const start = sim.state.treasuryMg;
+    sim.tick([place('panel', 2, 0)]); // 40 000, provisional
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(start); // full refund
+    expect(sim.grid.isBlocked(2, 0)).toBe(false);
+
+    sim.tick([place('panel', 2, 0)]);
+    sim.tick([startWave()]); // commits it
+    // Committed and the wave is live: refused, hash untouched.
+    const beforeAttempt = sim.hash();
+    sim.commit([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(sim.hash()).toBe(beforeAttempt);
+
+    sim.state.enemies.forEach((e) => (e.hp = 0));
+    sim.tick([]); // settles
+    expect(sim.state.runPhase).toBe('build');
+    const beforeSale = sim.state.treasuryMg;
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(beforeSale + 20_000); // half of 40 000
+  });
+
   it('rejects the committed mid-wave removal atomically', () => {
     const build = () => {
       const { sim } = makeSim(twoWaveCorridor());
@@ -1003,6 +1079,25 @@ describe('move command', () => {
     // Still provisional, so the tower's removal still refunds in full.
     sim.tick([remove(2, 2)]);
     expect(sim.state.treasuryMg).toBe(before);
+  });
+
+  it('a panel moves like a wall: mask, both fields, free, kind and refund basis kept', () => {
+    const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
+    sim.tick([place('panel', 3, 0)]);
+    const panel = sim.state.structures[0]!;
+    const before = sim.state.treasuryMg;
+    sim.tick([move(3, 0, 3, 2)]);
+    expect(sim.state.structures[0]).toBe(panel);
+    expect(panel).toMatchObject({ kind: 'panel', tx: 3, ty: 2, paidMg: 40_000, provisional: true });
+    expect(sim.state.treasuryMg).toBe(before);
+    expect(sim.grid.isBlocked(3, 0)).toBe(false);
+    expect(sim.grid.isBlocked(3, 2)).toBe(true);
+    expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+    expect(sim.inbound.cost[sim.grid.idx(3, 2)]).toBe(-1);
+    // And, like a wall, it cannot move onto a socket.
+    const socketed = makeSim(paletteLevel()).sim;
+    socketed.tick([place('panel', 2, 0)]);
+    expect(socketed.previewMove(2, 0, 3, 0)).toBe('not-buildable');
   });
 
   it('a bare wall moves like before: mask, both fields, free, refund basis kept', () => {

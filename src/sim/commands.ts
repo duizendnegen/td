@@ -3,7 +3,7 @@
 //
 // Responsibilities:
 //   - The ONLY input path into the sim
-//   - Place / StartRemoval / Upgrade / Spawn / StartWave / Concede
+//   - Place / Move / Upgrade / UpgradeGrid / Remove / Spawn / StartWave / Concede
 //   - Applied at tick boundaries in stable order
 
 // The drain order (command type, then issue sequence) is part of the
@@ -40,14 +40,22 @@ export type CommandBody =
   /** Relocate the tower at (tx, ty) to (toTx, toTy) — build phase only. */
   | { kind: 'move'; tx: number; ty: number; toTx: number; toTy: number }
   | { kind: 'upgrade'; tx: number; ty: number }
+  /**
+   * Buy the next grid connection tier (power-grid spec): any live phase, the
+   * spending gate, one-way — no refund, no provisional state.
+   */
+  | { kind: 'upgradeGrid' }
   | { kind: 'remove'; tx: number; ty: number };
 
 export type Command = CommandBody & { seq: number };
 
 /** Drain sort key per kind; lower drains first. */
 // `move` sits between `place` and `upgrade`: a same-tick place-then-move sees
-// the placed structure. The tail renumbering preserves every pre-existing
-// pairwise order, so replays of existing scripts drain identically.
+// the placed structure. `upgradeGrid` sits after `upgrade` and before
+// `remove` (energy-infrastructure design D6), so a same-tick
+// place/upgrade/upgradeGrid/remove sequence keeps the intuitive order. Each
+// tail renumbering preserves every pre-existing pairwise order, so replays of
+// existing scripts drain identically.
 const KIND_ORDER: Record<Command['kind'], number> = {
   noop: 0,
   startWave: 1,
@@ -55,8 +63,9 @@ const KIND_ORDER: Record<Command['kind'], number> = {
   place: 3,
   move: 4,
   upgrade: 5,
-  remove: 6,
-  concede: 7,
+  upgradeGrid: 6,
+  remove: 7,
+  concede: 8,
 };
 
 export class CommandQueue {

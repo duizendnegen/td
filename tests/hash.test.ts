@@ -66,6 +66,7 @@ function makeState(): SimState {
     escapedMg: 0,
     kills: 3,
     lastWaveBonusMg: 12_000,
+    gridTier: 1,
   };
 }
 
@@ -130,6 +131,9 @@ describe('state hash', () => {
       // tower's total damage hash differently).
       (s) => s.structures[1]!.waveDamage++,
       (s) => s.structures[1]!.totalDamage++,
+      // Energy-infrastructure: the grid tier, and the panel as a distinct kind.
+      (s) => s.gridTier++,
+      (s) => (s.structures[0]!.kind = 'panel'),
     ];
     for (const mutate of mutations) {
       const state = makeState();

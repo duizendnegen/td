@@ -37,6 +37,7 @@ export function hashState(state: SimState, rngState: readonly number[]): number 
   h = mix(h, state.escapedMg);
   h = mix(h, state.kills);
   h = mix(h, state.lastWaveBonusMg);
+  h = mix(h, state.gridTier);
   h = mix(h, state.nextEnemyId);
   h = mix(h, state.enemies.length);
   for (const e of state.enemies) {

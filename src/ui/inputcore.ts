@@ -85,7 +85,7 @@ export class InputCore {
     const lifted = this.lifted;
     if (!lifted) return [];
     const stack = stackAt(this.sim.state.structures, lifted.tx, lifted.ty);
-    return [stack.wall, stack.tower].filter((s) => s !== null).map((s) => s.id);
+    return [stack.ground, stack.tower].filter((s) => s !== null).map((s) => s.id);
   }
 
   /**

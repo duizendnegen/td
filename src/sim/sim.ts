@@ -149,6 +149,7 @@ export class Sim {
       escapedMg: 0,
       kills: 0,
       lastWaveBonusMg: 0,
+      gridTier: 0,
     };
   }
 
@@ -318,8 +319,8 @@ export class Sim {
    * enemies, paths — and is gated on both purchases: the wall at the current
    * balance and the tower at the balance the wall leaves, so a compound is
    * never half-affordable and never half-applied (design D6). `scratch`
-   * holds the post-placement fields afterwards exactly when a wall's
-   * routing-dependent verdict rebuilt them — see laysWall.
+   * holds the post-placement fields afterwards exactly when a ground
+   * structure's routing-dependent verdict rebuilt them — see laysGround.
    */
   private placementVerdict(
     kind: StructureKind,
@@ -342,9 +343,13 @@ export class Sim {
     );
   }
 
-  /** Whether a placement of `kind` (with or without its wall) lays a wall — and so owns mask and fields. */
-  private static laysWall(kind: StructureKind, withWall: boolean): boolean {
-    return kind === 'wall' || withWall;
+  /**
+   * Whether a placement of `kind` (with or without its wall) lays a ground
+   * structure — a wall, or a panel (energy-infrastructure design D7) — and
+   * so owns mask and fields.
+   */
+  private static laysGround(kind: StructureKind, withWall: boolean): boolean {
+    return kind !== 'tower' || withWall;
   }
 
   /**
@@ -356,7 +361,7 @@ export class Sim {
    */
   previewMove(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementVerdict {
     const stack = stackAt(this.state.structures, fromTx, fromTy);
-    if ((!stack.wall && !stack.tower) || !moveOpenIn(this.state.runPhase)) return 'not-buildable';
+    if ((!stack.ground && !stack.tower) || !moveOpenIn(this.state.runPhase)) return 'not-buildable';
     return validateMove(
       this.grid,
       stack,
@@ -398,10 +403,10 @@ export class Sim {
     const verdict = this.placementVerdict(kind, footprint, withWall);
     // A foundation-only tower placement short-circuits before the rebuild,
     // so the buffers still hold the previous evaluation's fields — never
-    // readable as this one's. Only a wall's routing-dependent verdicts
-    // rebuilt them.
+    // readable as this one's. Only a ground structure's routing-dependent
+    // verdicts rebuilt them.
     const rebuilt =
-      Sim.laysWall(kind, withWall) &&
+      Sim.laysGround(kind, withWall) &&
       (verdict === 'ok' || verdict === 'seals-spawn' || verdict === 'strands-enemy');
     if (!rebuilt) return { verdict, lanes: null, orphaned: null };
     return {
@@ -422,7 +427,7 @@ export class Sim {
    */
   previewMoveRoutes(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementRoutes {
     const stack = stackAt(this.state.structures, fromTx, fromTy);
-    if ((!stack.wall && !stack.tower) || !moveOpenIn(this.state.runPhase)) {
+    if ((!stack.ground && !stack.tower) || !moveOpenIn(this.state.runPhase)) {
       return { verdict: 'not-buildable', lanes: null, orphaned: null };
     }
     const verdict = validateMove(
@@ -538,6 +543,9 @@ export class Sim {
       case 'upgrade':
         this.applyUpgrade(command.tx, command.ty);
         break;
+      case 'upgradeGrid':
+        this.applyUpgradeGrid();
+        break;
       case 'remove':
         this.applyRemove(command.tx, command.ty);
         break;
@@ -600,7 +608,7 @@ export class Sim {
     withWall: boolean,
   ): void {
     const footprint = footprintFor(tx, ty);
-    const laysWall = Sim.laysWall(kind, withWall);
+    const laysGround = Sim.laysGround(kind, withWall);
 
     const verdict = this.placementVerdict(kind, footprint, withWall);
     if (verdict !== 'ok') {
@@ -610,13 +618,16 @@ export class Sim {
 
     // Commit. A tower stands on a foundation whose tile is already blocked,
     // so it never touches the mask or the fields (build-over-walls design
-    // D2); a wall re-blocks the footprint and swaps in the fields the
-    // validation just built for exactly this mask — one rebuild per attempt.
-    if (laysWall) {
+    // D2); a ground structure re-blocks the footprint and swaps in the
+    // fields the validation just built for exactly this mask — one rebuild
+    // per attempt. A panel is a wall with an output (energy-infrastructure
+    // design D7): it takes the wall's branch here, at its own price.
+    if (laysGround) {
       for (const t of footprint) this.grid.setBlocked(t.x, t.y, true);
       this.swapScratchFields();
       this.maskChanged = true;
-      this.pushStructure('wall', -1, tx, ty, this.data.wallCostMg);
+      if (kind === 'panel') this.pushStructure('panel', -1, tx, ty, this.data.panelCostMg);
+      else this.pushStructure('wall', -1, tx, ty, this.data.wallCostMg);
     }
     if (kind === 'tower') {
       const archetypeId = ARCHETYPES.indexOf(archetype);
@@ -639,11 +650,11 @@ export class Sim {
       tx,
       ty,
       archetypeId,
-      level: kind === 'wall' ? 0 : 1,
+      level: kind === 'tower' ? 1 : 0,
       paidMg: costMg,
       nextFireTick: 0,
       provisional: true,
-      // Damage counters start empty; walls carry them at zero like nextFireTick.
+      // Damage counters start empty; walls and panels carry them at zero like nextFireTick.
       waveDamage: 0,
       totalDamage: 0,
     });
@@ -655,7 +666,8 @@ export class Sim {
    * stack — free of charge and identity-preserving: id, kind, paidMg, level
    * and provisional all survive because the existing structures mutate in
    * place. The destination decides what lands (build-over-walls design D4):
-   * bare dirt takes the wall together with its tower — both mask edits apply
+   * bare dirt takes the ground structure — a wall together with its tower,
+   * or a panel (energy-infrastructure design D7) — both mask edits apply
    * and the fields the validation just built for exactly this mask swap in,
    * one rebuild per attempt, mirroring applyPlace — while a foundation (a
    * bare wall, an empty socket) takes the tower alone, with no mask edit and
@@ -667,7 +679,7 @@ export class Sim {
   private applyMove(tx: number, ty: number, toTx: number, toTy: number): void {
     const s = this.state;
     const stack = stackAt(s.structures, tx, ty);
-    const movable = (stack.wall !== null || stack.tower !== null) && moveOpenIn(s.runPhase);
+    const movable = (stack.ground !== null || stack.tower !== null) && moveOpenIn(s.runPhase);
     const verdict = movable
       ? validateMove(
           this.grid,
@@ -693,14 +705,14 @@ export class Sim {
       tower.ty = toTy;
       return;
     }
-    // Relocate: validateMove guaranteed a wall in the stack.
-    const wall = stack.wall!;
-    this.grid.setBlocked(wall.tx, wall.ty, false);
+    // Relocate: validateMove guaranteed a ground structure in the stack.
+    const ground = stack.ground!;
+    this.grid.setBlocked(ground.tx, ground.ty, false);
     this.grid.setBlocked(toTx, toTy, true);
     this.swapScratchFields();
     this.maskChanged = true;
-    wall.tx = toTx;
-    wall.ty = toTy;
+    ground.tx = toTx;
+    ground.ty = toTy;
     if (stack.tower) {
       stack.tower.tx = toTx;
       stack.tower.ty = toTy;
@@ -709,7 +721,7 @@ export class Sim {
 
   /**
    * remove (structure-placement spec): peels the tile top-down — the tower
-   * if one stands there, else the wall (build-over-walls design D3), each
+   * if one stands there, else the wall or panel (build-over-walls design D3), each
    * judged by the gate for the structure it actually targets. Refused after
    * the run ends, refused mid-wave for construction the wave has already run
    * against (canRemove), and refused on a tile holding no structure — with
@@ -751,6 +763,24 @@ export class Sim {
     s.treasuryMg -= costMg;
     t.paidMg += costMg;
     t.level++;
+  }
+
+  /**
+   * upgradeGrid (power-grid spec, design D6): buy the next connection tier.
+   * Valid in any live phase — a wave included, since a mid-wave "we need more
+   * power" is a legitimate rescue — under the spending gate (balance ≥ 0, may
+   * go into debt like any purchase) and below the last tier. The tier is
+   * hashed state; the charge and the capacity land in the same tick. One-way:
+   * no provisional flag, no refund, no share of the liquidation total. A
+   * refusal is silent, like startWave's — there is no tile to flash.
+   */
+  private applyUpgradeGrid(): void {
+    const s = this.state;
+    if (s.runPhase === 'won' || s.runPhase === 'lost') return;
+    const next = this.data.gridTiers[s.gridTier + 1];
+    if (!next || !canSpend(s.treasuryMg)) return;
+    s.treasuryMg -= next.costMg;
+    s.gridTier++;
   }
 
   /** Swap the live and scratch field sets wholesale — arrays included (D4). */

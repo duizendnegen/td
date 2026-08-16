@@ -69,10 +69,14 @@ export interface Enemy {
   alive: boolean;
 }
 
-/** Hashed as an integer via STRUCTURE_KIND_ID. */
-export type StructureKind = 'wall' | 'tower';
+/**
+ * Hashed as an integer via STRUCTURE_KIND_ID. The panel (energy-infrastructure
+ * design D7) is a wall that generates power: it lives on the wall's placement
+ * and refund path and differs only in what the power step reads off it.
+ */
+export type StructureKind = 'wall' | 'tower' | 'panel';
 
-export const STRUCTURE_KIND_ID: Record<StructureKind, number> = { wall: 0, tower: 1 };
+export const STRUCTURE_KIND_ID: Record<StructureKind, number> = { wall: 0, tower: 1, panel: 2 };
 
 export interface Structure {
   id: number;
@@ -80,16 +84,16 @@ export interface Structure {
   /** The structure's tile; every structure is 1×1 (phase-3 design D1). */
   tx: number;
   ty: number;
-  /** Towers: index into the canonical archetype list. Walls: -1. */
+  /** Towers: index into the canonical archetype list. Walls and panels: -1. */
   archetypeId: number;
-  /** Towers: current upgrade level, 1–3. Walls: 0. */
+  /** Towers: current upgrade level, 1–3. Walls and panels: 0. */
   level: number;
   /**
    * Total invested in milli-gold — base cost plus every upgrade cost paid.
    * The basis of the removal refund (phase-3 design D3).
    */
   paidMg: number;
-  /** Towers: absolute tick of the earliest permitted next shot. Walls: 0. */
+  /** Towers: absolute tick of the earliest permitted next shot. Walls and panels: 0. */
   nextFireTick: number;
   /**
    * True from placement until the simulation advances a tick while a wave is
@@ -145,4 +149,11 @@ export interface SimState {
   kills: number;
   /** The most recent settlement's speed bonus (run-lifecycle spec); 0 before any. */
   lastWaveBonusMg: number;
+  /**
+   * The grid connection: a 0-based index into the level's tier table
+   * (energy-infrastructure design D6). Raised one-way by `upgradeGrid`, never
+   * lowered, never refunded. Coverage and the bill are DERIVED from this,
+   * the structures and the treasury each tick — never stored, never hashed.
+   */
+  gridTier: number;
 }
