@@ -14,6 +14,7 @@ import balanceJson from '../data/balance.json';
 import { loadGameData } from '../data/schema';
 import { levelForParam, nextLevelUrl } from './levels';
 import { CommandQueue } from '../sim/commands';
+import { TERRAIN } from '../sim/grid';
 import { moveOpenIn, removalOpenIn } from '../sim/placement';
 import { Sim } from '../sim/sim';
 import { formatHash } from '../sim/hash';
@@ -174,10 +175,16 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     data.enemyTypes.map((t) => t.hp),
     camera.camera,
   );
-  const structures = new StructureRenderer(renderer.scene, assets);
+  // Towers stand on walls (build-over-walls): the renderer learns which tiles
+  // are sockets from the grid, and the ghost is raised by the wall's height.
+  const structures = new StructureRenderer(
+    renderer.scene,
+    assets,
+    (tx, ty) => data.grid.terrainAt(tx, ty) === TERRAIN.socket,
+  );
   const sacks = new SackRenderer(renderer.scene);
   const fx = new FxRenderer(renderer.scene);
-  const ghost = new GhostPreview(renderer.scene);
+  const ghost = new GhostPreview(renderer.scene, StructureRenderer.wallHeight(assets));
   const ribbon = new LaneRibbon(renderer.scene);
 
   // UI: reads sim state, emits commands — never mutates state directly.
@@ -362,8 +369,8 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   // read here (debug-tooling spec: "Frames depend on tick, not elapsed time").
   const renderFrame = (nowMs: number, alpha = 0): void => {
     enemies.sync(sim.state.enemies, alpha, nowMs, sim.state.tick);
-    // The lifted structure's origin mesh dims while the move tool carries it.
-    structures.setLifted(inputCore.lifted?.id ?? null);
+    // The lifted stack's origin meshes dim while the move tool carries it.
+    structures.setLifted(inputCore.liftedIds);
     structures.sync(sim.state.structures, (s) => sim.currentTarget(s), nowMs);
     sacks.sync(sim.state.sacks, nowMs);
     fx.drain(sim.events, nowMs);

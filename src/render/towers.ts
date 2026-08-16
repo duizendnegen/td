@@ -6,6 +6,12 @@
 //   - Modular tower composition: one kit segment per upgrade level per
 //     archetype (square bases + weapon heads; round + crystals for slow),
 //     so level reads as height (tower-upgrades spec)
+//   - A tower on dirt stands on its wall (build-over-walls design D7): the
+//     wall IS its base segment, so the tower's middles and head start at the
+//     wall's height and the tower brings no base of its own; a socket tower
+//     keeps base + middles + head. Same silhouette either way, no doubled
+//     masonry. The terrain kind comes from an injected predicate, never from
+//     scanning structures
 //   - Weapon head yaws toward the tower's current target (cosmetic)
 //   - Provisional structures wear a pulsing footprint tell that clears the
 //     frame they commit (provisional-construction design D6) — render-only,
@@ -13,8 +19,11 @@
 //   - A removed structure's mesh is dropped in the frame it disappears; there
 //     is no countdown state to render (structure-placement spec)
 //   - A moved structure's mesh (and its provisional tell) repositions in the
-//     frame its tile changes; a lifted structure's origin mesh renders dimmed
-//     while it is carried (tower-drag-move)
+//     frame its tile changes; every structure in a lifted stack renders
+//     dimmed at the origin while it is carried (tower-drag-move,
+//     build-over-walls design D5)
+//   - One provisional tell per tile: a wall's mark is suppressed while a
+//     provisional tower on the same tile shows one (design D7)
 
 import * as THREE from 'three';
 import { ARCHETYPES, type TowerArchetype } from '../data/schema';
@@ -62,12 +71,19 @@ export class StructureRenderer {
   private readonly meshes = new Map<number, THREE.Group>();
   /** The weapon head per tower, for the cosmetic target yaw. */
   private readonly heads = new Map<number, THREE.Object3D>();
-  /** The level each mesh was built for; an upgrade triggers a rebuild. */
-  private readonly builtLevels = new Map<number, number>();
+  /**
+   * The composition each mesh was built for — level and mounting; an
+   * upgrade, or a hop between a wall and a socket, triggers a rebuild.
+   */
+  private readonly builtKeys = new Map<number, string>();
   /** The provisional footprint tell per structure, while it has one. */
   private readonly marks = new Map<number, THREE.Object3D>();
-  /** The structure whose origin mesh renders dimmed — the carried lift. */
-  private liftedId: number | null = null;
+  /** The structures whose origin meshes render dimmed — the carried lift. */
+  private readonly liftedIds = new Set<number>();
+  /** Whether tile (tx, ty) is a socket — the one terrain fact rendering needs. */
+  private readonly isSocket: (tx: number, ty: number) => boolean;
+  /** The wall model's height, measured once: where a mounted tower starts. */
+  private wallHeight: number | null = null;
   /** Shared translucent variant of the atlas material, built on first lift. */
   private dimMaterial: THREE.MeshLambertMaterial | null = null;
   /** Shared by every tell: one geometry pair, one material pair, one pulse. */
@@ -87,9 +103,16 @@ export class StructureRenderer {
     depthWrite: false,
   });
 
-  constructor(scene: THREE.Scene, assets: Assets) {
+  constructor(scene: THREE.Scene, assets: Assets, isSocket: (tx: number, ty: number) => boolean) {
     this.scene = scene;
     this.assets = assets;
+    this.isSocket = isSocket;
+  }
+
+  /** The wall model's height — what a tower ghost is raised by (see GhostPreview). */
+  static wallHeight(assets: Assets): number {
+    const box = new THREE.Box3().setFromObject(assets.instance(WALL_MODEL));
+    return Math.max(box.max.y - box.min.y, 0);
   }
 
   /** Flat unit-square outline on the XZ plane, centred on the origin. */
@@ -127,18 +150,33 @@ export class StructureRenderer {
     this.marks.delete(id);
   }
 
+  /** The composition key for `s`: rebuild when it changes. */
+  private buildKey(s: Structure): string {
+    return `${s.level}:${this.isSocket(s.tx, s.ty) ? 'socket' : 'dirt'}`;
+  }
+
   private build(s: Structure): THREE.Group {
     const group = new THREE.Group();
     if (s.kind === 'wall') {
       stack(group, [this.assets.instance(WALL_MODEL)]);
     } else {
-      // One middle segment per level above 1: level legibility is height.
+      // One middle segment per level above 1: level legibility is height. On
+      // dirt the wall beneath is the base segment (design D7): the tower
+      // starts at the wall's height and brings no base of its own; on a
+      // socket it keeps its own base. Same silhouette either way.
       const kit = KIT[ARCHETYPES[s.archetypeId]!];
-      const parts: THREE.Object3D[] = [this.assets.instance(kit.base)];
+      const onSocket = this.isSocket(s.tx, s.ty);
+      const parts: THREE.Object3D[] = onSocket ? [this.assets.instance(kit.base)] : [];
       for (let l = 1; l < s.level; l++) parts.push(this.assets.instance(kit.middle));
       const head = this.assets.instance(kit.head);
       parts.push(head);
-      stack(group, parts);
+      const payload = new THREE.Group();
+      stack(payload, parts);
+      if (!onSocket) {
+        this.wallHeight ??= StructureRenderer.wallHeight(this.assets);
+        payload.position.y = this.wallHeight;
+      }
+      group.add(payload);
       this.heads.set(s.id, head);
     }
     group.position.set(s.tx + 0.5, GROUND_TOP_Y, s.ty + 0.5);
@@ -150,23 +188,26 @@ export class StructureRenderer {
     if (mesh) this.scene.remove(mesh);
     this.meshes.delete(id);
     this.heads.delete(id);
-    this.builtLevels.delete(id);
+    this.builtKeys.delete(id);
   }
 
   /**
-   * Dim (or restore) the origin mesh of the lifted structure, by id — the
-   * "reads as lifted" treatment while the move tool carries it (build-ui
-   * delta). Null restores whatever was dimmed. Render-only, like everything
-   * here: the id comes from the UI's lift state, never from sim state.
+   * Dim the origin meshes of the lifted stack, by id — the "reads as lifted"
+   * treatment while the move tool carries it (build-ui delta) — and restore
+   * whatever was dimmed before and is not in `ids`. An empty list restores
+   * everything. Render-only, like everything here: the ids come from the
+   * UI's lift state, never from sim state.
    */
-  setLifted(id: number | null): void {
-    if (id === this.liftedId) return;
-    if (this.liftedId !== null) {
-      const prev = this.meshes.get(this.liftedId);
+  setLifted(ids: readonly number[]): void {
+    for (const id of this.liftedIds) {
+      if (ids.includes(id)) continue;
+      const prev = this.meshes.get(id);
       if (prev) this.applyDim(prev, false);
+      this.liftedIds.delete(id);
     }
-    this.liftedId = id;
-    if (id !== null) {
+    for (const id of ids) {
+      if (this.liftedIds.has(id)) continue;
+      this.liftedIds.add(id);
       const mesh = this.meshes.get(id);
       if (mesh) this.applyDim(mesh, true);
     }
@@ -207,29 +248,39 @@ export class StructureRenderer {
     this.fillMaterial.opacity = pulse * 0.3;
     this.outlineMaterial.opacity = pulse;
 
+    // One tell per tile (design D7): a provisional tower's mark stands in for
+    // the wall's beneath it, so a fresh stack does not draw two.
+    const provisionalTowerTiles = new Set<string>();
+    for (const s of structures) {
+      if (s.kind === 'tower' && s.provisional) provisionalTowerTiles.add(`${s.tx},${s.ty}`);
+    }
     const live = new Set<number>();
     for (const s of structures) {
       live.add(s.id);
       // The tell appears with the structure and clears the frame the wave's
-      // first advanced tick commits it.
-      if (s.provisional && !this.marks.has(s.id)) {
+      // first advanced tick commits it — or, for a wall, the frame a
+      // provisional tower lands on it (and returns if that tower leaves).
+      const marked =
+        s.provisional && !(s.kind === 'wall' && provisionalTowerTiles.has(`${s.tx},${s.ty}`));
+      if (marked && !this.marks.has(s.id)) {
         const mark = this.buildMark(s);
         this.marks.set(s.id, mark);
         this.scene.add(mark);
-      } else if (!s.provisional && this.marks.has(s.id)) {
+      } else if (!marked && this.marks.has(s.id)) {
         this.dropMark(s.id);
       }
-      // An upgrade changes the composition: rebuild the mesh at the new level.
-      if (this.meshes.has(s.id) && this.builtLevels.get(s.id) !== s.level) {
+      // An upgrade, or a hop between a wall and a socket, changes the
+      // composition: rebuild the mesh for the new key.
+      if (this.meshes.has(s.id) && this.builtKeys.get(s.id) !== this.buildKey(s)) {
         this.dropMesh(s.id);
       }
       let mesh = this.meshes.get(s.id);
       if (!mesh) {
         mesh = this.build(s);
         this.meshes.set(s.id, mesh);
-        this.builtLevels.set(s.id, s.level);
+        this.builtKeys.set(s.id, this.buildKey(s));
         this.scene.add(mesh);
-        if (s.id === this.liftedId) this.applyDim(mesh, true);
+        if (this.liftedIds.has(s.id)) this.applyDim(mesh, true);
       }
       // A moved structure repositions in the frame its tile changes — the
       // mesh and its provisional tell alike (tower-drag-move).

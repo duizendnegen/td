@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import level01Json from '../src/data/levels/level_01.json';
 import { loadGameData } from '../src/data/schema';
+import { liquidationTotalMg } from '../src/sim/economy';
 import { tileCentre, toTile } from '../src/sim/fixed';
 import { Sim } from '../src/sim/sim';
 import {
   injectEnemy,
   makeSim,
+  mount,
   move,
   openLevel,
   place,
@@ -55,12 +57,14 @@ describe('placement validation', () => {
     // Wall directly on the enemy.
     sim.tick([place('wall', 3, 2)]);
     expect(sim.state.structures).toHaveLength(0);
-    // Tower directly on the enemy — the 1×1 check is the same single tile.
+    // A tower needs that wall first, so it never reaches the enemy check:
+    // bare dirt refuses it as needs-wall, enemy or no enemy (build-over-walls).
+    expect(sim.previewPlacement('tower', 3, 2)).toBe('needs-wall');
     sim.tick([place('tower', 3, 2)]);
     expect(sim.state.structures).toHaveLength(0);
-    // The neighbouring tile is fine.
-    sim.tick([place('tower', 4, 3)]);
-    expect(sim.state.structures).toHaveLength(1);
+    // The neighbouring tile is fine — wall, then the tower on it.
+    sim.tick(mount(4, 3));
+    expect(sim.state.structures).toHaveLength(2);
   });
 
   it('rejects cutting a carrier off from its origin even with another spawn reachable', () => {
@@ -100,26 +104,28 @@ describe('placement validation', () => {
     expect(legal.state.structures).toHaveLength(1);
   });
 
-  it('a tower occupies exactly one tile and slots into a wall line', () => {
+  it('a tower stands on a wall segment: one tile, the tower cost, the line unchanged', () => {
     // Wall line across x=3 with gaps at (3,1) and (3,2).
     const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
     sim.tick([place('wall', 3, 0), place('wall', 3, 3), place('wall', 3, 4)]);
     expect(sim.state.structures).toHaveLength(3);
 
-    // The tower slots into the line at (3,1) like any wall segment: exactly
-    // one tile blocked and charged, neighbours untouched.
+    // A wall closes the (3,1) gap like any segment, and the tower then stands
+    // on it: exactly that tile carries the tower, the tower's cost alone is
+    // charged, and the mask is what the wall made it — the tower is a wall
+    // segment that shoots.
+    sim.tick([place('wall', 3, 1)]);
     const before = sim.state.treasuryMg;
     sim.tick([place('tower', 3, 1)]);
-    expect(sim.state.structures).toHaveLength(4);
+    expect(sim.state.structures).toHaveLength(5);
     expect(sim.state.treasuryMg).toBe(before - 50_000);
     expect(sim.grid.isBlocked(3, 1)).toBe(true);
     expect(sim.grid.isBlocked(4, 1)).toBe(false);
     expect(sim.grid.isBlocked(3, 2)).toBe(false);
 
-    // A tower in the last gap would seal the corridor — same pipeline, same
-    // rejection as a wall.
-    sim.tick([place('tower', 3, 2)]);
-    expect(sim.state.structures).toHaveLength(4);
+    // A wall in the last gap would seal the corridor — rejected as ever.
+    sim.tick([place('wall', 3, 2)]);
+    expect(sim.state.structures).toHaveLength(5);
     expect(sim.grid.isBlocked(3, 2)).toBe(false);
   });
 
@@ -143,17 +149,18 @@ describe('placement validation', () => {
 
   it('spending is allowed into debt at balance ≥ 0 and blocked below 0', () => {
     const { sim } = makeSim(openLevel(9, 9, { x: 0, y: 4 }, { x: 8, y: 4 }));
-    // Four towers at 50g against a 200g treasury → balance 0, still spendable.
-    sim.tick([place('tower', 1, 0), place('tower', 3, 0), place('tower', 5, 0)]);
-    sim.tick([place('tower', 1, 6)]);
+    // Three mounted towers (rapid 54g, sniper 74g, slow 64g) and two walls
+    // against a 200g treasury → balance 0, still spendable.
+    sim.tick([...mount(1, 0, 'rapid'), ...mount(3, 0, 'sniper'), ...mount(5, 0, 'slow')]);
+    sim.tick([place('wall', 1, 6), place('wall', 1, 8)]);
     expect(sim.state.treasuryMg).toBe(0);
     // Balance 0 → the debt purchase is permitted and goes negative.
     sim.tick([place('wall', 3, 6)]);
-    expect(sim.state.structures).toHaveLength(5);
+    expect(sim.state.structures).toHaveLength(9);
     expect(sim.state.treasuryMg).toBe(-4000);
     // Below 0 → all spending is blocked, nothing changes.
     sim.tick([place('wall', 5, 6)]);
-    expect(sim.state.structures).toHaveLength(5);
+    expect(sim.state.structures).toHaveLength(9);
     expect(sim.state.treasuryMg).toBe(-4000);
   });
 
@@ -434,14 +441,225 @@ describe('terrain buildability (phase-4)', () => {
   });
 });
 
-// The provisional window (provisional-construction design D1–D3): a structure
-// is uncommitted until an advance runs under a live wave, and while
-// uncommitted it refunds in full and may be sold in any live phase.
+
+/** A 5×3 corridor with two waves — one for committing, one still to run. */
 const twoWaveCorridor = () =>
   openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }, [], {
     waves: [trivialWave(), trivialWave()],
   });
 
+// Towers stand on foundations (build-over-walls, structure-placement delta):
+// a tower goes on a bare wall or an empty socket, never on bare dirt; wall
+// and tower are two structures on one tile with separate books; only walls
+// own the mask, so a tower placement never validates a route or rebuilds a
+// field.
+describe('towers stand on foundations (build-over-walls)', () => {
+  const corridor = () => openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 });
+
+  it('mounting on a bare wall charges the tower only and touches no field', () => {
+    const { sim } = makeSim(corridor());
+    sim.tick([place('wall', 3, 0)]);
+    const wall = sim.state.structures[0]!;
+    const afterWallMg = sim.state.treasuryMg;
+    const inboundBefore = sim.inbound;
+    const returningBefore = sim.returning;
+    const costsBefore = Array.from(sim.inbound.cost);
+
+    expect(sim.previewPlacement('tower', 3, 0)).toBe('ok');
+    sim.tick([place('tower', 3, 0)]);
+    expect(sim.state.structures).toHaveLength(2);
+    expect(sim.state.structures[0]).toBe(wall); // the wall stands, same record
+    const tower = sim.state.structures[1]!;
+    expect(tower.kind).toBe('tower');
+    expect([tower.tx, tower.ty]).toEqual([3, 0]);
+    expect(sim.state.treasuryMg).toBe(afterWallMg - 50_000);
+    // No swap, no rebuild: the live field objects and their costs are untouched.
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(sim.returning).toBe(returningBefore);
+    expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
+    expect(sim.grid.isBlocked(3, 0)).toBe(true);
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(false);
+  });
+
+  it('bare dirt needs a wall — rejected atomically', () => {
+    const build = () => makeSim(corridor()).sim;
+    const withAttempt = build();
+    const without = build();
+    expect(withAttempt.previewPlacement('tower', 3, 0)).toBe('needs-wall');
+    withAttempt.tick([place('tower', 3, 0)]);
+    without.tick([]);
+    expect(withAttempt.state.structures).toHaveLength(0);
+    expect(withAttempt.state.treasuryMg).toBe(200_000);
+    expect(withAttempt.grid.isBlocked(3, 0)).toBe(false);
+    expect(withAttempt.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+    expect(withAttempt.hash()).toBe(without.hash());
+    // The same tile takes the tower once a wall stands on it.
+    withAttempt.tick([place('wall', 3, 0)]);
+    expect(withAttempt.previewPlacement('tower', 3, 0)).toBe('ok');
+  });
+
+  it('one tower per foundation: a mounted wall and a full socket are occupied', () => {
+    const { sim } = makeSim(paletteLevel());
+    sim.tick([...mount(2, 2), place('tower', 3, 0)]);
+    expect(sim.state.structures).toHaveLength(3);
+    expect(sim.previewPlacement('tower', 2, 2)).toBe('occupied');
+    expect(sim.previewPlacement('tower', 3, 0)).toBe('occupied');
+    sim.tick([place('tower', 2, 2), place('tower', 3, 0)]);
+    expect(sim.state.structures).toHaveLength(3);
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(2);
+  });
+
+  it('a wall never accepts a second wall, tower or no tower', () => {
+    const { sim } = makeSim(corridor());
+    sim.tick([place('wall', 2, 0), ...mount(4, 0)]);
+    expect(sim.previewPlacement('wall', 2, 0)).toBe('occupied'); // bare wall
+    expect(sim.previewPlacement('wall', 4, 0)).toBe('occupied'); // mounted wall
+    sim.tick([place('wall', 2, 0), place('wall', 4, 0)]);
+    expect(sim.state.structures).toHaveLength(3);
+  });
+
+  it('a tower on a wall runs no path check: confirmed where a wall would seal', () => {
+    // Wall line down x=3 with (3,2) the only gap: a fresh wall there seals,
+    // and the standing walls flank the one lane. A tower on (3,1) never
+    // enters the path pipeline — the tile was blocked already — so it is
+    // confirmed with the fields left exactly as they were.
+    const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
+    sim.tick([place('wall', 3, 0), place('wall', 3, 1), place('wall', 3, 3), place('wall', 3, 4)]);
+    expect(sim.previewPlacement('wall', 3, 2)).toBe('seals-spawn');
+    const inboundBefore = sim.inbound;
+    const costsBefore = Array.from(sim.inbound.cost);
+    expect(sim.previewPlacement('tower', 3, 1)).toBe('ok');
+    sim.tick([place('tower', 3, 1)]);
+    expect(sim.state.structures).toHaveLength(5);
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
+    expect(sim.grid.isBlocked(3, 2)).toBe(false); // the lane is still open
+  });
+
+  it('wall and tower keep separate books: mounting on a committed wall', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([place('wall', 2, 0)]);
+    sim.tick([startWave()]); // commits the wall
+    sim.state.enemies.forEach((e) => (e.hp = 0));
+    sim.tick([]); // settles back to the build phase
+    expect(sim.state.runPhase).toBe('build');
+    const wall = sim.state.structures[0]!;
+    expect(wall.provisional).toBe(false);
+
+    const beforeMountMg = sim.state.treasuryMg;
+    sim.tick([place('tower', 2, 0)]);
+    const tower = sim.state.structures[1]!;
+    expect(tower.provisional).toBe(true);
+    expect(wall.provisional).toBe(false);
+    expect(wall.paidMg).toBe(4000);
+    expect(tower.paidMg).toBe(50_000);
+    expect(sim.state.treasuryMg).toBe(beforeMountMg - 50_000);
+
+    // The tower comes off at its full price; the wall's basis is unchanged
+    // and refunds at the committed fraction afterwards.
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toEqual([wall]);
+    expect(sim.state.treasuryMg).toBe(beforeMountMg);
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(beforeMountMg + 2000);
+  });
+
+  it('mounting mid-wave on a committed wall is confirmed', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([place('wall', 2, 0)]);
+    sim.tick([startWave()]); // commits the wall
+    expect(sim.state.runPhase).toBe('wave');
+    const wall = sim.state.structures[0]!;
+    const before = sim.state.treasuryMg;
+    const inboundBefore = sim.inbound;
+
+    // Stopped wave: commit only, so the flag can be read before an advance.
+    sim.commit([place('tower', 2, 0)]);
+    expect(sim.state.structures).toHaveLength(2);
+    expect(sim.state.structures[1]!.provisional).toBe(true);
+    expect(wall.provisional).toBe(false);
+    expect(sim.state.treasuryMg).toBe(before - 50_000);
+    expect(sim.inbound).toBe(inboundBefore); // no rebuild for a tower
+    expect(sim.grid.isBlocked(2, 0)).toBe(true);
+    // The next advance commits the tower as it commits any placement.
+    sim.advance();
+    expect(sim.state.structures[1]!.provisional).toBe(false);
+  });
+});
+
+// Removal peels a stacked tile top-down (build-over-walls design D3): the
+// tower first, the wall once bare; a tower's removal never touches the mask.
+describe('removal peels a stacked tile', () => {
+  it('the tower comes off first, the wall stands, no rebuild', () => {
+    const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
+    sim.tick(mount(3, 0));
+    const [wall, tower] = sim.state.structures;
+    const afterBuildMg = sim.state.treasuryMg;
+    expect(liquidationTotalMg(sim.state.structures, 500)).toBe(4000 + 50_000);
+    const inboundBefore = sim.inbound;
+    const returningBefore = sim.returning;
+    const costsBefore = Array.from(sim.inbound.cost);
+    expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBe(-1);
+
+    sim.tick([remove(3, 0)]);
+    expect(sim.state.structures).toEqual([wall]);
+    expect(sim.state.structures).not.toContain(tower);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg + 50_000); // provisional: full refund
+    expect(sim.grid.isBlocked(3, 0)).toBe(true);
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(sim.returning).toBe(returningBefore);
+    expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
+    expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBe(-1);
+
+    // Then the wall: gone, refunded, walkable, both fields reflect it.
+    sim.tick([remove(3, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg + 50_000 + 4000);
+    expect(sim.grid.isBlocked(3, 0)).toBe(false);
+    expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+    expect(sim.returning[0]!.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+  });
+
+  it('mid-wave a provisional tower comes off a committed wall with the mask unchanged', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    sim.tick([place('wall', 2, 0)]);
+    sim.tick([startWave()]); // commits the wall
+    sim.commit([place('tower', 2, 0)]); // provisional while the wave is stopped
+    const wall = sim.state.structures[0]!;
+    const before = sim.state.treasuryMg;
+    const inboundBefore = sim.inbound;
+
+    sim.commit([remove(2, 0)]);
+    expect(sim.state.structures).toEqual([wall]);
+    expect(sim.state.treasuryMg).toBe(before + 50_000);
+    expect(sim.grid.isBlocked(2, 0)).toBe(true);
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(false);
+  });
+
+  it('mid-wave a committed tower is refused and the wall is not touched either', () => {
+    const build = () => {
+      const { sim } = makeSim(twoWaveCorridor());
+      sim.tick(mount(2, 0));
+      sim.tick([startWave()]); // commits both layers
+      expect(sim.state.structures.every((s) => !s.provisional)).toBe(true);
+      return sim;
+    };
+    const withAttempt = build();
+    const without = build();
+    withAttempt.tick([remove(2, 0)]);
+    without.tick([]);
+    expect(withAttempt.state.structures).toHaveLength(2);
+    expect(withAttempt.grid.isBlocked(2, 0)).toBe(true);
+    expect(withAttempt.hash()).toBe(without.hash());
+    expect(withAttempt.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+  });
+});
+
+// The provisional window (provisional-construction design D1–D3): a structure
+// is uncommitted until an advance runs under a live wave, and while
+// uncommitted it refunds in full and may be sold in any live phase.
 describe('the provisional window', () => {
   it('survives a whole build phase, however many ticks it spans', () => {
     const { sim } = makeSim(twoWaveCorridor());
@@ -506,12 +724,14 @@ describe('the provisional window', () => {
   it("returns a provisional tower's upgrades with it", () => {
     const { sim } = makeSim(twoWaveCorridor());
     const before = sim.state.treasuryMg;
-    sim.tick([place('tower', 2, 0)]); // 50 000
-    sim.tick([upgrade(2, 0)]); // + 85 000 into paidMg
-    expect(sim.state.structures[0]!.paidMg).toBe(135_000);
-    expect(sim.state.treasuryMg).toBe(before - 135_000);
+    sim.tick(mount(2, 0)); // wall 4000 + tower 50 000
+    sim.tick([upgrade(2, 0)]); // + 85 000 into the tower's paidMg
+    expect(sim.state.structures[1]!.paidMg).toBe(135_000);
+    expect(sim.state.treasuryMg).toBe(before - 4000 - 135_000);
 
-    sim.tick([remove(2, 0)]);
+    sim.tick([remove(2, 0)]); // peels the tower
+    expect(sim.state.treasuryMg).toBe(before - 4000);
+    sim.tick([remove(2, 0)]); // then the wall
     expect(sim.state.treasuryMg).toBe(before);
   });
 
@@ -579,22 +799,25 @@ describe('the provisional window', () => {
   });
 });
 
-// Tower drag-move (structure-placement delta): a validated, atomic,
-// build-phase-only relocation of towers and walls that evaluates the
-// destination with the origin freed under the mover's terrain rule, is free
-// of charge, and preserves the structure's identity.
+// Stack moves (structure-placement delta, build-over-walls design D4): a
+// validated, atomic, build-phase-only move of what stands on a tile. The
+// destination decides what lands — bare dirt takes the wall with its tower
+// (relocate: origin freed, destination blocked, full path validation), a
+// foundation takes the tower alone (transfer: no mask change at all) — free
+// of charge, every structure's identity preserved.
 describe('move command', () => {
-  it('a confirmed move updates the mask and both fields in its tick', () => {
+  it('a confirmed stack move relocates wall and tower and reroutes in its tick', () => {
     const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
-    sim.tick([place('tower', 3, 0)]);
-    const id = sim.state.structures[0]!.id;
+    sim.tick(mount(3, 0));
+    const [wall, tower] = sim.state.structures;
     const afterBuildMg = sim.state.treasuryMg;
 
+    expect(sim.previewMove(3, 0, 3, 2)).toBe('ok');
     sim.tick([move(3, 0, 3, 2)]);
 
-    const s = sim.state.structures[0]!;
-    expect(s.id).toBe(id);
-    expect([s.tx, s.ty]).toEqual([3, 2]);
+    expect(sim.state.structures).toEqual([wall, tower]); // same records, same order
+    expect([wall!.tx, wall!.ty]).toEqual([3, 2]);
+    expect([tower!.tx, tower!.ty]).toEqual([3, 2]);
     expect(sim.state.treasuryMg).toBe(afterBuildMg);
     expect(sim.grid.isBlocked(3, 0)).toBe(false);
     expect(sim.grid.isBlocked(3, 2)).toBe(true);
@@ -603,53 +826,94 @@ describe('move command', () => {
     expect(sim.inbound.cost[sim.grid.idx(3, 2)]).toBe(-1);
     expect(sim.returning[0]!.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
     expect(sim.returning[0]!.cost[sim.grid.idx(3, 2)]).toBe(-1);
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(false);
   });
 
-  it('moving is free and preserves the refund basis of a committed tower', () => {
+  it('a tower hops onto a neighbouring bare wall: the origin wall stays, nothing rebuilds', () => {
+    const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
+    sim.tick([...mount(3, 0), place('wall', 4, 0)]);
+    const [wall, tower, other] = sim.state.structures;
+    const afterBuildMg = sim.state.treasuryMg;
+    const inboundBefore = sim.inbound;
+    const returningBefore = sim.returning;
+    const costsBefore = Array.from(sim.inbound.cost);
+
+    expect(sim.previewMove(3, 0, 4, 0)).toBe('ok');
+    sim.tick([move(3, 0, 4, 0)]);
+
+    expect([tower!.tx, tower!.ty]).toEqual([4, 0]);
+    expect([wall!.tx, wall!.ty]).toEqual([3, 0]); // stays put
+    expect([other!.tx, other!.ty]).toEqual([4, 0]);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg);
+    expect(sim.grid.isBlocked(3, 0)).toBe(true);
+    expect(sim.grid.isBlocked(4, 0)).toBe(true);
+    // No mask change: the live field objects and their costs are untouched.
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(sim.returning).toBe(returningBefore);
+    expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
+    // And the vacated wall takes a tower again — a slide along the line.
+    expect(sim.previewMove(4, 0, 3, 0)).toBe('ok');
+  });
+
+  it('moving is free and preserves both refund bases of a committed stack', () => {
     const { sim } = makeSim(
       openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }, [], {
         waves: [trivialWave(), trivialWave()],
       }),
     );
-    sim.tick([place('tower', 2, 0)]); // 50 000
-    sim.tick([upgrade(2, 0)]); // + 85 000 into paidMg
-    sim.tick([startWave()]); // commits it
+    sim.tick(mount(2, 0)); // 4000 + 50 000
+    sim.tick([upgrade(2, 0)]); // + 85 000 into the tower's paidMg
+    sim.tick([startWave()]); // commits both
     sim.state.enemies.forEach((e) => (e.hp = 0));
     sim.tick([]); // settles back to the build phase
     expect(sim.state.runPhase).toBe('build');
-    expect(sim.state.structures[0]!.provisional).toBe(false);
+    const [wall, tower] = sim.state.structures;
+    expect(wall!.provisional).toBe(false);
+    expect(tower!.provisional).toBe(false);
 
     const beforeMoveMg = sim.state.treasuryMg;
     sim.tick([move(2, 0, 2, 2)]);
-    const s = sim.state.structures[0]!;
-    expect([s.tx, s.ty]).toEqual([2, 2]);
-    expect(s.paidMg).toBe(135_000);
-    expect(s.level).toBe(2);
-    expect(s.provisional).toBe(false);
+    expect([tower!.tx, tower!.ty]).toEqual([2, 2]);
+    expect([wall!.tx, wall!.ty]).toEqual([2, 2]);
+    expect(tower!.paidMg).toBe(135_000);
+    expect(tower!.level).toBe(2);
+    expect(tower!.provisional).toBe(false);
+    expect(wall!.paidMg).toBe(4000);
+    expect(wall!.provisional).toBe(false);
     expect(sim.state.treasuryMg).toBe(beforeMoveMg);
 
-    // The later removal credits exactly what an unmoved tower would return:
-    // 50% of the 135 000 invested.
+    // The later removals credit exactly what an unmoved stack would return:
+    // 50% of the 135 000 tower, then 50% of the 4000 wall.
     sim.tick([remove(2, 2)]);
     expect(sim.state.treasuryMg).toBe(beforeMoveMg + 67_500);
+    sim.tick([remove(2, 2)]);
+    expect(sim.state.treasuryMg).toBe(beforeMoveMg + 67_500 + 2000);
   });
 
-  it('a provisional tower stays provisional across a move', () => {
+  it('provisional flags travel with each structure', () => {
     const { sim } = makeSim(
       openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }, [], {
         waves: [trivialWave(), trivialWave()],
       }),
     );
+    sim.tick([place('wall', 2, 0)]);
+    sim.tick([startWave()]); // commits the wall
+    sim.state.enemies.forEach((e) => (e.hp = 0));
+    sim.tick([]);
     const before = sim.state.treasuryMg;
-    sim.tick([place('tower', 2, 0)]);
+    sim.tick([place('tower', 2, 0)]); // provisional tower on a committed wall
+    const [wall, tower] = sim.state.structures;
+
     sim.tick([move(2, 0, 2, 2)]);
-    expect(sim.state.structures[0]!.provisional).toBe(true);
-    // Still provisional, so removal still refunds in full.
+    expect([wall!.tx, wall!.ty]).toEqual([2, 2]);
+    expect(wall!.provisional).toBe(false);
+    expect(tower!.provisional).toBe(true);
+    // Still provisional, so the tower's removal still refunds in full.
     sim.tick([remove(2, 2)]);
     expect(sim.state.treasuryMg).toBe(before);
   });
 
-  it('a wall moves like a tower: mask, both fields, free, refund basis kept', () => {
+  it('a bare wall moves like before: mask, both fields, free, refund basis kept', () => {
     const { sim } = makeSim(
       openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
         waves: [trivialWave(), trivialWave()],
@@ -683,22 +947,23 @@ describe('move command', () => {
     expect(sim.state.treasuryMg).toBe(before);
   });
 
-  it('a wall cannot move onto a socket, exactly as it cannot be placed on one', () => {
+  it('a bare wall cannot land on a socket or on another wall, as a wall placement could not', () => {
     const { sim } = makeSim(
       openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
         map: ['.o.....', '.......', '.......'],
       }),
     );
-    sim.tick([place('wall', 3, 0)]);
+    sim.tick([place('wall', 3, 0), place('wall', 4, 0)]);
     expect(sim.previewPlacement('wall', 1, 0)).toBe('not-buildable');
-    expect(sim.previewMove(3, 0, 1, 0)).toBe('not-buildable');
-    sim.tick([move(3, 0, 1, 0)]);
+    expect(sim.previewMove(3, 0, 1, 0)).toBe('not-buildable'); // socket: no tower to transfer
+    expect(sim.previewMove(3, 0, 4, 0)).toBe('occupied'); // bare wall: nothing to land
+    sim.tick([move(3, 0, 1, 0), move(3, 0, 4, 0)]);
     const s = sim.state.structures[0]!;
     expect([s.tx, s.ty]).toEqual([3, 0]);
     expect(sim.grid.isBlocked(3, 0)).toBe(true);
-    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
-    // The same socket takes a tower's move.
-    sim.tick([place('tower', 5, 0)]);
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(2);
+    // The same socket takes a stack's tower.
+    sim.tick(mount(5, 0));
     expect(sim.previewMove(5, 0, 1, 0)).toBe('ok');
   });
 
@@ -708,19 +973,20 @@ describe('move command', () => {
         waves: [trivialWave(), trivialWave()],
       }),
     );
-    sim.tick([place('tower', 3, 0)]);
-    sim.tick([startWave()]); // commits the tower
+    sim.tick(mount(3, 0));
+    sim.tick([startWave()]); // commits the stack
     expect(sim.state.runPhase).toBe('wave');
     sim.tick([move(3, 0, 3, 2)]);
-    expect([sim.state.structures[0]!.tx, sim.state.structures[0]!.ty]).toEqual([3, 0]);
+    expect([sim.state.structures[1]!.tx, sim.state.structures[1]!.ty]).toEqual([3, 0]);
     expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
 
-    // A tower placed during the stopped wave is provisional — and still
+    // A stack placed during the stopped wave is provisional — and still
     // immovable: the gate reads the phase, not the flag.
-    sim.commit([place('tower', 3, 2)]);
-    expect(sim.state.structures[1]!.provisional).toBe(true);
+    sim.commit(mount(3, 2));
+    const fresh = sim.state.structures[3]!;
+    expect(fresh.provisional).toBe(true);
     sim.commit([move(3, 2, 4, 2)]);
-    expect([sim.state.structures[1]!.tx, sim.state.structures[1]!.ty]).toEqual([3, 2]);
+    expect([fresh.tx, fresh.ty]).toEqual([3, 2]);
   });
 
   it('rejects moves in the settled-locked state', () => {
@@ -730,8 +996,8 @@ describe('move command', () => {
     );
     // Drain the treasury to exactly 0, start the only wave, then overdraw
     // mid-wave: the settlement lands in debt after the final wave.
-    sim.tick([place('tower', 1, 0), place('tower', 3, 0), place('tower', 5, 0)]);
-    sim.tick([place('tower', 7, 0)]);
+    sim.tick([...mount(1, 0, 'rapid'), ...mount(3, 0, 'sniper'), ...mount(5, 0, 'slow')]);
+    sim.tick([place('wall', 7, 0), place('wall', 7, 2)]);
     expect(sim.state.treasuryMg).toBe(0);
     sim.tick([startWave()]);
     sim.tick([place('wall', 1, 2)]); // → -4000, legal at balance 0
@@ -746,35 +1012,59 @@ describe('move command', () => {
   });
 
   it('the freed origin makes the slide along a wall line legal', () => {
-    // Wall line down x=3 with the tower at (3,2) and the only gap at (3,4):
-    // moving the tower into the gap is legal ONLY because its own tile opens
-    // in the same evaluation.
+    // Wall line down x=3 with the stack at (3,2) and the only gap at (3,4):
+    // relocating the stack into the gap is legal ONLY because its own tile
+    // opens in the same evaluation.
     const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
     sim.tick([place('wall', 3, 0), place('wall', 3, 1), place('wall', 3, 3)]);
-    sim.tick([place('tower', 3, 2)]);
-    expect(sim.state.structures).toHaveLength(4);
+    sim.tick(mount(3, 2));
+    expect(sim.state.structures).toHaveLength(5);
+    const [, , , wall, tower] = sim.state.structures;
 
-    // A plain placement at the gap would seal — the origin is still standing.
-    expect(sim.previewPlacement('tower', 3, 4)).toBe('seals-spawn');
+    // A plain wall placement at the gap would seal — the origin is still standing.
+    expect(sim.previewPlacement('wall', 3, 4)).toBe('seals-spawn');
     // The move sees the origin freed and accepts.
     expect(sim.previewMove(3, 2, 3, 4)).toBe('ok');
     sim.tick([move(3, 2, 3, 4)]);
-    expect([sim.state.structures[3]!.tx, sim.state.structures[3]!.ty]).toEqual([3, 4]);
+    expect([wall!.tx, wall!.ty]).toEqual([3, 4]);
+    expect([tower!.tx, tower!.ty]).toEqual([3, 4]);
     // The reroute now runs through the vacated origin, in the same tick.
     expect(sim.grid.isBlocked(3, 2)).toBe(false);
     expect(sim.inbound.cost[sim.grid.idx(3, 2)]).toBeGreaterThan(0);
     expect(sim.inbound.cost[sim.grid.idx(3, 4)]).toBe(-1);
   });
 
-  it('rejects sealing, stranding, enemy-held, occupied and same-tile destinations', () => {
-    // Sealing: walls leave (3,2) as the only pass; the tower at (1,1) cannot
+  it('a tower hop onto a wall in a sealing position is confirmed: no path checks', () => {
+    // Walls at x=3 leave (3,2) as the only pass; the wall at (3,1) would seal
+    // if it were a fresh placement at the gap. The stack at (1,1) hops its
+    // tower onto (3,1): only the tower transfers, no tile changes
+    // walkability, no rebuild.
+    const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
+    sim.tick([place('wall', 3, 0), place('wall', 3, 1), place('wall', 3, 3), place('wall', 3, 4)]);
+    sim.tick(mount(1, 1));
+    expect(sim.previewPlacement('wall', 3, 2)).toBe('seals-spawn'); // routing is that tight
+    const inboundBefore = sim.inbound;
+    const costsBefore = Array.from(sim.inbound.cost);
+    expect(sim.previewMove(1, 1, 3, 1)).toBe('ok');
+    sim.tick([move(1, 1, 3, 1)]);
+    const tower = sim.state.structures.find((s) => s.kind === 'tower')!;
+    expect([tower.tx, tower.ty]).toEqual([3, 1]);
+    expect(sim.grid.isBlocked(1, 1)).toBe(true); // the origin wall stays
+    expect(sim.grid.isBlocked(3, 2)).toBe(false);
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
+  });
+
+  it('rejects sealing, stranding, enemy-held, mounted and same-tile destinations', () => {
+    // Sealing: walls leave (3,2) as the only pass; the stack at (1,1) cannot
     // plug it — its freed origin does not reconnect the spawn.
     const seal = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 })).sim;
     seal.tick([place('wall', 3, 0), place('wall', 3, 1), place('wall', 3, 3), place('wall', 3, 4)]);
-    seal.tick([place('tower', 1, 1)]);
+    seal.tick(mount(1, 1));
     expect(seal.previewMove(1, 1, 3, 2)).toBe('seals-spawn');
     seal.tick([move(1, 1, 3, 2)]);
     expect([seal.state.structures[4]!.tx, seal.state.structures[4]!.ty]).toEqual([1, 1]);
+    expect([seal.state.structures[5]!.tx, seal.state.structures[5]!.ty]).toEqual([1, 1]);
     expect(seal.grid.isBlocked(3, 2)).toBe(false);
     expect(seal.events.some((e) => e.kind === 'placementRejected')).toBe(true);
 
@@ -782,62 +1072,74 @@ describe('move command', () => {
     const strand = makeSim(openLevel(7, 5, { x: 0, y: 0 }, { x: 6, y: 0 })).sim;
     injectEnemy(strand, 3, 0);
     strand.tick([place('wall', 2, 0), place('wall', 3, 1)]);
-    strand.tick([place('tower', 5, 2)]);
+    strand.tick(mount(5, 2));
     expect(strand.previewMove(5, 2, 4, 0)).toBe('strands-enemy');
     strand.tick([move(5, 2, 4, 0)]);
     expect([strand.state.structures[2]!.tx, strand.state.structures[2]!.ty]).toEqual([5, 2]);
 
-    // Enemy-held, occupied (structure), and the tower's own tile.
+    // Enemy-held, a foundation already carrying a tower, and the stack's own tile.
     const rest = makeSim(openLevel(7, 5, { x: 0, y: 0 }, { x: 6, y: 0 })).sim;
     injectEnemy(rest, 3, 2);
-    rest.tick([place('tower', 1, 3), place('wall', 1, 4)]);
+    rest.tick([...mount(1, 3), ...mount(1, 4)]);
     expect(rest.previewMove(1, 3, 3, 2)).toBe('enemy-in-footprint');
     expect(rest.previewMove(1, 3, 1, 4)).toBe('occupied');
     expect(rest.previewMove(1, 3, 1, 3)).toBe('occupied');
     rest.tick([move(1, 3, 3, 2), move(1, 3, 1, 4), move(1, 3, 1, 3)]);
     expect([rest.state.structures[0]!.tx, rest.state.structures[0]!.ty]).toEqual([1, 3]);
+    expect([rest.state.structures[1]!.tx, rest.state.structures[1]!.ty]).toEqual([1, 3]);
     expect(rest.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(3);
   });
 
-  it('moves through the socket matrix: dirt→socket, socket→dirt, socket→socket', () => {
-    // dirt→socket: no path checks apply, but the freed origin still rebuilds
-    // the fields — unlike a socket placement, which touches nothing (D6).
+  it('moves through the socket matrix: stack→socket, socket→socket, socket→wall, socket→dirt', () => {
     const { sim } = makeSim(
       openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
         map: ['.o.o...', '.......', '.......'],
       }),
     );
-    sim.tick([place('tower', 4, 0)]); // dirt
+    sim.tick([...mount(4, 0), place('wall', 5, 0)]);
+    const [wall, tower] = sim.state.structures;
     expect(sim.inbound.cost[sim.grid.idx(4, 0)]).toBe(-1);
-    sim.tick([move(4, 0, 1, 0)]); // → socket
-    expect([sim.state.structures[0]!.tx, sim.state.structures[0]!.ty]).toEqual([1, 0]);
-    expect(sim.grid.isBlocked(4, 0)).toBe(false);
-    expect(sim.inbound.cost[sim.grid.idx(4, 0)]).toBeGreaterThan(0); // freed this tick
-    expect(sim.grid.isBlocked(1, 0)).toBe(true); // terrain-blocked as ever
 
-    // socket→socket: no mask change, no rebuild — the live field object and
-    // its costs are untouched, like the socket placement fast-path.
+    // stack→socket: a transfer — the tower lands, the wall stays, nothing
+    // about the mask or the fields changes.
     const inboundBefore = sim.inbound;
     const costsBefore = Array.from(sim.inbound.cost);
-    sim.tick([move(1, 0, 3, 0)]);
-    expect([sim.state.structures[0]!.tx, sim.state.structures[0]!.ty]).toEqual([3, 0]);
+    sim.tick([move(4, 0, 1, 0)]);
+    expect([tower!.tx, tower!.ty]).toEqual([1, 0]);
+    expect([wall!.tx, wall!.ty]).toEqual([4, 0]);
+    expect(sim.grid.isBlocked(4, 0)).toBe(true); // the wall still owns it
+    expect(sim.grid.isBlocked(1, 0)).toBe(true); // terrain-blocked as ever
     expect(sim.inbound).toBe(inboundBefore);
     expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
 
-    // socket→dirt: validates exactly as a placement at the destination; the
-    // socket origin stays terrain-blocked, the dirt destination blocks.
+    // socket→socket: the same transfer.
+    sim.tick([move(1, 0, 3, 0)]);
+    expect([tower!.tx, tower!.ty]).toEqual([3, 0]);
+    expect(sim.inbound).toBe(inboundBefore);
+    expect(Array.from(sim.inbound.cost)).toEqual(costsBefore);
+
+    // socket→bare dirt: a socket stack has no wall to relocate.
+    expect(sim.previewMove(3, 0, 2, 0)).toBe('needs-wall');
     sim.tick([move(3, 0, 2, 0)]);
-    expect([sim.state.structures[0]!.tx, sim.state.structures[0]!.ty]).toEqual([2, 0]);
+    expect([tower!.tx, tower!.ty]).toEqual([3, 0]);
+    expect(sim.grid.isBlocked(2, 0)).toBe(false);
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+
+    // socket→bare wall: a transfer onto the wall at (5,0).
+    expect(sim.previewMove(3, 0, 5, 0)).toBe('ok');
+    sim.tick([move(3, 0, 5, 0)]);
+    expect([tower!.tx, tower!.ty]).toEqual([5, 0]);
+    expect(sim.inbound).toBe(inboundBefore);
+    // …and the socket is empty and still terrain-blocked.
+    expect(sim.previewPlacement('tower', 3, 0)).toBe('ok');
     expect(sim.grid.isBlocked(3, 0)).toBe(true);
-    expect(sim.grid.isBlocked(2, 0)).toBe(true);
-    expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBe(-1);
   });
 
   it('move rejection is atomic: post-tick hash equals the run without the attempt', () => {
     const build = () => {
       const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
       sim.tick([place('wall', 3, 0), place('wall', 3, 1), place('wall', 3, 3), place('wall', 3, 4)]);
-      sim.tick([place('tower', 1, 1)]);
+      sim.tick(mount(1, 1));
       return sim;
     };
     const withAttempt = build();
@@ -860,7 +1162,7 @@ describe('move previews (path-preview delta)', () => {
           map: ['....o....', '.........', '.........', '.........', '.........'],
         }),
       );
-      sim.tick([place('wall', 4, 3), place('wall', 4, 4), place('tower', 4, 1)]);
+      sim.tick([place('wall', 4, 3), place('wall', 4, 4), ...mount(4, 1)]);
       return sim;
     };
     const swept = build();
@@ -872,6 +1174,8 @@ describe('move previews (path-preview delta)', () => {
       for (let tx = -1; tx <= 9; tx++) {
         swept.previewMove(4, 1, tx, ty);
         swept.previewMoveRoutes(4, 1, tx, ty);
+        swept.previewMove(4, 3, tx, ty); // a bare wall's stack too
+        swept.previewMoveRoutes(4, 3, tx, ty);
       }
     }
     for (let t = 0; t < 20; t++) {
@@ -883,7 +1187,7 @@ describe('move previews (path-preview delta)', () => {
 
   it('a held result survives a later evaluation and a confirmed move', () => {
     const { sim } = makeSim(openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 }));
-    sim.tick([place('tower', 4, 1)]);
+    sim.tick(mount(4, 1));
     const held = sim.previewMoveRoutes(4, 1, 4, 2);
     expect(held.verdict).toBe('ok');
     expect(held.lanes).not.toBeNull();
@@ -895,7 +1199,7 @@ describe('move previews (path-preview delta)', () => {
 
     // …and a confirmed move swaps `scratch` into live state.
     sim.tick([move(4, 1, 6, 3)]);
-    expect([sim.state.structures[0]!.tx, sim.state.structures[0]!.ty]).toEqual([6, 3]);
+    expect([sim.state.structures[1]!.tx, sim.state.structures[1]!.ty]).toEqual([6, 3]);
     expect(JSON.stringify(held)).toBe(snapshot);
   });
 
@@ -904,7 +1208,7 @@ describe('move previews (path-preview delta)', () => {
     // blocks it and the projection must run through the vacated (3,2).
     const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
     sim.tick([place('wall', 3, 0), place('wall', 3, 1), place('wall', 3, 3)]);
-    sim.tick([place('tower', 3, 2)]);
+    sim.tick(mount(3, 2));
     expect(sim.currentLanes()[0]!.some((t) => t.x === 3 && t.y === 4)).toBe(true);
 
     const preview = sim.previewMoveRoutes(3, 2, 3, 4);
@@ -916,40 +1220,49 @@ describe('move previews (path-preview delta)', () => {
     expect(sim.currentLanes()[0]!.some((t) => t.x === 3 && t.y === 4)).toBe(true);
   });
 
-  it('yields null lanes for every routing-independent rejection', () => {
+  it('yields null lanes for every routing-independent verdict, transfers included', () => {
     const level = () =>
       openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
         map: ['.rgo.o.', '.......', '.......'],
       });
     const { sim } = makeSim(level());
-    sim.tick([place('tower', 4, 2), place('wall', 2, 2), place('tower', 3, 0)]);
+    sim.tick([...mount(4, 2), place('wall', 2, 2), place('tower', 3, 0), ...mount(6, 2)]);
     injectEnemy(sim, 5, 1);
 
     // Nothing movable at the origin (a bare tile).
-    expect(sim.previewMoveRoutes(6, 2, 4, 1)).toEqual({ verdict: 'not-buildable', lanes: null, orphaned: null });
-    // A wall bound for a free socket: the mover's terrain rule, no routing.
+    expect(sim.previewMoveRoutes(1, 2, 4, 1)).toEqual({ verdict: 'not-buildable', lanes: null, orphaned: null });
+    // A bare wall bound for a free socket: nothing to transfer, no routing.
     expect(sim.previewMoveRoutes(2, 2, 5, 0)).toEqual({ verdict: 'not-buildable', lanes: null, orphaned: null });
-    // Out of bounds, terrain, occupied, own tile, enemy-held.
+    // Out of bounds, terrain, own tile, enemy-held.
     expect(sim.previewMoveRoutes(4, 2, -1, 1)).toEqual({ verdict: 'out-of-bounds', lanes: null, orphaned: null });
     expect(sim.previewMoveRoutes(4, 2, 1, 0).verdict).toBe('not-buildable'); // rock
     expect(sim.previewMoveRoutes(4, 2, 1, 0).lanes).toBeNull();
     expect(sim.previewMoveRoutes(4, 2, 2, 0).verdict).toBe('not-buildable'); // grass
-    expect(sim.previewMoveRoutes(4, 2, 2, 2).verdict).toBe('occupied'); // wall
-    expect(sim.previewMoveRoutes(4, 2, 2, 2).lanes).toBeNull();
     expect(sim.previewMoveRoutes(4, 2, 4, 2).verdict).toBe('occupied'); // own tile
     expect(sim.previewMoveRoutes(4, 2, 4, 2).lanes).toBeNull();
     expect(sim.previewMoveRoutes(4, 2, 5, 1).verdict).toBe('enemy-in-footprint');
     expect(sim.previewMoveRoutes(4, 2, 5, 1).lanes).toBeNull();
-    // The socket→socket move rebuilds nothing — and cannot leak the previous
-    // evaluation's fields as its own.
+    // A foundation already carrying a tower: occupied, no routing.
+    expect(sim.previewMoveRoutes(4, 2, 6, 2)).toEqual({ verdict: 'occupied', lanes: null, orphaned: null });
+    expect(sim.previewMoveRoutes(4, 2, 3, 0)).toEqual({ verdict: 'occupied', lanes: null, orphaned: null });
+    // A socket tower bound for bare dirt: needs-wall, no routing.
+    expect(sim.previewMoveRoutes(3, 0, 4, 1)).toEqual({ verdict: 'needs-wall', lanes: null, orphaned: null });
+    // Transfers rebuild nothing — and cannot leak the previous evaluation's
+    // fields as their own: onto a bare wall, onto a socket, socket to socket.
     sim.previewMoveRoutes(4, 2, 4, 1); // primes `scratch` with another tile's fields
+    expect(sim.previewMoveRoutes(4, 2, 2, 2)).toEqual({ verdict: 'ok', lanes: null, orphaned: null });
+    sim.previewMoveRoutes(4, 2, 4, 1);
+    expect(sim.previewMoveRoutes(4, 2, 5, 0)).toEqual({ verdict: 'ok', lanes: null, orphaned: null });
+    sim.previewMoveRoutes(4, 2, 4, 1);
     expect(sim.previewMoveRoutes(3, 0, 5, 0)).toEqual({ verdict: 'ok', lanes: null, orphaned: null });
+    sim.previewMoveRoutes(4, 2, 4, 1);
+    expect(sim.previewMoveRoutes(3, 0, 2, 2)).toEqual({ verdict: 'ok', lanes: null, orphaned: null });
   });
 
   it('populates the orphan set for a sealing move, freed origin included', () => {
     const { sim } = makeSim(openLevel(7, 5, { x: 0, y: 2 }, { x: 6, y: 2 }));
     sim.tick([place('wall', 3, 0), place('wall', 3, 1), place('wall', 3, 3), place('wall', 3, 4)]);
-    sim.tick([place('tower', 1, 1)]);
+    sim.tick(mount(1, 1));
 
     const preview = sim.previewMoveRoutes(1, 1, 3, 2);
     expect(preview.verdict).toBe('seals-spawn');
@@ -1059,6 +1372,23 @@ describe('previewRoutes (path-preview spec)', () => {
     socket.previewRoutes('wall', 2, 2); // primes `scratch` with another tile's fields
     expect(socket.previewRoutes('tower', 3, 0)).toEqual({
       verdict: 'ok',
+      lanes: null,
+      orphaned: null,
+    });
+
+    // The same for a tower on a bare wall (build-over-walls): accepted, no
+    // routing — and bare dirt under a tower tool is needs-wall, no routing.
+    const mounted = makeSim(level()).sim;
+    mounted.tick([place('wall', 2, 2)]);
+    mounted.previewRoutes('wall', 4, 2); // primes `scratch`
+    expect(mounted.previewRoutes('tower', 2, 2)).toEqual({
+      verdict: 'ok',
+      lanes: null,
+      orphaned: null,
+    });
+    mounted.previewRoutes('wall', 4, 2);
+    expect(mounted.previewRoutes('tower', 4, 2)).toEqual({
+      verdict: 'needs-wall',
       lanes: null,
       orphaned: null,
     });

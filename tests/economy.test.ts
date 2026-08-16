@@ -5,6 +5,7 @@ import {
   concede,
   injectEnemy,
   makeSim,
+  mount,
   openLevel,
   place,
   remove,
@@ -308,34 +309,40 @@ describe('liquidation total (design D8)', () => {
   });
 
   it('a run the provisional refunds could rescue is not reported dead', () => {
-    // Two towers, one from an earlier wave, one built this phase, against a
-    // debt that only the full refund of the provisional one can clear.
+    // Two mounted towers (wall 4000 + tower 50 000 each), one stack from an
+    // earlier wave, one built this phase, against a debt that only the full
+    // refund of the provisional stack can clear.
     const { sim } = makeSim(corridor([{ groups: [group()] }, trivialWave()]));
-    sim.tick([place('tower', 3, 0)]); // committed by the wave below
+    sim.tick(mount(3, 0)); // committed by the wave below
     sim.tick([startWave()]);
     sim.state.enemies[0]!.hp = 0;
-    sim.tick([]); // settles back to build; the first tower has lived a wave tick
-    sim.tick([place('tower', 3, 2)]); // this phase's work: still provisional
-    const [committed, provisional] = sim.state.structures;
-    expect(committed!.provisional).toBe(false);
-    expect(provisional!.provisional).toBe(true);
+    sim.tick([]); // settles back to build; the first stack has lived a wave tick
+    sim.tick(mount(3, 2)); // this phase's work: still provisional
+    const [committedWall, committedTower, provisionalWall, provisionalTower] = sim.state.structures;
+    expect(committedWall!.provisional).toBe(false);
+    expect(committedTower!.provisional).toBe(false);
+    expect(provisionalWall!.provisional).toBe(true);
+    expect(provisionalTower!.provisional).toBe(true);
 
-    // The debt sits between the two totals: half of both (50 000) cannot clear
-    // it, but 25 000 + a full 50 000 can.
+    // The debt sits between the two totals: half of everything (54 000)
+    // cannot clear it, but 27 000 + a full 54 000 can — both layers of each
+    // stack keep their own books.
     sim.state.treasuryMg = -60_000;
     const perStructure = liquidationTotalMg(sim.state.structures, 500);
     const flatHalf = liquidationTotalMg(
       sim.state.structures.map((s) => ({ paidMg: s.paidMg, provisional: false })),
       500,
     );
-    expect(flatHalf).toBe(50_000);
-    expect(perStructure).toBe(75_000);
+    expect(flatHalf).toBe(54_000);
+    expect(perStructure).toBe(81_000);
     // The dead check the HUD runs: flat-rate would declare this run dead.
     expect(sim.state.treasuryMg + flatHalf).toBeLessThan(0);
     expect(sim.state.treasuryMg + perStructure).toBeGreaterThanOrEqual(0);
 
-    // And the money is really there: selling both clears the debt.
-    sim.tick([remove(3, 0), remove(3, 2)]);
-    expect(sim.state.treasuryMg).toBe(15_000);
+    // And the money is really there: peeling both stacks — tower, then wall,
+    // on each tile — clears the debt.
+    sim.tick([remove(3, 0), remove(3, 0), remove(3, 2), remove(3, 2)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(21_000);
   });
 });

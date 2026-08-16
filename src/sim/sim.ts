@@ -23,15 +23,17 @@ import { invalidateCommitments, spawnEnemy, stepEnemies } from './enemy';
 import type { FlowField, TileXY } from './flowfield';
 import { UNREACHABLE, allocField, buildFieldInto, tracePath } from './flowfield';
 import type { Grid } from './grid';
-import { TERRAIN } from './grid';
 import { hashState } from './hash';
 import type { PlacementVerdict } from './placement';
 import {
   canRemove,
   footprintFor,
+  isFoundation,
   moveOpenIn,
   removeStructure,
-  structureAt,
+  stackAt,
+  topAt,
+  towerAt,
   validateMove,
   validatePlacement,
 } from './placement';
@@ -325,11 +327,11 @@ export class Sim {
    * vocabulary is reused, not extended (design D4).
    */
   previewMove(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementVerdict {
-    const s = structureAt(this.state.structures, fromTx, fromTy);
-    if (!s || !moveOpenIn(this.state.runPhase)) return 'not-buildable';
+    const stack = stackAt(this.state.structures, fromTx, fromTy);
+    if ((!stack.wall && !stack.tower) || !moveOpenIn(this.state.runPhase)) return 'not-buildable';
     return validateMove(
       this.grid,
-      s,
+      stack,
       toTx,
       toTy,
       this.state.structures,
@@ -358,7 +360,8 @@ export class Sim {
    *
    * `lanes` is null for every verdict reached before `scratch` was rebuilt:
    * no-funds, out-of-bounds, not-buildable, occupied, enemy-in-footprint,
-   * and the socket 'ok' path, which never touches the mask or the fields.
+   * and every tower placement, whatever its verdict — a tower never touches
+   * the mask or the fields (build-over-walls design D2).
    */
   previewRoutes(kind: StructureKind, tx: number, ty: number): PlacementRoutes {
     if (!canSpend(this.state.treasuryMg)) {
@@ -375,12 +378,12 @@ export class Sim {
       footprint,
       this.scratch,
     );
-    // A socket 'ok' short-circuits before the rebuild, so the buffers still
-    // hold the previous evaluation's fields — never readable as this one's.
-    const socket =
-      this.grid.inBounds(tx, ty) && this.grid.terrainAt(tx, ty) === TERRAIN.socket;
+    // A tower placement short-circuits before the rebuild, so the buffers
+    // still hold the previous evaluation's fields — never readable as this
+    // one's. Only a wall's routing-dependent verdicts rebuilt them.
     const rebuilt =
-      verdict === 'seals-spawn' || verdict === 'strands-enemy' || (verdict === 'ok' && !socket);
+      kind === 'wall' &&
+      (verdict === 'ok' || verdict === 'seals-spawn' || verdict === 'strands-enemy');
     if (!rebuilt) return { verdict, lanes: null, orphaned: null };
     return {
       verdict,
@@ -394,17 +397,18 @@ export class Sim {
    * variant of previewRoutes (design D5), returning the same PlacementRoutes
    * shape. `lanes` is null for every verdict reached before the scratch
    * fields were rebuilt: nothing movable at the origin, the same-tile move,
-   * out-of-bounds, not-buildable, occupied, enemy-in-footprint, and the
-   * socket→socket move, which never touches the mask.
+   * out-of-bounds, not-buildable, occupied, needs-wall, enemy-in-footprint,
+   * and every transfer onto a foundation, which never touches the mask
+   * (build-over-walls design D4) — only a relocate onto bare dirt projects.
    */
   previewMoveRoutes(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementRoutes {
-    const mover = structureAt(this.state.structures, fromTx, fromTy);
-    if (!mover || !moveOpenIn(this.state.runPhase)) {
+    const stack = stackAt(this.state.structures, fromTx, fromTy);
+    if ((!stack.wall && !stack.tower) || !moveOpenIn(this.state.runPhase)) {
       return { verdict: 'not-buildable', lanes: null, orphaned: null };
     }
     const verdict = validateMove(
       this.grid,
-      mover,
+      stack,
       toTx,
       toTy,
       this.state.structures,
@@ -413,27 +417,21 @@ export class Sim {
       this.treasury,
       this.scratch,
     );
-    // Unlike placement, an origin-freeing move rebuilds even for a socket
-    // destination; only the socket→socket 'ok' leaves `scratch` stale.
-    const socketFrom = this.grid.terrainAt(fromTx, fromTy) === TERRAIN.socket;
-    const socketTo =
-      this.grid.inBounds(toTx, toTy) && this.grid.terrainAt(toTx, toTy) === TERRAIN.socket;
+    // A transfer's 'ok' short-circuits before the rebuild, so `scratch` still
+    // holds the previous evaluation's fields; seal and strand verdicts only
+    // ever come out of the relocate branch.
+    const transfer = isFoundation(this.grid, this.state.structures, toTx, toTy);
     const rebuilt =
-      verdict === 'seals-spawn' ||
-      verdict === 'strands-enemy' ||
-      (verdict === 'ok' && !(socketFrom && socketTo));
+      verdict === 'seals-spawn' || verdict === 'strands-enemy' || (verdict === 'ok' && !transfer);
     if (!rebuilt) return { verdict, lanes: null, orphaned: null };
     return {
       verdict,
       lanes: this.traceLanes(this.scratch.inbound, this.scratch.returning),
       orphaned:
         verdict === 'seals-spawn'
-          ? this.orphanedBy(
-              footprintFor(toTx, toTy),
-              // The freed origin is walkable post-move even though the live
-              // mask still blocks it, so it is eligible for the orphan set.
-              socketFrom ? undefined : { x: fromTx, y: fromTy },
-            )
+          ? // The freed origin is walkable post-move even though the live
+            // mask still blocks it, so it is eligible for the orphan set.
+            this.orphanedBy(footprintFor(toTx, toTy), { x: fromTx, y: fromTy })
           : null,
     };
   }
@@ -586,10 +584,11 @@ export class Sim {
       return;
     }
 
-    // Commit. A socket tower never touches the mask or the fields (D6); a
-    // dirt structure re-blocks the footprint and swaps in the fields the
+    // Commit. A tower stands on a foundation whose tile is already blocked,
+    // so it never touches the mask or the fields (build-over-walls design
+    // D2); a wall re-blocks the footprint and swaps in the fields the
     // validation just built for exactly this mask — one rebuild per attempt.
-    if (this.grid.terrainAt(tx, ty) !== TERRAIN.socket) {
+    if (kind === 'wall') {
       for (const t of footprint) this.grid.setBlocked(t.x, t.y, true);
       this.swapScratchFields();
       this.maskChanged = true;
@@ -613,26 +612,27 @@ export class Sim {
   }
 
   /**
-   * move (structure-placement delta): relocate a structure — tower or wall —
-   * free of charge and identity-preserving — id, kind, paidMg, level and
-   * provisional all survive because the existing structure mutates in place.
-   * Refused outside the build phase, for bare origin tiles, and for any
-   * destination validateMove rejects — with the same reject event a refused placement
-   * emits on the DESTINATION footprint, and no other effect (atomicity).
-   *
-   * An accepted move applies both mask edits and swaps in the fields the
-   * validation just built for exactly this mask — one rebuild per attempt,
-   * mirroring applyPlace. A socket→socket move changed no mask and swaps
-   * nothing (D6).
+   * move (structure-placement delta): move what stands on a tile — the
+   * stack — free of charge and identity-preserving: id, kind, paidMg, level
+   * and provisional all survive because the existing structures mutate in
+   * place. The destination decides what lands (build-over-walls design D4):
+   * bare dirt takes the wall together with its tower — both mask edits apply
+   * and the fields the validation just built for exactly this mask swap in,
+   * one rebuild per attempt, mirroring applyPlace — while a foundation (a
+   * bare wall, an empty socket) takes the tower alone, with no mask edit and
+   * no swap. Refused outside the build phase, for bare origin tiles, and for
+   * any destination validateMove rejects — with the same reject event a
+   * refused placement emits on the DESTINATION footprint, and no other effect
+   * (atomicity).
    */
   private applyMove(tx: number, ty: number, toTx: number, toTy: number): void {
     const s = this.state;
-    const found = structureAt(s.structures, tx, ty);
-    const target = found !== null && moveOpenIn(s.runPhase) ? found : null;
-    const verdict = target
+    const stack = stackAt(s.structures, tx, ty);
+    const movable = (stack.wall !== null || stack.tower !== null) && moveOpenIn(s.runPhase);
+    const verdict = movable
       ? validateMove(
           this.grid,
-          target,
+          stack,
           toTx,
           toTy,
           s.structures,
@@ -642,28 +642,39 @@ export class Sim {
           this.scratch,
         )
       : 'occupied';
-    if (!target || verdict !== 'ok') {
+    if (!movable || verdict !== 'ok') {
       this.events.push({ kind: 'placementRejected', tiles: footprintFor(toTx, toTy) });
       return;
     }
 
-    const originFrees = this.grid.terrainAt(target.tx, target.ty) !== TERRAIN.socket;
-    const destBlocks = this.grid.terrainAt(toTx, toTy) !== TERRAIN.socket;
-    if (originFrees) this.grid.setBlocked(target.tx, target.ty, false);
-    if (destBlocks) this.grid.setBlocked(toTx, toTy, true);
-    if (originFrees || destBlocks) {
-      this.swapScratchFields();
-      this.maskChanged = true;
+    if (isFoundation(this.grid, s.structures, toTx, toTy)) {
+      // Transfer: validateMove guaranteed a tower in the stack.
+      const tower = stack.tower!;
+      tower.tx = toTx;
+      tower.ty = toTy;
+      return;
     }
-    target.tx = toTx;
-    target.ty = toTy;
+    // Relocate: validateMove guaranteed a wall in the stack.
+    const wall = stack.wall!;
+    this.grid.setBlocked(wall.tx, wall.ty, false);
+    this.grid.setBlocked(toTx, toTy, true);
+    this.swapScratchFields();
+    this.maskChanged = true;
+    wall.tx = toTx;
+    wall.ty = toTy;
+    if (stack.tower) {
+      stack.tower.tx = toTx;
+      stack.tower.ty = toTy;
+    }
   }
 
   /**
-   * remove (structure-placement spec): refused after the run ends, refused
-   * mid-wave for construction the wave has already run against (canRemove),
-   * and refused on a tile holding no structure — with the same reject event a
-   * refused placement emits, and no other effect.
+   * remove (structure-placement spec): peels the tile top-down — the tower
+   * if one stands there, else the wall (build-over-walls design D3), each
+   * judged by the gate for the structure it actually targets. Refused after
+   * the run ends, refused mid-wave for construction the wave has already run
+   * against (canRemove), and refused on a tile holding no structure — with
+   * the same reject event a refused placement emits, and no other effect.
    *
    * An accepted removal completes here, refund included, so the credit is on
    * the books before step 9 judges progression: a liquidation that clears the
@@ -672,7 +683,7 @@ export class Sim {
    */
   private applyRemove(tx: number, ty: number): void {
     const s = this.state;
-    const found = structureAt(s.structures, tx, ty);
+    const found = topAt(s.structures, tx, ty);
     const target = found !== null && canRemove(s.runPhase, found) ? found : null;
     if (!target) {
       this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
@@ -690,9 +701,8 @@ export class Sim {
    */
   private applyUpgrade(tx: number, ty: number): void {
     const s = this.state;
-    const t = structureAt(s.structures, tx, ty);
-    const valid =
-      t !== null && t.kind === 'tower' && t.level < MAX_TOWER_LEVEL && canSpend(s.treasuryMg);
+    const t = towerAt(s.structures, tx, ty);
+    const valid = t !== null && t.level < MAX_TOWER_LEVEL && canSpend(s.treasuryMg);
     if (!valid) {
       this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
       return;

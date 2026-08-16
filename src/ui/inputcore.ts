@@ -15,15 +15,19 @@
 //     the inspected tower — the same two steps a palette click and a press
 //     perform, so both drivers see one lift lifecycle — and disarm the tool
 //     again once that one lift ends
+//   - Towers stand on walls (build-over-walls): a tile is read by layer —
+//     the tower for selection, the top structure for removal and the lift —
+//     and every ghost says where it will stand: a tower ghost is raised onto
+//     a foundation, a lifted stack draws the wall it lands with
 //   - Never writes sim state directly — emits commands only
 //   - Every invalid commit plays the same red flash the sim's rejects use
 
 import * as THREE from 'three';
 import type { CommandQueue } from '../sim/commands';
-import { canRemove, footprintFor, moveOpenIn, structureAt } from '../sim/placement';
+import { canRemove, footprintFor, isFoundation, moveOpenIn, stackAt, topAt, towerAt } from '../sim/placement';
 import type { Sim } from '../sim/sim';
 import { towerStats } from '../sim/tower';
-import type { FxRenderer, GhostPreview, GhostTint } from '../render/fx';
+import type { FxRenderer, GhostBase, GhostPreview, GhostTint } from '../render/fx';
 import { GROUND_TOP_Y } from '../render/renderer';
 import type { LaneRibbon } from '../render/ribbon';
 import type { Structure } from '../sim/types';
@@ -67,6 +71,19 @@ export class InputCore {
    * lifted, so another tile can be tried without re-lifting (build-ui delta).
    */
   lifted: { id: number; tx: number; ty: number } | null = null;
+
+  /**
+   * The ids of every structure standing on the lifted tile — the stack the
+   * renderer dims at the origin (build-over-walls design D5); empty with
+   * nothing lifted. Read per frame, so a structure that has moved on is no
+   * longer in it.
+   */
+  get liftedIds(): number[] {
+    const lifted = this.lifted;
+    if (!lifted) return [];
+    const stack = stackAt(this.sim.state.structures, lifted.tx, lifted.ty);
+    return [stack.wall, stack.tower].filter((s) => s !== null).map((s) => s.id);
+  }
 
   /**
    * True while the move tool was armed by the inspector's Move action for
@@ -187,13 +204,15 @@ export class InputCore {
   }
 
   /**
-   * Issue a removal for the structure at `tile` — refused, with the same red
-   * flash any invalid commit gets, when the tile is bare or the gate refuses
-   * that structure (a wave blocks committed construction only). The sim
-   * re-checks the gate authoritatively at the applying tick.
+   * Issue a removal for the top structure at `tile` — the tower if one
+   * stands there, else the wall: the same peel the sim applies (build-over-
+   * walls design D3) — refused, with the same red flash any invalid commit
+   * gets, when the tile is bare or the gate refuses that structure (a wave
+   * blocks committed construction only). The sim re-checks the gate
+   * authoritatively at the applying tick.
    */
   commitRemove(tile: Tile): void {
-    const found = structureAt(this.sim.state.structures, tile.tx, tile.ty);
+    const found = topAt(this.sim.state.structures, tile.tx, tile.ty);
     const s = found !== null && canRemove(this.sim.state.runPhase, found) ? found : null;
     if (!s) {
       this.fx.flashReject(footprintFor(tile.tx, tile.ty), performance.now());
@@ -202,20 +221,25 @@ export class InputCore {
     this.commands.issue({ kind: 'remove', tx: tile.tx, ty: tile.ty });
   }
 
-  /** Select the tower at `tile` for inspection, or deselect on empty board. */
+  /**
+   * Select the tower at `tile` for inspection — a stacked tile inspects its
+   * tower, a bare wall or empty board deselects.
+   */
   selectAt(tile: Tile): void {
-    const s = structureAt(this.sim.state.structures, tile.tx, tile.ty);
-    this.inspector.select(s?.kind === 'tower' ? s : null);
+    this.inspector.select(towerAt(this.sim.state.structures, tile.tx, tile.ty));
   }
 
   /**
-   * Lift the structure at `tile` for the armed move tool — tower or wall
-   * alike, in the build phase only (moveOpenIn); an empty tile, or any tile
-   * outside the build phase, does nothing at all (build-ui delta). Returns
+   * Lift the stack at `tile` for the armed move tool — on dirt the wall with
+   * any tower on it, on a socket the tower — in the build phase only
+   * (moveOpenIn); an empty tile, or any tile outside the build phase, does
+   * nothing at all (build-ui delta). The lift names the tile's TOP structure
+   * (build-over-walls design D5): both a transfer and a relocate move it, so
+   * the one lifecycle in liftedStructure() ends the lift either way. Returns
    * whether a lift began.
    */
   liftAt(tile: Tile): boolean {
-    const s = structureAt(this.sim.state.structures, tile.tx, tile.ty);
+    const s = topAt(this.sim.state.structures, tile.tx, tile.ty);
     if (!s || !moveOpenIn(this.sim.state.runPhase)) return false;
     this.lifted = { id: s.id, tx: s.tx, ty: s.ty };
     this.forceReevaluate();
@@ -336,7 +360,20 @@ export class InputCore {
       this.ghost.hide();
       return;
     }
-    this.ghost.show(structure.kind, tile.tx, tile.ty, this.tint(tool!), this.toolRangeUnits(tool!));
+    // A tower ghost stands on the wall or socket beneath the candidate tile
+    // (design D6); over bare dirt it stays at ground, tinted by its verdict.
+    const base: GhostBase =
+      structure.kind === 'tower' && isFoundation(this.sim.grid, this.sim.state.structures, tile.tx, tile.ty)
+        ? 'foundation'
+        : 'ground';
+    this.ghost.show(
+      structure.kind,
+      tile.tx,
+      tile.ty,
+      this.tint(tool!),
+      this.toolRangeUnits(tool!),
+      base,
+    );
     this.ghost.showPreviewRingAt(null);
   }
 
@@ -348,15 +385,18 @@ export class InputCore {
   /**
    * Per-frame ghost and ribbon maintenance for the armed move tool. With
    * nothing lifted the ribbon shows the current lanes and no projection
-   * (path-preview delta). A lifted structure gets a move ghost of its kind —
-   * tinted by the origin-freed validation, never the debt tint: moves are
-   * free — with a tower's own range ring at the candidate tile, and the
-   * projected routes, re-evaluated when the candidate tile, the sim tick, or
-   * the lifted id changes, so lifting a different structure on the same tile
-   * re-projects (design D5). The origin tile reads valid: dropping there is
-   * the put-down, so the tint (and the touch confirm class, which reads the
-   * same flag) agrees with what the drop will do, while the ribbon shows no
-   * projection for it. Speculative only — never touches sim state.
+   * (path-preview delta). A lifted stack gets a move ghost of its top's kind
+   * — tinted by the same validation the sim uses to accept moves, never the
+   * debt tint: moves are free — with a tower's own range ring at the
+   * candidate tile, and the projected routes, re-evaluated when the
+   * candidate tile, the sim tick, or the lifted id changes, so lifting a
+   * different structure on the same tile re-projects (design D5). The ghost
+   * shows what will land where it will stand (build-over-walls design D6): a
+   * tower raised onto a foundation candidate, wall + raised tower on bare
+   * dirt when the stack holds a wall. The origin tile reads valid: dropping
+   * there is the put-down, so the tint (and the touch confirm class, which
+   * reads the same flag) agrees with what the drop will do, while the ribbon
+   * shows no projection for it. Speculative only — never touches sim state.
    */
   updateMoveGhost(tile: Tile | null): void {
     const mover = this.liftedStructure();
@@ -381,12 +421,19 @@ export class InputCore {
       this.ghost.hide();
       return;
     }
+    let base: GhostBase = 'ground';
+    if (mover.kind === 'tower') {
+      const structures = this.sim.state.structures;
+      if (isFoundation(this.sim.grid, structures, tile.tx, tile.ty)) base = 'foundation';
+      else if (stackAt(structures, mover.tx, mover.ty).wall) base = 'stack';
+    }
     this.ghost.show(
       mover.kind,
       tile.tx,
       tile.ty,
       this.lastVerdictOk ? 'valid' : 'invalid',
       mover.kind === 'tower' ? towerStats(mover, this.sim.data).rangeUnits : 0,
+      base,
     );
     this.ghost.showPreviewRingAt(null);
   }
