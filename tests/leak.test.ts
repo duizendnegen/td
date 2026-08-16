@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import { expandPreset } from '../src/app/presets';
 import { loadGameData } from '../src/data/schema';
-import type { Command } from '../src/sim/commands';
+import type { Command, CommandBody } from '../src/sim/commands';
 import { Sim } from '../src/sim/sim';
 import { corridorLevel, SCENARIOS, type LayoutItem } from './leakData';
 
@@ -104,6 +104,11 @@ describe('leak-rate harness (counter-matrix contract)', () => {
 
 import levelJson from '../src/data/levels/level_01.json';
 import { COVERAGE_SCALE } from '../src/sim/power';
+
+/** POWER_LOG=1 prints the per-wave table; the test files carry no node types, hence the cast. */
+const POWER_LOG =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.['POWER_LOG'] !==
+  undefined;
 
 interface WavePower {
   wave: number;
@@ -205,7 +210,7 @@ describe('power-aware run (energy-infrastructure balance harness)', () => {
   // it at a full peak).
   const opening = (): ReadonlyMap<number, Command[]> => {
     let seq = 0;
-    const cmd = (body: Omit<Command, 'seq'>): Command => ({ ...body, seq: seq++ } as Command);
+    const cmd = (body: CommandBody): Command => ({ ...body, seq: seq++ });
     return new Map<number, Command[]>([
       [
         50,
@@ -221,7 +226,7 @@ describe('power-aware run (energy-infrastructure balance harness)', () => {
 
   it('opening waves: gold binds, not power — the opening never browns out and the wave has a load curve', () => {
     const { table, capacityMp } = powerRun(opening(), 2);
-    if (process.env['POWER_LOG']) console.log(JSON.stringify({ capacityMp, table }, null, 1));
+    if (POWER_LOG) console.log(JSON.stringify({ capacityMp, table }, null, 1));
     expect(table).toHaveLength(2);
     for (const w of table) {
       expect(w.minCoverage).toBe(COVERAGE_SCALE);
@@ -251,7 +256,7 @@ describe('power-aware run (energy-infrastructure balance harness)', () => {
       { kind: 'place', structure: 'tower', archetype: 'slow', tx: 10, ty: 2, seq: 101 },
     ]);
     const { table, capacityMp } = powerRun(build, 4);
-    if (process.env['POWER_LOG']) console.log(JSON.stringify({ capacityMp, table }, null, 1));
+    if (POWER_LOG) console.log(JSON.stringify({ capacityMp, table }, null, 1));
     const w3 = table[3]!;
     expect(w3.peakDrawMp).toBeGreaterThan(capacityMp);
     expect(w3.brownTicks).toBeGreaterThan(0);
