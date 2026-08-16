@@ -73,7 +73,7 @@
 - [x] 4.3 `tests/hash.test.ts`: `gridTier` changes the hash; panel kind hashes distinctly
 - [x] 4.4 `tests/leak.test.ts`: a power-aware run (draw/coverage/bill logged per tick via the
       headless capture) so balance authoring can see peaks and bill share
-- [ ] 4.5 Regenerate the replay golden in `tests/replay.test.ts` deliberately, in its own
+- [x] 4.5 Regenerate the replay golden in `tests/replay.test.ts` deliberately, in its own
       commit (ARCHITECTURE.md §12), after 3.x lands
 
 ## 5. Render & UI
