@@ -28,8 +28,32 @@ function makeState(): SimState {
     enemies: [makeEnemy(0), makeEnemy(1)],
     nextEnemyId: 2,
     structures: [
-      { id: 0, kind: 'wall', tx: 4, ty: 5, archetypeId: -1, level: 0, paidMg: 4000, nextFireTick: 0, provisional: false },
-      { id: 1, kind: 'tower', tx: 8, ty: 5, archetypeId: 0, level: 1, paidMg: 50_000, nextFireTick: 20, provisional: false },
+      {
+        id: 0,
+        kind: 'wall',
+        tx: 4,
+        ty: 5,
+        archetypeId: -1,
+        level: 0,
+        paidMg: 4000,
+        nextFireTick: 0,
+        provisional: false,
+        waveDamage: 0,
+        totalDamage: 0,
+      },
+      {
+        id: 1,
+        kind: 'tower',
+        tx: 8,
+        ty: 5,
+        archetypeId: 0,
+        level: 1,
+        paidMg: 50_000,
+        nextFireTick: 20,
+        provisional: false,
+        waveDamage: 120,
+        totalDamage: 900,
+      },
     ],
     nextStructureId: 2,
     sacks: [{ id: 0, tx: 6, ty: 5, amountMg: 25_000 }],
@@ -101,6 +125,11 @@ describe('state hash', () => {
       (s) => (s.structures[0]!.provisional = true),
       // Return-to-origin-spawn field: the enemy's declared origin spawn.
       (s) => s.enemies[0]!.originSpawn++,
+      // Tower-damage-stats fields: both per-structure damage counters
+      // ("Both counters are hashed" — two states differing only in one
+      // tower's total damage hash differently).
+      (s) => s.structures[1]!.waveDamage++,
+      (s) => s.structures[1]!.totalDamage++,
     ];
     for (const mutate of mutations) {
       const state = makeState();

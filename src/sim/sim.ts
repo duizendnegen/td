@@ -535,6 +535,9 @@ export class Sim {
     s.runPhase = 'wave';
     s.waveStartTick = s.tick;
     s.groupCursors = this.waves[s.waveIndex - 1]!.map(() => 0);
+    // The wave damage counter's only reset point (tower-damage-stats design
+    // D3): from here until the next start it is this wave's figure.
+    for (const structure of s.structures) structure.waveDamage = 0;
     this.activeSpawnIds = this.data.level.spawns
       .map((sp, i) => (sp.activeFromWave <= s.waveIndex ? i : -1))
       .filter((i) => i >= 0);
@@ -602,6 +605,9 @@ export class Sim {
       nextFireTick: 0,
       // Uncommitted until a wave tick runs over it (design D1).
       provisional: true,
+      // Damage counters start empty; walls carry them at zero like nextFireTick.
+      waveDamage: 0,
+      totalDamage: 0,
     });
     s.treasuryMg -= costMg;
   }

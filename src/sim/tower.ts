@@ -96,6 +96,19 @@ export function selectTarget(
 }
 
 /**
+ * One landed hit: the victim loses `damage` hp and the firing tower records
+ * what actually landed (tower-damage-stats design D2). Selection and the
+ * burst loop both skip hp <= 0, so the victim's hp is positive here and the
+ * effective figure is in [1, damage] — overkill is never counted.
+ */
+function hit(t: Structure, victim: Enemy, damage: number): void {
+  const dealt = Math.min(victim.hp, damage);
+  victim.hp -= damage;
+  t.waveDamage += dealt;
+  t.totalDamage += dealt;
+}
+
+/**
  * Tick step 7: towers due to fire resolve in insertion order (D7); each with
  * a target in range fires once — hitscan, damage this tick, events for the
  * renderer. A tower with nothing in range holds its fire tick, so it shoots
@@ -121,7 +134,7 @@ export function fireTowers(
     switch (def.archetype) {
       case 'rapid':
       case 'sniper':
-        target.hp -= stats.damage;
+        hit(t, target, stats.damage);
         break;
       case 'area': {
         // D6: flat damage to every live enemy within the burst radius of the
@@ -131,7 +144,7 @@ export function fireTowers(
           if (!e.alive || e.hp <= 0) continue;
           const dx = e.pos.x - target.pos.x;
           const dy = e.pos.y - target.pos.y;
-          if (dx * dx + dy * dy <= radius2) e.hp -= stats.damage;
+          if (dx * dx + dy * dy <= radius2) hit(t, e, stats.damage);
         }
         events.push({
           kind: 'aoeBurst',

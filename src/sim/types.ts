@@ -99,6 +99,17 @@ export interface Structure {
    * pause — which the simulation cannot see.
    */
   provisional: boolean;
+  /**
+   * Effective damage dealt in the current or most recent wave
+   * (tower-damage-stats design D2/D3): each hit adds min(victim hp, damage),
+   * so overkill never counts. Zeroed only in applyStartWave, in the tick the
+   * wave-start command applies — between settlement and the next start it is
+   * the previous wave's figure. Recorded, never read, by the simulation.
+   * Walls: 0.
+   */
+  waveDamage: number;
+  /** Effective damage dealt since placement; never reset. Walls: 0. */
+  totalDamage: number;
 }
 
 /** One sack per tile (drops merge); insertion-ordered like every entity array. */
