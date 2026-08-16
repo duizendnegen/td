@@ -7,16 +7,16 @@
 
 ## 1. Data & Schema
 
-- [ ] 1.1 `src/data/schema.ts`: per-level tower `ratedPower`; balance `power.standbyFraction`
+- [x] 1.1 `src/data/schema.ts`: per-level tower `ratedPower`; balance `power.standbyFraction`
       (0–1) and `panel { cost, output }`; level `power { tiers: [{ capacity, cost }], tariff }`
       with a non-empty, strictly ascending tier table; convert once at load into `GameData`
       (`ratedPowerMp` per level, `standbyPer1000`, `panelCostMg`, `panelOutputMp`,
       `tiers[].capacityMp/costMg`, `tariffMgPer1000`) mirroring the `interestRatePpm` pattern
-- [ ] 1.2 Placeholder values in `src/data/balance.json`, `src/data/levels/level_01.json`,
+- [x] 1.2 Placeholder values in `src/data/balance.json`, `src/data/levels/level_01.json`,
       `src/data/levels/level_02.json` following the design intent (tier 1 sized so gold binds
       early; panel a deliberate investment; sub-linear rated power per level; every archetype
       rated, slow included)
-- [ ] 1.3 `tests/level.test.ts`: missing block / missing rating / non-ascending tiers / negative
+- [x] 1.3 `tests/level.test.ts`: missing block / missing rating / non-ascending tiers / negative
       values rejected with the field named; converted values are integers
 
 ## 2. Sim — Panel Structure & Grid Tier State

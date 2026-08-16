@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { effectiveSpeed } from '../src/sim/enemy';
 import {
+  INERT_POWER,
   injectEnemy,
   makeSim,
   mount,
@@ -166,6 +167,7 @@ describe('sniper cascade (design D5)', () => {
         map: ['.......', '.......', '.......', '.......', '.......'],
       },
       economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      power: INERT_POWER,
       waves: [wave('west'), wave('southeast')],
     });
     sim.tick(mount(3, 1, 'sniper'));

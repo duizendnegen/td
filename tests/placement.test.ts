@@ -7,6 +7,7 @@ import { liquidationTotalMg } from '../src/sim/economy';
 import { tileCentre, toTile } from '../src/sim/fixed';
 import { Sim } from '../src/sim/sim';
 import {
+  INERT_POWER,
   injectEnemy,
   makeSim,
   mount,
@@ -87,6 +88,7 @@ describe('placement validation', () => {
       ],
       terrain: { legend: { '.': 'dirt', r: 'rock' }, map: ['.....', '.....', 'rr.r.', 'rr...'] },
       economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      power: INERT_POWER,
       waves: [wave('west'), wave('mid')],
     });
     const strand = makeSim(level()).sim;
@@ -427,6 +429,7 @@ describe('terrain buildability (phase-4)', () => {
       ],
       terrain: { legend: { '.': 'dirt', r: 'rock' }, map: ['.......', 'rr.....', '.......'] },
       economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      power: INERT_POWER,
       waves: [
         { groups: [{ spawn: 'main', type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] },
         { groups: [{ spawn: 'north', type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] },
@@ -1533,6 +1536,7 @@ describe('previewRoutes (path-preview spec)', () => {
       ],
       terrain: { legend: { '.': 'dirt', r: 'rock' }, map: ['.......', 'rr.....', '.......'] },
       economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      power: INERT_POWER,
       waves: [wave('north'), wave('south')],
     });
 

@@ -8,6 +8,7 @@
 
 import type { TowerArchetype } from '../src/data/schema';
 import type { BurstGroup } from '../src/app/presets';
+import { INERT_POWER } from './helpers';
 
 export interface LayoutItem {
   build: TowerArchetype | 'wall';
@@ -47,6 +48,7 @@ export function corridorLevel(): Record<string, unknown> {
     // Ample treasury: every thief that arrives leaves with full capacity, so
     // leak numbers measure the defense, not treasury exhaustion.
     economy: { startingTreasury: 10_000, interestRatePerTick: 0 },
+    power: INERT_POWER,
     // Never started; present only to satisfy the waves-required validation.
     waves: [{ groups: [{ spawn: 'west', type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] }],
   };

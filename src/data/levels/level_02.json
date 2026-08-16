@@ -23,6 +23,16 @@
     ]
   },
   "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0002 },
+  "power": {
+    "$note": "Energy-infrastructure placeholders: one tier wider than level_01 at every step, because the two-front board wants a tower or two more per rung; same tariff.",
+    "tiers": [
+      { "capacity": 5, "cost": 0 },
+      { "capacity": 8, "cost": 70 },
+      { "capacity": 12, "cost": 130 },
+      { "capacity": 18, "cost": 220 }
+    ],
+    "tariff": 0.12
+  },
   "waves": [
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 8, "spawnInterval": 8, "delay": 40 }] },
     {

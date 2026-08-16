@@ -25,12 +25,29 @@ export function trivialWave(spawn = 'main'): Record<string, unknown> {
   return { groups: [{ spawn, type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] };
 }
 
+/** A level power block: connection tiers plus the flat tariff. */
+export interface LevelPower {
+  tiers: { capacity: number; cost: number }[];
+  tariff: number;
+}
+
+/**
+ * The inert grid: one connection tier of effectively unlimited capacity at a
+ * zero tariff, so coverage is always full and nothing is ever billed. The
+ * default for every fixture that is not about power, so pre-existing
+ * arithmetic (treasury balances, fire cadence) holds verbatim. A zero tariff
+ * is a free grid — the treasury bound does not apply (power.ts).
+ */
+export const INERT_POWER: LevelPower = { tiers: [{ capacity: 1_000_000, cost: 0 }], tariff: 0 };
+
 export interface OpenLevelOptions {
   /** Terrain rows override; defaults to all-dirt plus `blocked` as rock. */
   map?: string[];
   /** Waves override; defaults to a single one-runner wave. */
   waves?: Record<string, unknown>[];
   economy?: { startingTreasury: number; interestRatePerTick: number };
+  /** Grid connection override; defaults to INERT_POWER. */
+  power?: LevelPower;
 }
 
 /** An empty rectangular level with one spawn and (by default) all-dirt terrain. */
@@ -49,6 +66,7 @@ export function openLevel(
     spawns: [{ id: 'main', ...spawn, activeFromWave: 1 }],
     terrain: { legend: LEGEND, map: options.map ?? terrainRows(width, height, blocked) },
     economy: options.economy ?? { startingTreasury: 200, interestRatePerTick: 0 },
+    power: options.power ?? INERT_POWER,
     waves: options.waves ?? [trivialWave()],
   };
 }
@@ -59,6 +77,19 @@ export interface RunnerOverrides {
   carryCapacity?: number;
   bounty?: number;
 }
+
+/** The balance power block: standby share and the panel. */
+export interface BalancePower {
+  standbyFraction: number;
+  panel: { cost: number; output: number };
+}
+
+/**
+ * Test-balance power defaults: a 10% standby, and a 40g panel putting out 2
+ * units (2000 mp) — two level-1 rapids' worth. Ratings sit on the tower rows
+ * (rapid 1/1.3/1.6, sniper 1.5/1.9/2.3, area 1.2/1.5/1.8, slow 0.8/1/1.2).
+ */
+export const TEST_POWER: BalancePower = { standbyFraction: 0.1, panel: { cost: 40, output: 2 } };
 
 /**
  * Balance with all four archetypes and a 'runner' type (typeId 0 while it is
@@ -75,6 +106,7 @@ export function testBalance(
     graceTicks: 0,
     decayTicks: 1,
   },
+  power: BalancePower = TEST_POWER,
 ): Record<string, unknown> {
   return {
     build: { wallCost: 4, removalRefundFraction: 0.5 },
@@ -82,24 +114,24 @@ export function testBalance(
     towers: {
       rapid: {
         levels: [
-          { cost: 50, damage: 8, rangeTiles: 3.5, fireIntervalTicks: 5 },
-          { cost: 85, damage: 11, rangeTiles: 3.5, fireIntervalTicks: 4 },
-          { cost: 145, damage: 15, rangeTiles: 3.5, fireIntervalTicks: 3 },
+          { cost: 50, damage: 8, rangeTiles: 3.5, fireIntervalTicks: 5, ratedPower: 1 },
+          { cost: 85, damage: 11, rangeTiles: 3.5, fireIntervalTicks: 4, ratedPower: 1.3 },
+          { cost: 145, damage: 15, rangeTiles: 3.5, fireIntervalTicks: 3, ratedPower: 1.6 },
         ],
       },
       sniper: {
         levels: [
-          { cost: 70, damage: 40, rangeTiles: 5, fireIntervalTicks: 20 },
-          { cost: 120, damage: 52, rangeTiles: 5.5, fireIntervalTicks: 20 },
-          { cost: 205, damage: 68, rangeTiles: 6, fireIntervalTicks: 20 },
+          { cost: 70, damage: 40, rangeTiles: 5, fireIntervalTicks: 20, ratedPower: 1.5 },
+          { cost: 120, damage: 52, rangeTiles: 5.5, fireIntervalTicks: 20, ratedPower: 1.9 },
+          { cost: 205, damage: 68, rangeTiles: 6, fireIntervalTicks: 20, ratedPower: 2.3 },
         ],
       },
       area: {
         burstRadiusTiles: 1.2,
         levels: [
-          { cost: 80, damage: 12, rangeTiles: 3.5, fireIntervalTicks: 15 },
-          { cost: 135, damage: 16, rangeTiles: 4, fireIntervalTicks: 15 },
-          { cost: 230, damage: 21, rangeTiles: 4.5, fireIntervalTicks: 15 },
+          { cost: 80, damage: 12, rangeTiles: 3.5, fireIntervalTicks: 15, ratedPower: 1.2 },
+          { cost: 135, damage: 16, rangeTiles: 4, fireIntervalTicks: 15, ratedPower: 1.5 },
+          { cost: 230, damage: 21, rangeTiles: 4.5, fireIntervalTicks: 15, ratedPower: 1.8 },
         ],
       },
       slow: {
@@ -107,12 +139,13 @@ export function testBalance(
         // from the reverse at 55%, so the composition tests can tell them apart.
         slowSpeedPercent: 55,
         levels: [
-          { cost: 60, damage: 0, rangeTiles: 3.5, fireIntervalTicks: 10, slowDurationTicks: 30 },
-          { cost: 100, damage: 0, rangeTiles: 4, fireIntervalTicks: 10, slowDurationTicks: 45 },
-          { cost: 170, damage: 0, rangeTiles: 4.5, fireIntervalTicks: 10, slowDurationTicks: 60 },
+          { cost: 60, damage: 0, rangeTiles: 3.5, fireIntervalTicks: 10, slowDurationTicks: 30, ratedPower: 0.8 },
+          { cost: 100, damage: 0, rangeTiles: 4, fireIntervalTicks: 10, slowDurationTicks: 45, ratedPower: 1 },
+          { cost: 170, damage: 0, rangeTiles: 4.5, fireIntervalTicks: 10, slowDurationTicks: 60, ratedPower: 1.2 },
         ],
       },
     },
+    power,
     enemies: {
       runner: {
         hp: runner.hp ?? 130,
