@@ -19,10 +19,17 @@ import { Sim } from '../src/sim/sim';
 const SEED = 0xc0ffee;
 const TICKS = 1200;
 
-/** A miniature of the eventual capture scenario: builds, waves, injections. */
+/**
+ * A miniature of the eventual capture scenario: builds, waves, injections.
+ * Every dirt tower is a wall command followed by the tower on it
+ * (build-over-walls); the scheduler keeps same-tick order, so the wall lands
+ * first.
+ */
 function stream(): ScheduledCommand[] {
   return [
+    { tick: 20, body: { kind: 'place', structure: 'wall', tx: 10, ty: 1 } },
     { tick: 20, body: { kind: 'place', structure: 'tower', archetype: 'rapid', tx: 10, ty: 1 } },
+    { tick: 20, body: { kind: 'place', structure: 'wall', tx: 9, ty: 2 } },
     { tick: 20, body: { kind: 'place', structure: 'tower', archetype: 'sniper', tx: 9, ty: 2 } },
     { tick: 60, body: { kind: 'startWave' } },
     { tick: 120, body: { kind: 'spawn', type: 'tank', spawn: 0 } },
@@ -63,7 +70,7 @@ describe('capture-mode stepping', () => {
     // The stream must actually have produced activity, or the hash equality
     // below would be vacuous.
     expect(normal.sim.state.tick).toBe(TICKS);
-    expect(normal.sim.state.structures.length).toBeGreaterThan(0);
+    expect(normal.sim.state.structures.filter((x) => x.kind === 'tower')).toHaveLength(2);
     expect(normal.sim.state.kills).toBeGreaterThan(0);
 
     expect(capture.sim.state.tick).toBe(TICKS);

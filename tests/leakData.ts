@@ -64,7 +64,7 @@ function padding(count: number): LayoutItem[] {
   return walls;
 }
 
-/** Four rapids flanking the lane — the mono-archetype baseline, 200g. */
+/** Four rapids flanking the lane — the mono-archetype baseline, 280g mounted. */
 const MONO_RAPID: LayoutItem[] = [
   { build: 'rapid', tx: 5, ty: 2 },
   { build: 'rapid', tx: 8, ty: 4 },
@@ -75,6 +75,12 @@ const MONO_RAPID: LayoutItem[] = [
 // Balance-ux-tweaks re-derivation: wall 20g and slow 60g re-solve every
 // spend-parity equation. Each scenario's mono/counter pair is re-balanced to
 // EXACT parity at the new prices; the directions are unchanged.
+// Build-over-walls re-derivation: every tower item now stands on a wall, so a
+// tower costs its price + 20g and every parity equation gained 20g per tower
+// on each side. The geometry is untouched — a tower's tile was already
+// blocked — so only the padding counts moved: the runner scenario's mono
+// side gained one wall (5 towers vs 4), the swarm scenario's counter side two
+// (2 towers vs 4). The directions are unchanged.
 export const SCENARIOS: LeakScenario[] = [
   {
     // Runners punish the missing slow: each one crosses a window too fast
@@ -82,11 +88,11 @@ export const SCENARIOS: LeakScenario[] = [
     // pressure is per-enemy exposure, not train throughput.
     name: 'runner burst vs rapid-only → slow closes the leak',
     burst: [{ type: 'runner', count: 3, spawnInterval: 250 }],
-    // 4 rapid + 3 padding walls = 260g: same rapids as the counter side, so
-    // the slow tower versus dead walls IS the experiment.
-    mono: [...MONO_RAPID, ...padding(3)],
+    // 4 mounted rapid (280g) + 4 padding walls = 360g: same rapids as the
+    // counter side, so the slow tower versus dead walls IS the experiment.
+    mono: [...MONO_RAPID, ...padding(4)],
     counter: [
-      // 4 rapid clustered inside the slow zone + 1 slow = 260g.
+      // 4 mounted rapid clustered inside the slow zone + 1 mounted slow = 360g.
       { build: 'rapid', tx: 8, ty: 2 },
       { build: 'rapid', tx: 9, ty: 2 },
       { build: 'slow', tx: 9, ty: 4 },
@@ -101,12 +107,12 @@ export const SCENARIOS: LeakScenario[] = [
     // Swarms punish the missing area: single-target rate can't clear a clump.
     name: 'swarm burst vs rapid-only → area closes the leak',
     burst: [{ type: 'swarm', count: 50, spawnInterval: 2 }],
-    mono: MONO_RAPID, // 200g
+    mono: MONO_RAPID, // 4 mounted rapid = 280g
     counter: [
-      // 2 area + 2 padding walls = 200g at the new wall price.
+      // 2 mounted area (200g) + 4 padding walls = 280g.
       { build: 'area', tx: 8, ty: 2 },
       { build: 'area', tx: 10, ty: 4 },
-      ...padding(2),
+      ...padding(4),
     ],
     // Tuned 2026-08 (balance-ux-tweaks): observed 208k vs 0 — even at the
     // nerfed L1 damage (3-shots a swarm), two areas still hold the corridor.
@@ -117,10 +123,10 @@ export const SCENARIOS: LeakScenario[] = [
     // Tanks punish the missing sniper: rapid chip damage never breaks tank hp.
     name: 'tank burst vs rapid-only → sniper closes the leak',
     burst: [{ type: 'tank', count: 3, spawnInterval: 30 }],
-    // 4 rapid + 2 padding walls = 240g.
+    // 4 mounted rapid (280g) + 2 padding walls = 320g.
     mono: [...MONO_RAPID, ...padding(2)],
     counter: [
-      // 2 sniper + 2 rapid = 240g.
+      // 2 mounted sniper (180g) + 2 mounted rapid (140g) = 320g.
       { build: 'sniper', tx: 8, ty: 2 },
       { build: 'sniper', tx: 11, ty: 4 },
       { build: 'rapid', tx: 9, ty: 4 },

@@ -41,91 +41,82 @@
 // hit and read by nothing in the simulation, and every milestone below still
 // holds (kills included, at 156). GOLDEN_IDLE_HASH again did NOT move — that
 // run places nothing, so the walk never reaches structure fields.
+// Build-over-walls note: GOLDEN_SCRIPT_HASH alone was re-minted again, this
+// time because the SCRIPT changed — a tower now needs a foundation, so every
+// dirt tower gains a wall (mount) and the run was re-derived against the new
+// costs: two towers take the level's sockets, the opening pair is rapid+area,
+// and the win lands later (tick 6272), so the scripted run has its own
+// checkpoint (SCRIPT_TICKS). GOLDEN_IDLE_HASH is pinned at the same 5600
+// ticks as before and did NOT move — the idle run places nothing.
+// (Rebased onto tower-damage-stats: the same mounted script, re-minted once
+// more for the two damage counters now walked per structure; every
+// milestone, the win tick included, held.)
 import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import levelJson from '../src/data/levels/level_01.json';
-import { loadGameData } from '../src/data/schema';
+import { loadGameData, type TowerArchetype } from '../src/data/schema';
 import type { Command, CommandBody } from '../src/sim/commands';
 import { formatHash } from '../src/sim/hash';
 import { Sim } from '../src/sim/sim';
 
 const SEED = 0xc0ffee;
-/** Past the scripted win at tick 5558, at a round checkpoint. */
-const TICKS = 5600;
+/** The idle run's checkpoint — unchanged since the phase-4 minting. */
+const IDLE_TICKS = 5600;
+/** Past the scripted win at tick 6272, at a round checkpoint. */
+const SCRIPT_TICKS = 6400;
 /** Empty-command run: an inert build phase — nothing spawns without a wave. */
 const GOLDEN_IDLE_HASH = '69d49af9';
 /** Scripted full-run session (see script below). */
-const GOLDEN_SCRIPT_HASH = 'b09f7dae';
+const GOLDEN_SCRIPT_HASH = '954d4c62';
 
 function makeSim(): Sim {
   return new Sim(loadGameData(levelJson, balanceJson), SEED);
 }
 
-// The full-run session against the 20×10 level_01. The opening trio
-// (rapid/area/slow) holds wall B's north-gap exit — every enemy passes
-// (8..10, 0..2) twice. The 4th rapid and the sniper land right before wave 3,
-// draining the treasury to 9g. After wave 4 the player over-invests in maze
-// walls across the top-right field and enters the tank wave nearly broke;
-// wave 6's second runner grab then overdraws the treasury below zero
-// mid-wave. Upgrades ride the bounty and wave-bonus income; the sniper hits
-// level 3 before the finale, and wave 10 settles solvent and wins.
+// The full-run session against the 20×10 level_01, re-derived for
+// build-over-walls. The opening pair (rapid on a wall at (10,1), area on a
+// wall at (9,2)) holds wall B's north-gap exit through waves 1–2 — every
+// enemy passes (8..10, 0..2) twice. Wave 2's income buys the two socket
+// towers — a rapid on (4,4) covering the ascent past wall A, a sniper on
+// (8,6) covering both legs — right before wave 3, and the slow lands on a
+// wall at (10,2) before wave 4. Runners and tanks grab from wave 3 on, but
+// every thief dies on the way back, so the sacks settle home; wave 4's grabs
+// overdraw the treasury below zero mid-wave. Upgrades ride the bounty and
+// wave-bonus income — the sniper hits level 3 before wave 8 — a second rapid
+// mounts at (11,1) before wave 6 and a second sniper at (9,3) before the
+// finale, and wave 10 settles solvent and wins at tick 6272 (kills stay at
+// 156: every enemy the ten waves field is intercepted).
 let seq = 0;
 const cmd = (body: CommandBody): Command => ({ ...body, seq: seq++ });
+/** A wall and the tower on it (build-over-walls): a dirt tower needs a foundation. */
+const mount = (tx: number, ty: number, archetype: TowerArchetype): Command[] => [
+  cmd({ kind: 'place', structure: 'wall', tx, ty }),
+  cmd({ kind: 'place', structure: 'tower', archetype, tx, ty }),
+];
+/** A tower straight onto a socket — a built-in foundation, no wall needed. */
+const socket = (tx: number, ty: number, archetype: TowerArchetype): Command =>
+  cmd({ kind: 'place', structure: 'tower', archetype, tx, ty });
 
 function script(): ReadonlyMap<number, Command[]> {
   seq = 0;
   return new Map<number, Command[]>([
-    [
-      50,
-      [
-        cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 10, ty: 1 }),
-        cmd({ kind: 'place', structure: 'tower', archetype: 'area', tx: 9, ty: 2 }),
-        cmd({ kind: 'place', structure: 'tower', archetype: 'slow', tx: 10, ty: 2 }),
-      ],
-    ],
+    [50, [...mount(10, 1, 'rapid'), ...mount(9, 2, 'area')]],
     [100, [cmd({ kind: 'startWave' })]],
     [439, [cmd({ kind: 'startWave' })]],
-    [
-      775,
-      [
-        cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 11, ty: 1 }),
-        cmd({ kind: 'place', structure: 'tower', archetype: 'sniper', tx: 9, ty: 3 }),
-      ],
-    ],
+    [775, [socket(4, 4, 'rapid'), socket(8, 6, 'sniper')]],
     [825, [cmd({ kind: 'startWave' })]],
-    [1250, [cmd({ kind: 'startWave' })]],
-    [
-      1678,
-      [
-        cmd({ kind: 'place', structure: 'wall', tx: 13, ty: 0 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 14, ty: 0 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 15, ty: 0 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 16, ty: 0 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 17, ty: 0 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 18, ty: 0 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 13, ty: 1 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 14, ty: 1 }),
-      ],
-    ],
-    [1728, [cmd({ kind: 'startWave' })]],
-    [
-      2351,
-      [
-        cmd({ kind: 'upgrade', tx: 9, ty: 3 }),
-        cmd({ kind: 'place', structure: 'wall', tx: 15, ty: 1 }),
-      ],
-    ],
-    [2401, [cmd({ kind: 'startWave' })]],
-    [3009, [cmd({ kind: 'startWave' })]],
-    [3380, [cmd({ kind: 'upgrade', tx: 9, ty: 2 })]],
-    [3430, [cmd({ kind: 'startWave' })]],
-    [
-      4034,
-      [cmd({ kind: 'upgrade', tx: 10, ty: 1 }), cmd({ kind: 'upgrade', tx: 10, ty: 2 })],
-    ],
-    [4084, [cmd({ kind: 'startWave' })]],
-    [4735, [cmd({ kind: 'upgrade', tx: 9, ty: 3 })]],
-    [4785, [cmd({ kind: 'startWave' })]],
+    [1300, mount(10, 2, 'slow')],
+    [1350, [cmd({ kind: 'startWave' })]],
+    [1933, [cmd({ kind: 'startWave' })]],
+    [2876, [cmd({ kind: 'upgrade', tx: 8, ty: 6 }), ...mount(11, 1, 'rapid')]],
+    [2926, [cmd({ kind: 'startWave' })]],
+    [3752, [cmd({ kind: 'startWave' })]],
+    [4120, [cmd({ kind: 'upgrade', tx: 8, ty: 6 })]],
+    [4170, [cmd({ kind: 'startWave' })]],
+    [5019, [cmd({ kind: 'upgrade', tx: 9, ty: 2 })]],
+    [5069, [cmd({ kind: 'startWave' })]],
+    [5686, [...mount(9, 3, 'sniper'), cmd({ kind: 'upgrade', tx: 10, ty: 1 })]],
+    [5736, [cmd({ kind: 'startWave' })]],
   ]);
 }
 
@@ -155,7 +146,7 @@ function runScripted(): { sim: Sim; seen: Milestones } {
     wonSolvent: false,
   };
 
-  for (let t = 0; t < TICKS; t++) {
+  for (let t = 0; t < SCRIPT_TICKS; t++) {
     sim.tick(commands.get(t) ?? []);
     const s = sim.state;
     const archetypes = new Set(s.structures.filter((x) => x.kind === 'tower').map((x) => x.archetypeId));
@@ -176,10 +167,10 @@ function runScripted(): { sim: Sim; seen: Milestones } {
 }
 
 describe('replay determinism', () => {
-  it(`same seed, no commands: an inert build phase and its golden hash after ${TICKS} ticks`, () => {
+  it(`same seed, no commands: an inert build phase and its golden hash after ${IDLE_TICKS} ticks`, () => {
     const sim = makeSim();
-    for (let t = 0; t < TICKS; t++) sim.tick([]);
-    expect(sim.state.tick).toBe(TICKS);
+    for (let t = 0; t < IDLE_TICKS; t++) sim.tick([]);
+    expect(sim.state.tick).toBe(IDLE_TICKS);
     expect(sim.state.enemies).toHaveLength(0); // no wave, no spawns — ever
     expect(sim.state.runPhase).toBe('build');
     expect(sim.state.treasuryMg).toBe(200_000); // and no interest either
@@ -216,7 +207,7 @@ describe('replay determinism', () => {
     const halves = makeSim();
     const halfCommands = script();
 
-    for (let t = 0; t < TICKS; t++) {
+    for (let t = 0; t < SCRIPT_TICKS; t++) {
       whole.tick(wholeCommands.get(t) ?? []);
       halves.commit(halfCommands.get(t) ?? []);
       halves.advance();
@@ -228,7 +219,7 @@ describe('replay determinism', () => {
 
   it('two runs agree on which structures are provisional at every tick', () => {
     // The provisional flag is hashed, so the golden already pins it — but only
-    // at tick 5600, by which point the script has committed everything. This
+    // at the checkpoint, by which point the script has committed everything. This
     // walks the whole trajectory, where the flag genuinely flips: it is a pure
     // function of the seed, the commands and the ticks advanced.
     const a = makeSim();
@@ -238,7 +229,7 @@ describe('replay determinism', () => {
     let sawProvisional = false;
     let sawCommitted = false;
 
-    for (let t = 0; t < TICKS; t++) {
+    for (let t = 0; t < SCRIPT_TICKS; t++) {
       a.tick(aCommands.get(t) ?? []);
       b.tick(bCommands.get(t) ?? []);
       const flags = (sim: Sim): string =>
@@ -269,7 +260,7 @@ describe('replay determinism', () => {
     expect(inBursts.hash()).toBe(oneAtATime.hash());
   });
 
-  it(`no float leaks into sim state after a scripted ${TICKS}-tick session`, () => {
+  it(`no float leaks into sim state after a scripted ${SCRIPT_TICKS}-tick session`, () => {
     const { sim } = runScripted();
     const s = sim.state;
     expect(Number.isInteger(s.tick)).toBe(true);

@@ -26,18 +26,20 @@ function runDefense(layout: LayoutItem[], burst: LeakScenarioBurst): LeakResult 
   const sim = new Sim(data, 1);
 
   // Build the whole defense on tick 0; every placement must succeed, or the
-  // scenario silently measures a different defense than it authored.
+  // scenario silently measures a different defense than it authored. A tower
+  // item is a wall and the tower on it (build-over-walls): both are place
+  // commands, so ascending seq lands the wall first in the same tick.
   let seq = 0;
-  const placeCommands: Command[] = layout.map((item) => ({
-    kind: 'place',
-    structure: item.build === 'wall' ? 'wall' : 'tower',
-    ...(item.build === 'wall' ? {} : { archetype: item.build }),
-    tx: item.tx,
-    ty: item.ty,
-    seq: seq++,
-  }));
+  const placeCommands: Command[] = layout.flatMap((item): Command[] => {
+    const wall: Command = { kind: 'place', structure: 'wall', tx: item.tx, ty: item.ty, seq: seq++ };
+    if (item.build === 'wall') return [wall];
+    return [
+      wall,
+      { kind: 'place', structure: 'tower', archetype: item.build, tx: item.tx, ty: item.ty, seq: seq++ },
+    ];
+  });
   sim.tick(placeCommands);
-  expect(sim.state.structures).toHaveLength(layout.length);
+  expect(sim.state.structures).toHaveLength(placeCommands.length);
   const spentMg = data.startingTreasuryMg - sim.state.treasuryMg;
 
   // The burst starts at tick 10; run until the board is clear.
