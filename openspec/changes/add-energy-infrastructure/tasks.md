@@ -61,17 +61,17 @@
 
 ## 4. Sim Tests
 
-- [ ] 4.1 New `tests/power.test.ts`: engaged vs standby draw; walls draw nothing; nothing
+- [x] 4.1 New `tests/power.test.ts`: engaged vs standby draw; walls draw nothing; nothing
       outside a wave; solar first, surplus wasted; grid bounded by capacity; grid bounded by
       the positive balance (balance lands exactly at zero); cut off at ≤ 0 and resumes on a
       bounty; bill precedes interest (interest on post-bill balance); no bill on the settlement
       tick
-- [ ] 4.2 Coverage/brownout in `tests/tower.test.ts` or `power.test.ts`: full coverage = today's
+- [x] 4.2 Coverage/brownout in `tests/tower.test.ts` or `power.test.ts`: full coverage = today's
       cadence; half coverage doubles the interval; coverage 0 holds fire without advancing;
       slow tower stretches reapplication not duration; recovery restores full cadence the tick
       coverage returns to 1; peak-then-recover across a spawn burst
-- [ ] 4.3 `tests/hash.test.ts`: `gridTier` changes the hash; panel kind hashes distinctly
-- [ ] 4.4 `tests/leak.test.ts`: a power-aware run (draw/coverage/bill logged per tick via the
+- [x] 4.3 `tests/hash.test.ts`: `gridTier` changes the hash; panel kind hashes distinctly
+- [x] 4.4 `tests/leak.test.ts`: a power-aware run (draw/coverage/bill logged per tick via the
       headless capture) so balance authoring can see peaks and bill share
 - [ ] 4.5 Regenerate the replay golden in `tests/replay.test.ts` deliberately, in its own
       commit (ARCHITECTURE.md §12), after 3.x lands

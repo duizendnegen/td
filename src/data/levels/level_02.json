@@ -31,7 +31,7 @@
       { "capacity": 12, "cost": 130 },
       { "capacity": 18, "cost": 220 }
     ],
-    "tariff": 0.12
+    "tariff": 0.24
   },
   "waves": [
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 8, "spawnInterval": 8, "delay": 40 }] },
