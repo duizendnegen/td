@@ -6,10 +6,11 @@
 //     step). The right button belongs wholesale to MouseCameraController
 //     (drag pans; a sub-slop click still cancels the tool via its callback);
 //     this driver only suppresses the context menu for it
-//   - Move tool (tower-drag-move design D6): a press on a tower lifts it;
-//     release past the drag slop drops at the release tile, a sub-slop
-//     release keeps carrying and a second click drops — both drop paths run
-//     through InputCore.commitMove. Slop latching mirrors the
+//   - Move tool (tower-drag-move design D6): a press on a structure — tower
+//     or wall — lifts it; release past the drag slop drops at the release
+//     tile, a sub-slop release keeps carrying and a second click drops — both
+//     drop paths run through InputCore.commitMove, where a drop on the origin
+//     tile is the put-down (no command). Slop latching mirrors the
 //     MouseCameraController right-drag pattern
 //   - All picking, validation, selection, and command emission live in the
 //     shared InputCore; this driver only owns the hovered tile and the
@@ -75,10 +76,11 @@ export class PointerDriver {
   }
 
   /**
-   * A left press with the move tool armed: nothing lifted, on a tower →
+   * A left press with the move tool armed: nothing lifted, on a structure →
    * lift and start slop tracking; already carrying (a sub-slop click left
-   * the lift standing) → this second click attempts the drop here. Presses
-   * on walls or empty tiles with nothing lifted do nothing (build-ui delta).
+   * the lift standing) → this second click attempts the drop here — on the
+   * origin, that puts the structure down. Presses on empty tiles with
+   * nothing lifted do nothing (build-ui delta).
    */
   private onMovePress(e: { clientX: number; clientY: number }): void {
     this.hovered = this.core.pickTile(e.clientX, e.clientY);
@@ -94,8 +96,9 @@ export class PointerDriver {
   }
 
   /**
-   * The lifting press's release: past the slop it drops at the release tile;
-   * sub-slop it is a click — the carry continues until the second click.
+   * The lifting press's release: past the slop it drops at the release tile
+   * (back over the origin, that is the put-down); sub-slop it is a click —
+   * the carry continues until the second click.
    */
   private onMoveRelease(e: { clientX: number; clientY: number }): void {
     const press = this.press;

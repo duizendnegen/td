@@ -7,8 +7,8 @@
 //     dragging or tapping elsewhere moves it; a floating ✓/✕ pair anchored
 //     to the ghost commits through the same InputCore path a desktop click
 //     uses, or dismisses with no state change
-//   - Move tool (tower-drag-move): a tap on a tower lifts it into the same
-//     pending-ghost-plus-✓/✕ flow, anchored at the tower's tile; confirm
+//   - Move tool (tower-drag-move): a tap on a structure lifts it into the same
+//     pending-ghost-plus-✓/✕ flow, anchored at its own tile; confirm
 //     issues one move command through InputCore.commitMove
 //   - No tool: tap selects/deselects structures; one-finger drag pans and
 //     pinch zooms the camera
@@ -134,8 +134,8 @@ export class TouchDriver {
     cancel.innerHTML = '<span class="material-symbols-outlined text-3xl">close</span>';
     cancel.addEventListener('click', () => {
       this.pending = null;
-      // A cancelled pending move also puts the lifted tower down (touch-input
-      // delta: dismiss with no command and no state change).
+      // A cancelled pending move also puts the lifted structure down
+      // (touch-input delta: dismiss with no command and no state change).
       this.core.cancelLift();
     });
     this.affordance.append(this.confirmButton, cancel);
@@ -161,9 +161,10 @@ export class TouchDriver {
         if (this.buildToolActive) {
           if (tile) this.pending = tile;
         } else if (tool === 'move') {
-          // A tap on a tower lifts it into a pending move anchored at its own
-          // tile; with a lift standing, taps adjust the destination. The
-          // initial tap alone never issues a command (touch-input delta).
+          // A tap on a structure lifts it into a pending move anchored at its
+          // own tile — where ✓ is the put-down; with a lift standing, taps
+          // adjust the destination. The initial tap alone never issues a
+          // command (touch-input delta).
           if (!tile) return;
           if (this.core.lifted) this.pending = tile;
           else if (this.core.liftAt(tile)) this.pending = tile;

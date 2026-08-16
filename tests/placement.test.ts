@@ -543,8 +543,9 @@ describe('the provisional window', () => {
 });
 
 // Tower drag-move (structure-placement delta): a validated, atomic,
-// build-phase-only relocation that evaluates the destination with the origin
-// freed, is free of charge, and preserves the structure's identity.
+// build-phase-only relocation of towers and walls that evaluates the
+// destination with the origin freed under the mover's terrain rule, is free
+// of charge, and preserves the structure's identity.
 describe('move command', () => {
   it('a confirmed move updates the mask and both fields in its tick', () => {
     const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
@@ -611,17 +612,60 @@ describe('move command', () => {
     expect(sim.state.treasuryMg).toBe(before);
   });
 
-  it('walls cannot move', () => {
-    const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
+  it('a wall moves like a tower: mask, both fields, free, refund basis kept', () => {
+    const { sim } = makeSim(
+      openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
+        waves: [trivialWave(), trivialWave()],
+      }),
+    );
+    const before = sim.state.treasuryMg;
     sim.tick([place('wall', 3, 0)]);
+    const wall = sim.state.structures[0]!;
+    const paid = wall.paidMg;
+    const afterBuildMg = sim.state.treasuryMg;
+
     sim.tick([move(3, 0, 3, 2)]);
     const s = sim.state.structures[0]!;
-    expect([s.tx, s.ty]).toEqual([3, 0]);
-    expect(sim.grid.isBlocked(3, 2)).toBe(false);
-    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+    expect(s.id).toBe(wall.id);
+    expect(s.kind).toBe('wall');
+    expect([s.tx, s.ty]).toEqual([3, 2]);
+    expect(s.paidMg).toBe(paid);
+    expect(s.provisional).toBe(true);
+    expect(sim.state.treasuryMg).toBe(afterBuildMg);
+    expect(sim.grid.isBlocked(3, 0)).toBe(false);
+    expect(sim.grid.isBlocked(3, 2)).toBe(true);
+    expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+    expect(sim.inbound.cost[sim.grid.idx(3, 2)]).toBe(-1);
+    expect(sim.returning.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+    expect(sim.returning.cost[sim.grid.idx(3, 2)]).toBe(-1);
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(false);
+
+    // Still provisional, so removal still refunds in full — the move changed
+    // nothing about what the wall is worth.
+    sim.tick([remove(3, 2)]);
+    expect(sim.state.treasuryMg).toBe(before);
   });
 
-  it('rejects every move while a wave runs, provisional towers included', () => {
+  it('a wall cannot move onto a socket, exactly as it cannot be placed on one', () => {
+    const { sim } = makeSim(
+      openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
+        map: ['.o.....', '.......', '.......'],
+      }),
+    );
+    sim.tick([place('wall', 3, 0)]);
+    expect(sim.previewPlacement('wall', 1, 0)).toBe('not-buildable');
+    expect(sim.previewMove(3, 0, 1, 0)).toBe('not-buildable');
+    sim.tick([move(3, 0, 1, 0)]);
+    const s = sim.state.structures[0]!;
+    expect([s.tx, s.ty]).toEqual([3, 0]);
+    expect(sim.grid.isBlocked(3, 0)).toBe(true);
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(true);
+    // The same socket takes a tower's move.
+    sim.tick([place('tower', 5, 0)]);
+    expect(sim.previewMove(5, 0, 1, 0)).toBe('ok');
+  });
+
+  it('rejects every move while a wave runs, provisional structures included', () => {
     const { sim } = makeSim(
       openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
         waves: [trivialWave(), trivialWave()],
@@ -844,9 +888,10 @@ describe('move previews (path-preview delta)', () => {
     sim.tick([place('tower', 4, 2), place('wall', 2, 2), place('tower', 3, 0)]);
     injectEnemy(sim, 5, 1);
 
-    // No movable tower at the origin (bare tile, and a wall).
+    // Nothing movable at the origin (a bare tile).
     expect(sim.previewMoveRoutes(6, 2, 4, 1)).toEqual({ verdict: 'not-buildable', lanes: null, orphaned: null });
-    expect(sim.previewMoveRoutes(2, 2, 4, 1).lanes).toBeNull();
+    // A wall bound for a free socket: the mover's terrain rule, no routing.
+    expect(sim.previewMoveRoutes(2, 2, 5, 0)).toEqual({ verdict: 'not-buildable', lanes: null, orphaned: null });
     // Out of bounds, terrain, occupied, own tile, enemy-held.
     expect(sim.previewMoveRoutes(4, 2, -1, 1)).toEqual({ verdict: 'out-of-bounds', lanes: null, orphaned: null });
     expect(sim.previewMoveRoutes(4, 2, 1, 0).verdict).toBe('not-buildable'); // rock

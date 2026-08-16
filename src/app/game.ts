@@ -355,7 +355,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   // read here (debug-tooling spec: "Frames depend on tick, not elapsed time").
   const renderFrame = (nowMs: number, alpha = 0): void => {
     enemies.sync(sim.state.enemies, alpha, nowMs, sim.state.tick);
-    // The lifted tower's origin mesh dims while the move tool carries it.
+    // The lifted structure's origin mesh dims while the move tool carries it.
     structures.setLifted(inputCore.lifted?.id ?? null);
     structures.sync(sim.state.structures, (s) => sim.currentTarget(s), nowMs);
     sacks.sync(sim.state.sacks, nowMs);

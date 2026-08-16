@@ -13,7 +13,7 @@
 //   - A removed structure's mesh is dropped in the frame it disappears; there
 //     is no countdown state to render (structure-placement spec)
 //   - A moved structure's mesh (and its provisional tell) repositions in the
-//     frame its tile changes; a lifted tower's origin mesh renders dimmed
+//     frame its tile changes; a lifted structure's origin mesh renders dimmed
 //     while it is carried (tower-drag-move)
 
 import * as THREE from 'three';
@@ -154,7 +154,7 @@ export class StructureRenderer {
   }
 
   /**
-   * Dim (or restore) the origin mesh of the lifted tower, by id — the
+   * Dim (or restore) the origin mesh of the lifted structure, by id — the
    * "reads as lifted" treatment while the move tool carries it (build-ui
    * delta). Null restores whatever was dimmed. Render-only, like everything
    * here: the id comes from the UI's lift state, never from sim state.

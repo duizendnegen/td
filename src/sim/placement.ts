@@ -14,6 +14,8 @@
 //   - The removal gate (canRemove) — the one predicate the sim and every UI
 //     remove control share, reading the phase AND the structure, since a wave
 //     gates only committed construction
+//   - The move gate (moveOpenIn) — build phase only, every structure kind;
+//     validateMove applies the mover's own terrain rule at the destination
 //   - Immediate removal: unblock, refund, drop, all in the calling tick; a
 //     socket tile is never unblocked or rebuilt over (D6)
 
@@ -139,12 +141,14 @@ export function validatePlacement(
 
 /**
  * The move validation pipeline (tower-drag-move design D2): the same
- * conditions placement validates at the destination, with the path and enemy
- * checks evaluated against the mask with the origin tile freed and the
+ * conditions placement validates for the mover's kind at the destination —
+ * dirt takes walls and towers, a socket takes towers only — with the path and
+ * enemy checks evaluated against the mask with the origin tile freed and the
  * destination blocked, both applied together — so a tower can slide along its
- * own wall line or swap into the space it opens up. A destination equal to
- * the mover's own tile maps onto 'occupied' (the verdict vocabulary is
- * reused, not extended).
+ * own wall line, a wall can shift a maze line, or either can swap into the
+ * space it opens up. A destination equal to the mover's own tile maps onto
+ * 'occupied' (the verdict vocabulary is reused, not extended; the UI treats
+ * that drop as a put-down and never issues it — design D4/D6).
  *
  * Pure in the observable sense, like validatePlacement: both mask edits are
  * unconditionally restored before returning. On an 'ok' that changed the
@@ -178,6 +182,7 @@ export function validateMove(
   // ground; a socket origin is terrain-blocked either way and never frees.
   const originFrees = grid.terrainAt(mover.tx, mover.ty) !== TERRAIN.socket;
   if (terrain === TERRAIN.socket) {
+    if (mover.kind !== 'tower') return 'not-buildable';
     // Occupancy is the structure list — the mask says blocked for every
     // socket. The mover reports itself only on its own tile, already rejected.
     if (structureAt(structures, toTx, toTy)) return 'occupied';
@@ -228,22 +233,14 @@ export function validateMove(
 }
 
 /**
- * Whether `s` may be moved in `phase` (structure-placement delta): the build
- * phase only — a wave refuses even provisional towers (remove + re-place
- * already covers mid-wave revision, at full refund) — and towers only; walls
- * are sold and rebuilt instead. Shared like canRemove: the authoritative
- * apply, the speculative previews, and the UI lift all call this one
- * predicate so they cannot drift.
- */
-export function canMove(phase: RunPhase, s: Structure): boolean {
-  return phase === 'build' && s.kind === 'tower';
-}
-
-/**
- * Whether ANY tower could be movable in `phase` — the gate for the palette's
- * move tool, which has no target yet (the analogue of removalOpenIn). Build
- * phase only, unlike removal: there is nothing a move could legally do in a
- * wave or the settled lock.
+ * Whether structures may be moved in `phase` (structure-placement delta): the
+ * build phase only — a wave refuses even provisional construction (remove +
+ * re-place already covers mid-wave revision, at full refund), and so does the
+ * settled lock. One predicate, no per-structure twin (design D7): every kind
+ * moves in the build phase and nothing moves outside it. Shared like
+ * removalOpenIn: the palette's move tool, the authoritative apply, the
+ * speculative previews, and the UI lift all read this one gate so they
+ * cannot drift.
  */
 export function moveOpenIn(phase: RunPhase): boolean {
   return phase === 'build';

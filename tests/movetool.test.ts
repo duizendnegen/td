@@ -1,6 +1,6 @@
 // See the tower-drag-move change: the desktop lift/carry/drop lifecycle
-// (build-ui delta, design D6) over the stubbed-canvas pattern from
-// mousecam.test.ts. The InputCore + PointerDriver pair runs against a real
+// (build-ui delta, design D6) — towers and walls, and the origin tile as the
+// put-down — over the stubbed-canvas pattern from mousecam.test.ts. The InputCore + PointerDriver pair runs against a real
 // Sim and CommandQueue; picking is stubbed to a flat 100px-per-tile mapping
 // so the slop arithmetic stays real while the camera does not exist.
 import * as THREE from 'three';
@@ -32,6 +32,8 @@ interface Rig {
   palette: StubPalette;
   commands: CommandQueue;
   flashes: number;
+  /** The last ghost.show call, or null after hide. */
+  ghostShown: { kind: string; tint: string; rangeUnits: number } | null;
   sim: ReturnType<typeof makeSim>['sim'];
   drain: () => Command[];
   /** One frame of the driver's per-frame maintenance. */
@@ -55,10 +57,17 @@ function rig(): Rig {
   } as unknown as HTMLCanvasElement;
   const palette = new StubPalette();
   const noop = (): void => {};
-  const ghost = { show: noop, hide: noop, showRingAt: noop, showPreviewRingAt: noop };
+  const ghost = {
+    show: (kind: string, _tx: number, _ty: number, tint: string, rangeUnits: number) => {
+      r.ghostShown = { kind, tint, rangeUnits };
+    },
+    hide: () => (r.ghostShown = null),
+    showRingAt: noop,
+    showPreviewRingAt: noop,
+  };
   const ribbon = { update: noop, hide: noop };
   const inspector = { select: noop, current: null, previewStats: null };
-  const r: Partial<Rig> = { flashes: 0 };
+  const r: Partial<Rig> = { flashes: 0, ghostShown: null };
   const fx = { flashReject: () => (r.flashes = (r.flashes ?? 0) + 1) };
 
   const core = new InputCore(
@@ -130,16 +139,57 @@ describe('move tool, pointer driver', () => {
     expect(r.drain()).toHaveLength(0);
   });
 
-  it('a drag that returns to its start is still a drop attempt, not a click', () => {
+  it('a drag released back over the origin puts the tower down: no flash, no command', () => {
     const r = rig();
+    const before = r.sim.hash();
     r.pointer('pointermove', 350, 50);
     r.pointer('pointerdown', 350, 50);
     r.pointer('pointermove', 350, 250); // latches the drag…
+    r.frame();
+    expect(r.ghostShown?.tint).toBe('valid'); // (3,2) is open dirt
     r.pointer('pointermove', 351, 52); // …then wanders back within the slop
-    r.pointer('pointerup', 351, 52); // release over the origin: a rejected drop
-    expect(r.flashes).toBe(1); // the own-tile drop flashed — it was not a click
+    r.frame();
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid' }); // the origin reads legal
+    r.pointer('pointerup', 351, 52); // release over the origin: the put-down
+    expect(r.flashes).toBe(0);
     expect(r.drain()).toHaveLength(0);
+    expect(r.core.lifted).toBeNull();
+    expect([r.sim.state.structures[0]!.tx, r.sim.state.structures[0]!.ty]).toEqual([3, 0]);
+    expect(r.sim.hash()).toBe(before);
+  });
+
+  it('the second click on the origin puts the tower down', () => {
+    const r = rig();
+    r.pointer('pointermove', 350, 50);
+    r.pointer('pointerdown', 350, 50);
+    r.pointer('pointerup', 351, 50); // a click: carrying
     expect(r.core.lifted).not.toBeNull();
+    r.pointer('pointermove', 352, 48);
+    r.pointer('pointerdown', 352, 48); // second click, same tile
+    expect(r.flashes).toBe(0);
+    expect(r.drain()).toHaveLength(0);
+    expect(r.core.lifted).toBeNull();
+    r.pointer('pointerup', 352, 48); // its release is inert
+    expect(r.drain()).toHaveLength(0);
+  });
+
+  it('a wall lifts and drops like a tower, with a wall ghost and no range ring', () => {
+    const r = rig();
+    r.sim.tick([place('wall', 2, 2)]);
+    r.pointer('pointermove', 250, 250);
+    r.pointer('pointerdown', 250, 250); // press on the wall lifts it
+    expect(r.core.lifted).toEqual({ id: 1, tx: 2, ty: 2 });
+    r.pointer('pointermove', 150, 250); // past the slop, over open dirt
+    r.frame();
+    expect(r.ghostShown).toEqual({ kind: 'wall', tint: 'valid', rangeUnits: 0 });
+    r.pointer('pointerup', 150, 250);
+    const drained = r.drain();
+    expect(drained).toHaveLength(1);
+    expect(drained[0]).toMatchObject({ kind: 'move', tx: 2, ty: 2, toTx: 1, toTy: 2 });
+    r.sim.tick(drained);
+    r.frame();
+    expect(r.core.lifted).toBeNull();
+    expect([r.sim.state.structures[1]!.tx, r.sim.state.structures[1]!.ty]).toEqual([1, 2]);
   });
 
   it('Esc (tool deselect) cancels the lift with no command', () => {
@@ -172,15 +222,14 @@ describe('move tool, pointer driver', () => {
     expect(r.drain()).toHaveLength(1);
   });
 
-  it('presses on walls and empty tiles with nothing lifted do nothing', () => {
+  it('presses on empty tiles with nothing lifted do nothing', () => {
     const r = rig();
-    r.sim.tick([place('wall', 2, 2)]);
-    r.pointer('pointermove', 250, 250);
-    r.pointer('pointerdown', 250, 250); // a wall: not liftable
-    expect(r.core.lifted).toBeNull();
     r.pointer('pointermove', 150, 150);
     r.pointer('pointerdown', 150, 150); // bare dirt
     expect(r.core.lifted).toBeNull();
+    r.pointer('pointerup', 150, 150);
+    expect(r.core.lifted).toBeNull();
     expect(r.drain()).toHaveLength(0);
+    expect(r.flashes).toBe(0);
   });
 });

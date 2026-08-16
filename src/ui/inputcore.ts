@@ -16,7 +16,7 @@
 
 import * as THREE from 'three';
 import type { CommandQueue } from '../sim/commands';
-import { canMove, canRemove, footprintFor, structureAt } from '../sim/placement';
+import { canRemove, footprintFor, moveOpenIn, structureAt } from '../sim/placement';
 import type { Sim } from '../sim/sim';
 import { towerStats } from '../sim/tower';
 import type { FxRenderer, GhostPreview, GhostTint } from '../render/fx';
@@ -50,14 +50,15 @@ export class InputCore {
   private lastVerdictOk = false;
 
   /**
-   * The lifted tower while the move tool carries one (tower-drag-move design
-   * D6): its id plus the origin tile the move command will name. Entered only
-   * through liftAt; cleared by tool change/deselect (Esc, palette click, the
-   * phase-change deselect in palette.refresh), by cancelLift, and by the
-   * per-frame sweep in updateMoveGhost once the tower's tile changed — the
-   * move applied. Deliberately NOT cleared when a drop merely issues the
-   * command: a rejection at the applying tick then leaves the tower lifted,
-   * so another tile can be tried without re-lifting (build-ui delta).
+   * The lifted structure — tower or wall — while the move tool carries one
+   * (tower-drag-move design D6): its id plus the origin tile the move command
+   * will name. Entered only through liftAt; cleared by tool change/deselect
+   * (Esc, palette click, the phase-change deselect in palette.refresh), by
+   * cancelLift — which a drop on the origin tile resolves to — and by the
+   * per-frame sweep in updateMoveGhost once the structure's tile changed —
+   * the move applied. Deliberately NOT cleared when a drop merely issues the
+   * command: a rejection at the applying tick then leaves the structure
+   * lifted, so another tile can be tried without re-lifting (build-ui delta).
    */
   lifted: { id: number; tx: number; ty: number } | null = null;
 
@@ -181,37 +182,49 @@ export class InputCore {
   }
 
   /**
-   * Lift the tower at `tile` for the armed move tool. Only a movable tower
-   * takes the lift (canMove: build phase, towers only); a wall or an empty
-   * tile does nothing at all (build-ui delta). Returns whether a lift began.
+   * Lift the structure at `tile` for the armed move tool — tower or wall
+   * alike, in the build phase only (moveOpenIn); an empty tile, or any tile
+   * outside the build phase, does nothing at all (build-ui delta). Returns
+   * whether a lift began.
    */
   liftAt(tile: Tile): boolean {
     const s = structureAt(this.sim.state.structures, tile.tx, tile.ty);
-    if (!s || !canMove(this.sim.state.runPhase, s)) return false;
+    if (!s || !moveOpenIn(this.sim.state.runPhase)) return false;
     this.lifted = { id: s.id, tx: s.tx, ty: s.ty };
     this.forceReevaluate();
     return true;
   }
 
-  /** Cancel a lift with no command — the touch ✕ affordance's path. */
+  /**
+   * Put the lifted structure down with no command — the touch ✕ affordance's
+   * path, and where a drop on the origin tile ends up.
+   */
   cancelLift(): void {
     this.lifted = null;
     this.forceReevaluate();
   }
 
   /**
-   * Attempt to drop the lifted tower at `tile` — the one path behind a
-   * desktop release/click and a touch confirm. Re-runs the real validation at
-   * commit time; a red ghost or a stale green both end in the same local
-   * flash with no command issued when invalid, and the tower stays lifted so
-   * another tile can be tried without re-lifting (build-ui delta). A valid
-   * verdict may still lose the race at the applying tick — the sim's own
-   * reject event then plays the identical flash, and the lift survives until
-   * the tower actually moves. Returns whether a command was issued.
+   * Attempt to drop the lifted structure at `tile` — the one path behind a
+   * desktop release/click and a touch confirm. The origin tile is the
+   * put-down (design D6): the lift ends with no command and no flash, the
+   * structure standing where it always was — a cancel, never a same-tile move
+   * command. Anywhere else re-runs the real validation at commit time; a red
+   * ghost or a stale green both end in the same local flash with no command
+   * issued when invalid, and the structure stays lifted so another tile can
+   * be tried without re-lifting (build-ui delta). A valid verdict may still
+   * lose the race at the applying tick — the sim's own reject event then
+   * plays the identical flash, and the lift survives until the structure
+   * actually moves. Returns whether the drop resolved — a command issued, or
+   * the structure put down — so a driver knows to dismiss its pending state.
    */
   commitMove(tile: Tile): boolean {
     const lifted = this.lifted;
     if (!lifted) return false;
+    if (tile.tx === lifted.tx && tile.ty === lifted.ty) {
+      this.cancelLift();
+      return true;
+    }
     const verdict = this.sim.previewMove(lifted.tx, lifted.ty, tile.tx, tile.ty);
     if (verdict === 'ok') {
       this.commands.issue({
@@ -272,12 +285,15 @@ export class InputCore {
   /**
    * Per-frame ghost and ribbon maintenance for the armed move tool. With
    * nothing lifted the ribbon shows the current lanes and no projection
-   * (path-preview delta). A lifted tower gets the move ghost — tinted by the
-   * origin-freed validation, never the debt tint: moves are free — with its
-   * own range ring at the candidate tile, and the projected routes,
-   * re-evaluated when the candidate tile, the sim tick, or the lifted id
-   * changes, so lifting a different tower on the same tile re-projects
-   * (design D5). Speculative only — never touches sim state.
+   * (path-preview delta). A lifted structure gets a move ghost of its kind —
+   * tinted by the origin-freed validation, never the debt tint: moves are
+   * free — with a tower's own range ring at the candidate tile, and the
+   * projected routes, re-evaluated when the candidate tile, the sim tick, or
+   * the lifted id changes, so lifting a different structure on the same tile
+   * re-projects (design D5). The origin tile reads valid: dropping there is
+   * the put-down, so the tint (and the touch confirm class, which reads the
+   * same flag) agrees with what the drop will do, while the ribbon shows no
+   * projection for it. Speculative only — never touches sim state.
    */
   updateMoveGhost(tile: Tile | null): void {
     const mover = this.liftedStructure();
@@ -293,7 +309,9 @@ export class InputCore {
       this.lastEvalTile = key;
       const preview =
         mover && tile ? this.sim.previewMoveRoutes(mover.tx, mover.ty, tile.tx, tile.ty) : null;
-      this.lastVerdictOk = preview?.verdict === 'ok';
+      const atOrigin =
+        mover !== null && tile !== null && tile.tx === mover.tx && tile.ty === mover.ty;
+      this.lastVerdictOk = atOrigin || preview?.verdict === 'ok';
       this.ribbon.update(this.sim.currentLanes(), preview?.lanes ?? null, preview?.orphaned ?? null);
     }
     if (!mover || !tile) {
@@ -301,19 +319,19 @@ export class InputCore {
       return;
     }
     this.ghost.show(
-      'tower',
+      mover.kind,
       tile.tx,
       tile.ty,
       this.lastVerdictOk ? 'valid' : 'invalid',
-      towerStats(mover, this.sim.data).rangeUnits,
+      mover.kind === 'tower' ? towerStats(mover, this.sim.data).rangeUnits : 0,
     );
     this.ghost.showPreviewRingAt(null);
   }
 
   /**
-   * The lifted tower's live structure, or null with the lift swept away when
-   * the tower stands on another tile (the move applied) or vanished — the
-   * completion end of the lift lifecycle.
+   * The lifted structure, live, or null with the lift swept away when it
+   * stands on another tile (the move applied) or vanished — the completion
+   * end of the lift lifecycle.
    */
   private liftedStructure(): Structure | null {
     const lifted = this.lifted;

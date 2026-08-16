@@ -27,9 +27,9 @@ import { TERRAIN } from './grid';
 import { hashState } from './hash';
 import type { PlacementVerdict } from './placement';
 import {
-  canMove,
   canRemove,
   footprintFor,
+  moveOpenIn,
   removeStructure,
   structureAt,
   validateMove,
@@ -297,12 +297,13 @@ export class Sim {
   /**
    * Speculative twin of applyMove's validation (the move analogue of
    * previewPlacement): the verdict a move command issued now would get, with
-   * no observable mutation. 'not-buildable' doubles as "no movable tower at
-   * the origin" — the verdict vocabulary is reused, not extended (design D4).
+   * no observable mutation. 'not-buildable' doubles as "nothing movable at
+   * the origin" — a bare tile, or a phase that refuses moves — the verdict
+   * vocabulary is reused, not extended (design D4).
    */
   previewMove(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementVerdict {
     const s = structureAt(this.state.structures, fromTx, fromTy);
-    if (!s || !canMove(this.state.runPhase, s)) return 'not-buildable';
+    if (!s || !moveOpenIn(this.state.runPhase)) return 'not-buildable';
     return validateMove(
       this.grid,
       s,
@@ -370,13 +371,13 @@ export class Sim {
    * previewMove plus the routing the move would produce — the origin-freed
    * variant of previewRoutes (design D5), returning the same PlacementRoutes
    * shape. `lanes` is null for every verdict reached before the scratch
-   * fields were rebuilt: no movable tower at the origin, the same-tile move,
+   * fields were rebuilt: nothing movable at the origin, the same-tile move,
    * out-of-bounds, not-buildable, occupied, enemy-in-footprint, and the
    * socket→socket move, which never touches the mask.
    */
   previewMoveRoutes(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementRoutes {
     const mover = structureAt(this.state.structures, fromTx, fromTy);
-    if (!mover || !canMove(this.state.runPhase, mover)) {
+    if (!mover || !moveOpenIn(this.state.runPhase)) {
       return { verdict: 'not-buildable', lanes: null, orphaned: null };
     }
     const verdict = validateMove(
@@ -575,11 +576,11 @@ export class Sim {
   }
 
   /**
-   * move (structure-placement delta): relocate a tower, free of charge and
-   * identity-preserving — id, paidMg, level and provisional all survive
-   * because the existing structure mutates in place. Refused outside the
-   * build phase, for walls, for bare origin tiles, and for any destination
-   * validateMove rejects — with the same reject event a refused placement
+   * move (structure-placement delta): relocate a structure — tower or wall —
+   * free of charge and identity-preserving — id, kind, paidMg, level and
+   * provisional all survive because the existing structure mutates in place.
+   * Refused outside the build phase, for bare origin tiles, and for any
+   * destination validateMove rejects — with the same reject event a refused placement
    * emits on the DESTINATION footprint, and no other effect (atomicity).
    *
    * An accepted move applies both mask edits and swaps in the fields the
@@ -590,7 +591,7 @@ export class Sim {
   private applyMove(tx: number, ty: number, toTx: number, toTy: number): void {
     const s = this.state;
     const found = structureAt(s.structures, tx, ty);
-    const target = found !== null && canMove(s.runPhase, found) ? found : null;
+    const target = found !== null && moveOpenIn(s.runPhase) ? found : null;
     const verdict = target
       ? validateMove(
           this.grid,
