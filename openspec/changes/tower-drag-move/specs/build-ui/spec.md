@@ -99,6 +99,14 @@ put-down, cancel, and reject behaviour of the armed move tool applies unchanged 
 devices the tower is carried until the next click drops it; on touch the pending move ghost with
 its confirm and cancel affordances anchors at the tower's tile.
 
+The action arms the tool for this one move only: when the lift it began ends — the move applies,
+or the tower is put down on its origin, or a cancel affordance dismisses it — the move tool SHALL
+be deselected, returning to the no-tool state, so the action reads as something done to this tower
+rather than a switch into a mode. A failed drop is not the end of the lift: the tower stays lifted
+and the tool stays armed until a later drop lands or the lift is cancelled, as for any lift. A move
+tool the player armed from the palette is unaffected — it stays armed after a drop or put-down as
+before.
+
 The move action SHALL read as unavailable whenever the move tool is — outside the build phase —
 and, like the inspector's remove control, SHALL name the wave as the reason while one runs. While
 unavailable, activating it SHALL neither arm the tool, nor lift, nor issue any command.
@@ -111,12 +119,32 @@ unavailable, activating it SHALL neither arm the tool, nor lift, nor issue any c
   with no command issued, and the next click on a tile whose ghost shows valid queues exactly one
   move command for that tile
 
-#### Scenario: The move action's lift ends like any other
+#### Scenario: The inspector's move is one-shot
+
+- **WHEN** the player lifts a tower through the inspector's move action, drops it on a valid tile,
+  and the move applies
+- **THEN** the tower stands on its new tile and no tool reads armed — the next click on a
+  structure inspects it rather than lifting it
+
+#### Scenario: The move action's lift ends like any other, and disarms
 
 - **WHEN** the player lifts a tower through the inspector's move action and then clicks the
   tower's own tile, presses Esc, or deselects the tool
-- **THEN** no command is issued, the tower reads as standing at its origin, and the simulation
-  state hash is unchanged
+- **THEN** no command is issued, the tower reads as standing at its origin, the simulation state
+  hash is unchanged, and no tool reads armed
+
+#### Scenario: A failed drop after the inspector lift keeps the tool
+
+- **WHEN** the player lifts a tower through the inspector's move action and drops it on a tile
+  whose ghost shows invalid
+- **THEN** the standard reject feedback plays, the tower stays lifted, and the move tool stays
+  armed until a later drop lands or the lift is cancelled
+
+#### Scenario: A palette-armed move tool is still a mode
+
+- **WHEN** the player arms the move tool from the palette, lifts a tower, and drops it or puts
+  it down on its origin
+- **THEN** the move tool stays armed
 
 #### Scenario: A wave locks the inspector's move action
 

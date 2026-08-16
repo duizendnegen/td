@@ -100,3 +100,17 @@
   Playwright pass: desktop Move from the inspector then click-drop, wave-time locked face,
   mobile sheet Move staging the ✓/✕ pair at the tower
 
+## 8. Iteration: the inspector's move is one-shot
+
+- [x] 8.1 InputCore: `toolArmedForLift` set by `liftInspected`, cleared on any tool change;
+  `endLift()` as the one exit for a lift that ran its course (sweep + `cancelLift`), which
+  disarms the tool via `palette.select(null)` when the flag is set; a failed drop leaves both
+  the lift and the tool (design D9)
+- [x] 8.2 Driver tests: after the inspector lift, an applied move / origin put-down / cancel
+  each leave no tool armed; a failed drop keeps carrying and keeps the tool; a palette-armed
+  lift after an inspector move keeps the mode; palette-route tests pin that drops and
+  put-downs keep the tool
+- [x] 8.3 `npm run typecheck`, `npm test`, `openspec validate tower-drag-move --strict`;
+  Playwright pass: desktop inspector Move → drop → no tool armed; put-down on origin → no
+  tool; mobile sheet Move → ✓ → no tool, ✕ → no tool; palette Move keeps the mode
+

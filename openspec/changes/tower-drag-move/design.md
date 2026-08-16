@@ -133,6 +133,18 @@ mirroring how the core owns `palette.onChange`. The action is gated by the same 
 predicate (D7) and, like the inspector's remove control, names the wave when locked — the
 palette tool stays reason-less, per the existing build-ui convention.
 
+The arming is one-shot. The palette tool is a mode the player chose and keeps until Esc; the
+inspector action is a verb on one tower, and the mode is incidental to it — so `InputCore`
+remembers `toolArmedForLift` and, when that lift ends through `endLift` (the per-frame sweep
+seeing the move applied, `cancelLift` from a put-down or the touch ✕), calls `palette.select(null)`.
+That deselect fans out through `palette.onChange` exactly like an Esc, so both drivers wind
+down identically and nothing new is wired. Ending is defined by the lift, not the drop: a failed
+drop keeps carrying and keeps the tool (the action isn't over — the build-ui delta's "try another
+tile without re-lifting" still holds), and a drop that issues the command keeps both until the
+sweep sees the tower on its new tile, so a stale-green rejection at the applying tick lands in
+the same still-lifted, still-armed state as a local one. Any tool change clears the flag with the
+lift, so a palette-armed lift after an inspector move is a mode again.
+
 **Alternatives considered:** towers-only moves (the first cut — walls were left to sell +
 rebuild, but nudging a maze line is exactly the revision the feature exists for, and the sim
 path is kind-agnostic once the terrain rule follows the mover); a same-tile move accepted by
