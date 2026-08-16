@@ -132,7 +132,7 @@ src/
 │  ├─ assets.ts            GLB loading, shared material, model registry
 │  ├─ ground.ts            merged static ground geometry
 │  ├─ towers.ts            modular tower composition
-│  ├─ enemies.ts           enemy meshes, hover, status icons
+│  ├─ enemies.ts           enemy meshes, hover, status icons, health bars
 │  ├─ cameras.ts           the fixed isometric camera
 │  ├─ fx.ts                tracers, impacts, gold sacks (render-only)
 │  ├─ ribbon.ts            lane ribbon: traced routes, projected reroute, orphaned region
@@ -596,6 +596,16 @@ copy every tick.
 
 Render-only motion — UFO hover bob, yaw spin, tower head rotation, tracer fade, gold-sack sparkle — is
 driven by frame time and never touches the sim.
+
+### Enemy status overlays
+
+Above each enemy the renderer draws, read-only from sim state: a carried-gold and a slowed icon, and —
+once the enemy has taken any damage — a health bar (green remaining over a red track, revealed from
+the right, camera-facing sprites drawn depth-free so a wall canyon never hides it, width scaled with
+the model). The bar's max is the enemy type's `hp` stat, **not** a field on the enemy: every spawn
+path sets `hp` to that stat and nothing scales it per wave, so max hp is a pure lookup and the hash is
+untouched. Should per-wave hp scaling ever land, `maxHp` moves onto the `Enemy` record — and into the
+hash — and the bar reads it from there.
 
 ---
 
