@@ -79,11 +79,13 @@ const slowMaterial = new THREE.MeshLambertMaterial({
 // depth-free so a wall canyon or a tower never hides them (design D4).
 const barTrackMaterial = new THREE.SpriteMaterial({
   color: BAR_TRACK_COLOR,
+  transparent: true,
   depthTest: false,
   depthWrite: false,
 });
 const barFillMaterial = new THREE.SpriteMaterial({
   color: BAR_FILL_COLOR,
+  transparent: true,
   depthTest: false,
   depthWrite: false,
 });
