@@ -221,7 +221,7 @@ export class Sim {
       stepWaveSpawns(s, this.waves[s.waveIndex - 1]!);
     }
     // 5. Enemy movement and waypoint re-evaluation
-    stepEnemies(s, this.grid, fields, this.data.slowSpeedPer100);
+    stepEnemies(s, this.grid, fields, this.data.carrierSpeedPer100, this.data.slowSpeedPer100);
     // 6. Arrival: treasury grab-and-flip, sack pickup, spawn escape
     resolveArrivals(s, this.treasury, this.activeSpawns, this.carryMgByType, this.events);
     // 7. Tower targeting and firing (damage applies this tick)
@@ -254,7 +254,7 @@ export class Sim {
       }
       // Settlement: sack return, then the speed bonus, then the progression
       // judgement on the post-return, post-bonus balance (run-lifecycle spec).
-      returnSacks(s);
+      returnSacks(s, this.data.sackRecoveryPer1000);
       s.lastWaveBonusMg = waveBonusMg(
         s.tick - s.waveStartTick,
         lastSpawnOffset(this.waves[s.waveIndex - 1]!),

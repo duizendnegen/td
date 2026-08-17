@@ -22,12 +22,14 @@ const TICKS = 1200;
 /** A miniature of the eventual capture scenario: builds, waves, injections. */
 function stream(): ScheduledCommand[] {
   return [
-    { tick: 20, body: { kind: 'place', structure: 'tower', archetype: 'rapid', tx: 10, ty: 1 } },
-    { tick: 20, body: { kind: 'place', structure: 'tower', archetype: 'sniper', tx: 9, ty: 2 } },
+    // 40×20 board (scale-world-experiment): the corridor spine between the
+    // rock walls sees every enemy twice; the sniper sits on the wall-B socket.
+    { tick: 20, body: { kind: 'place', structure: 'tower', archetype: 'rapid', tx: 12, ty: 8 } },
+    { tick: 20, body: { kind: 'place', structure: 'tower', archetype: 'sniper', tx: 16, ty: 12 } },
     { tick: 60, body: { kind: 'startWave' } },
     { tick: 120, body: { kind: 'spawn', type: 'tank', spawn: 0 } },
     { tick: 140, body: { kind: 'spawn', type: 'brute', spawn: 0 } },
-    { tick: 600, body: { kind: 'place', structure: 'wall', tx: 13, ty: 0 } },
+    { tick: 600, body: { kind: 'place', structure: 'wall', tx: 13, ty: 9 } },
   ];
 }
 

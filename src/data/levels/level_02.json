@@ -1,25 +1,35 @@
 {
-  "$note": "The two-front finale, compressed to 20×10 (balance-ux-tweaks design D8): the west lane squeezes through the x=5 ridge gap at y=3..4; the north lane opens at wave 6 through the y=3 wall gap at x=12..13. Sockets sit in both walls — (5,6) covers the west choke, (14,3) the north gap — plus a field socket at (11,6) over the shared treasury approach. Rocks at (13,7)/(14,8)/(16,8) half-ring the treasury (15,7) so it takes fire from the north and east approaches only. The slow-immune brute debuts at wave 7 and anchors the back half.",
+  "$note": "The two-front finale, upscaled to 40×20 by mechanical 2×2 cell duplication (scale-world-experiment design D2) from the 20×10 balance-ux-tweaks board; every landmark below sits at doubled coordinates as a 2×2 block. The west lane squeezes through the ridge gap (was y=3..4, now y=6..9); the north lane opens at wave 6 through the wall gap (was x=12..13, now x=24..27). Socket blocks sit in both walls — (10..11, 12..13) covers the west choke, (28..29, 6..7) the north gap — plus a field socket block at (22..23, 12..13) over the shared treasury approach. Rock blocks half-ring the treasury (30,14) so it takes fire from the north and east approaches only. The slow-immune brute debuts at wave 7 and anchors the back half.",
   "id": "level_02",
-  "grid": { "width": 20, "height": 10 },
-  "treasury": { "x": 15, "y": 7 },
+  "grid": { "width": 40, "height": 20 },
+  "treasury": { "x": 30, "y": 14 },
   "spawns": [
-    { "id": "west", "x": 0, "y": 4, "activeFromWave": 1 },
-    { "id": "north", "x": 10, "y": 0, "activeFromWave": 6 }
+    { "id": "west", "x": 0, "y": 8, "activeFromWave": 1 },
+    { "id": "north", "x": 20, "y": 0, "activeFromWave": 6 }
   ],
   "terrain": {
     "legend": { ".": "dirt", "g": "grass", "r": "rock", "o": "socket" },
     "map": [
-      "g....r.............g",
-      ".....r..............",
-      ".....r..............",
-      "........rrrr..orrr..",
-      "....................",
-      ".....r..............",
-      ".....o.....o........",
-      ".....r.......r......",
-      ".....r........r.r...",
-      "g....r.............g"
+      "gg........rr..........................gg",
+      "gg........rr..........................gg",
+      "..........rr............................",
+      "..........rr............................",
+      "..........rr............................",
+      "..........rr............................",
+      "................rrrrrrrr....oorrrrrr....",
+      "................rrrrrrrr....oorrrrrr....",
+      "........................................",
+      "........................................",
+      "..........rr............................",
+      "..........rr............................",
+      "..........oo..........oo................",
+      "..........oo..........oo................",
+      "..........rr..............rr............",
+      "..........rr..............rr............",
+      "..........rr................rr..rr......",
+      "..........rr................rr..rr......",
+      "gg........rr..........................gg",
+      "gg........rr..........................gg"
     ]
   },
   "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0002 },

@@ -30,19 +30,20 @@ export interface LeakScenario {
 }
 
 /**
- * The harness board: an open 20×7 corridor, spawn west, treasury east.
- * Towers flank the centre row; no wave is ever started, so the authored
- * burst's spawn commands are the only pressure.
+ * The harness board: an open 40×7 corridor, spawn west, treasury east —
+ * doubled with the scale-world-experiment board so exposure times match the
+ * real game's geometry. Towers flank the centre row; no wave is ever
+ * started, so the authored burst's spawn commands are the only pressure.
  */
 export function corridorLevel(): Record<string, unknown> {
   return {
     id: 'leak-harness',
-    grid: { width: 20, height: 7 },
-    treasury: { x: 19, y: 3 },
+    grid: { width: 40, height: 7 },
+    treasury: { x: 39, y: 3 },
     spawns: [{ id: 'west', x: 0, y: 3, activeFromWave: 1 }],
     terrain: {
       legend: { '.': 'dirt' },
-      map: Array.from({ length: 7 }, () => '.'.repeat(20)),
+      map: Array.from({ length: 7 }, () => '.'.repeat(40)),
     },
     // Ample treasury: every thief that arrives leaves with full capacity, so
     // leak numbers measure the defense, not treasury exhaustion.
@@ -53,28 +54,34 @@ export function corridorLevel(): Record<string, unknown> {
 }
 
 /**
- * Spend-parity padding: walls in the far corner, away from the corridor and
- * every tower range. They equalise treasury spend without touching the maze.
+ * Spend-parity padding: walls on the border rows, off the centre lane the
+ * enemies walk. They equalise treasury spend without touching the maze —
+ * walls are inert, so tower coverage of these tiles is irrelevant.
  */
 function padding(count: number): LayoutItem[] {
   const walls: LayoutItem[] = [];
   for (let i = 0; i < count; i++) {
-    walls.push({ build: 'wall', tx: 15 + (i % 5), ty: i < 5 ? 0 : 6 });
+    // Three border bands of ten: (10..19, 0), (10..19, 6), (0..9, 0).
+    const band = Math.floor(i / 10);
+    walls.push({ build: 'wall', tx: band === 2 ? i - 20 : 10 + (i % 10), ty: band === 1 ? 6 : 0 });
   }
   return walls;
 }
 
-/** Four rapids flanking the lane — the mono-archetype baseline, 200g. */
+/** Six rapids flanking the lane — the mono-archetype baseline, 300g. */
 const MONO_RAPID: LayoutItem[] = [
-  { build: 'rapid', tx: 5, ty: 2 },
-  { build: 'rapid', tx: 8, ty: 4 },
-  { build: 'rapid', tx: 11, ty: 2 },
-  { build: 'rapid', tx: 14, ty: 4 },
+  { build: 'rapid', tx: 8, ty: 2 },
+  { build: 'rapid', tx: 13, ty: 4 },
+  { build: 'rapid', tx: 18, ty: 2 },
+  { build: 'rapid', tx: 23, ty: 4 },
+  { build: 'rapid', tx: 28, ty: 2 },
+  { build: 'rapid', tx: 33, ty: 4 },
 ];
 
-// Balance-ux-tweaks re-derivation: wall 20g and slow 60g re-solve every
-// spend-parity equation. Each scenario's mono/counter pair is re-balanced to
-// EXACT parity at the new prices; the directions are unchanged.
+// Scale-world-experiment re-derivation: the corridor doubled to 40, spends
+// grew to ~300g (hp ×5 with damage-per-encounter ×0.6 needs more towers),
+// and wall 5g re-solves every spend-parity equation. The directions are
+// unchanged — they ARE the contract.
 export const SCENARIOS: LeakScenario[] = [
   {
     // Runners punish the missing slow: each one crosses a window too fast
@@ -82,18 +89,20 @@ export const SCENARIOS: LeakScenario[] = [
     // pressure is per-enemy exposure, not train throughput.
     name: 'runner burst vs rapid-only → slow closes the leak',
     burst: [{ type: 'runner', count: 3, spawnInterval: 250 }],
-    // 4 rapid + 3 padding walls = 260g: same rapids as the counter side, so
-    // the slow tower versus dead walls IS the experiment.
-    mono: [...MONO_RAPID, ...padding(3)],
+    // 6 rapid + 20 padding walls = 360g at wall 3: same rapids as the counter
+    // side, so the slow tower versus dead walls IS the experiment.
+    mono: [...MONO_RAPID, ...padding(20)],
     counter: [
-      // 4 rapid clustered inside the slow zone + 1 slow = 260g.
-      { build: 'rapid', tx: 8, ty: 2 },
-      { build: 'rapid', tx: 9, ty: 2 },
-      { build: 'slow', tx: 9, ty: 4 },
-      { build: 'rapid', tx: 10, ty: 2 },
-      { build: 'rapid', tx: 10, ty: 4 },
+      // 6 rapid clustered inside the slow zone + 1 slow = 360g.
+      { build: 'rapid', tx: 17, ty: 2 },
+      { build: 'rapid', tx: 19, ty: 4 },
+      { build: 'slow', tx: 20, ty: 4 },
+      { build: 'rapid', tx: 21, ty: 2 },
+      { build: 'rapid', tx: 23, ty: 4 },
+      { build: 'rapid', tx: 25, ty: 2 },
+      { build: 'rapid', tx: 27, ty: 4 },
     ],
-    // Tuned 2026-08 (balance-ux-tweaks): observed 75k vs 0.
+    // Tuned 2026-08 (scale-world-experiment, final values): observed 75k vs 0.
     monoMinLeakMg: 60_000,
     counterMaxLeakMg: 40_000,
   },
@@ -101,15 +110,16 @@ export const SCENARIOS: LeakScenario[] = [
     // Swarms punish the missing area: single-target rate can't clear a clump.
     name: 'swarm burst vs rapid-only → area closes the leak',
     burst: [{ type: 'swarm', count: 50, spawnInterval: 2 }],
-    mono: MONO_RAPID, // 200g
+    // 6 rapid + 7 padding walls = 321g at wall 3.
+    mono: [...MONO_RAPID, ...padding(7)],
     counter: [
-      // 2 area + 2 padding walls = 200g at the new wall price.
-      { build: 'area', tx: 8, ty: 2 },
-      { build: 'area', tx: 10, ty: 4 },
-      ...padding(2),
+      // 4 area = 320g.
+      { build: 'area', tx: 14, ty: 2 },
+      { build: 'area', tx: 18, ty: 4 },
+      { build: 'area', tx: 22, ty: 2 },
+      { build: 'area', tx: 26, ty: 4 },
     ],
-    // Tuned 2026-08 (balance-ux-tweaks): observed 208k vs 0 — even at the
-    // nerfed L1 damage (3-shots a swarm), two areas still hold the corridor.
+    // Tuned 2026-08 (scale-world-experiment, final values): observed 232k vs 0.
     monoMinLeakMg: 100_000,
     counterMaxLeakMg: 40_000,
   },
@@ -117,16 +127,18 @@ export const SCENARIOS: LeakScenario[] = [
     // Tanks punish the missing sniper: rapid chip damage never breaks tank hp.
     name: 'tank burst vs rapid-only → sniper closes the leak',
     burst: [{ type: 'tank', count: 3, spawnInterval: 30 }],
-    // 4 rapid + 2 padding walls = 240g.
-    mono: [...MONO_RAPID, ...padding(2)],
+    // 6 rapid + 4 padding walls = 312g at wall 3.
+    mono: [...MONO_RAPID, ...padding(4)],
     counter: [
-      // 2 sniper + 2 rapid = 240g.
-      { build: 'sniper', tx: 8, ty: 2 },
-      { build: 'sniper', tx: 11, ty: 4 },
-      { build: 'rapid', tx: 9, ty: 4 },
-      { build: 'rapid', tx: 12, ty: 2 },
+      // 3 sniper + 2 rapid = 310g.
+      { build: 'sniper', tx: 17, ty: 2 },
+      { build: 'sniper', tx: 21, ty: 4 },
+      { build: 'sniper', tx: 25, ty: 2 },
+      { build: 'rapid', tx: 19, ty: 4 },
+      { build: 'rapid', tx: 23, ty: 4 },
     ],
-    // Tuned 2026-08 (balance-ux-tweaks): observed 120k vs 0.
+    // Tuned 2026-08 (scale-world-experiment, final values): observed 120k
+    // (1 kill) vs 0 (all 3) at the calibrated hp ×2.
     monoMinLeakMg: 80_000,
     counterMaxLeakMg: 40_000,
   },

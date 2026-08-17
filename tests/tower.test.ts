@@ -209,22 +209,22 @@ describe('slow (design D4)', () => {
     for (let t = 0; t < 10; t++) sim.tick([]);
     expect(e.slowUntil).toBe(41);
     // The multiplier is unchanged while slowed — one application deep, always.
-    expect(effectiveSpeed({ ...e, speed: 100 }, 15, 55)).toBe(55);
+    expect(effectiveSpeed({ ...e, speed: 100 }, 15, 80, 55)).toBe(55);
   });
 
   it('slow expires exactly on its tick', () => {
     const e = { ...injectEnemy(slowBoard(), 5, 2), speed: 100, slowUntil: 40 };
-    expect(effectiveSpeed(e, 39, 55)).toBe(55);
-    expect(effectiveSpeed(e, 40, 55)).toBe(100);
+    expect(effectiveSpeed(e, 39, 80, 55)).toBe(55);
+    expect(effectiveSpeed(e, 40, 80, 55)).toBe(100);
   });
 
   it('slowed carrier composes carrier-then-slow in integer math (pinned order)', () => {
     const sim = slowBoard();
     const e = injectEnemy(sim, 5, 2, { speed: 130, carriedMg: 5000 });
     sim.tick([]);
-    // Pinned order: trunc(trunc(130·4/5)·55/100) = trunc(104·0.55) = 57.
-    // The reverse order gives trunc(trunc(130·0.55)·4/5) = trunc(71·0.8) = 56.
-    expect(effectiveSpeed(e, sim.state.tick, 55)).toBe(57);
+    // Pinned order: trunc(trunc(130·80/100)·55/100) = trunc(104·0.55) = 57.
+    // The reverse order gives trunc(trunc(130·0.55)·80/100) = trunc(71·0.8) = 56.
+    expect(effectiveSpeed(e, sim.state.tick, 80, 55)).toBe(57);
   });
 
   it('slowImmune stat blocks short-circuit application', () => {
