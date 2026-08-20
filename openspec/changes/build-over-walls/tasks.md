@@ -64,11 +64,12 @@
 
 ## 5. UI: ghost, palette, selection
 
-- [x] 5.1 `GhostPreview.show` gains an on-foundation option that raises the tower ghost by the
-  wall model's height, and a stack option that draws the wall mesh beneath the raised tower
-- [x] 5.2 `InputCore.updateBuildGhost` passes on-foundation for a tower tool over a wall or
-  socket; `needs-wall` tints invalid and projects no ribbon routing (verify
-  `previewRoutes` returns null lanes for it)
+- [x] 5.1 ~~`GhostPreview.show` gains an on-foundation option that raises the tower ghost by the
+  wall model's height, and a stack option that draws the wall mesh beneath the raised tower~~
+  Reverted in §9: the raised ghost reads as a tile further back under the dimetric camera
+- [x] 5.2 ~~`InputCore.updateBuildGhost` passes on-foundation for a tower tool over a wall or
+  socket; `needs-wall` tints invalid and projects no ribbon routing~~ Superseded by §9: the tool
+  lays the wall over bare dirt, so the build ghost never shows `needs-wall`
 - [x] 5.3 `InputCore.selectAt` uses `towerAt`; the inspector's remove issues the same command
   and the peel takes the tower; verify the inspector closes and the wall stays
 - [x] 5.4 Palette: tower items carry an "on wall" caption; desktop hint line
@@ -80,7 +81,8 @@
 
 - [x] 6.1 `InputCore.liftAt` lifts via `topAt` (id of the top structure) and passes the origin
   tile's structure ids to `StructureRenderer.setLifted(ids)`; `updateMoveGhost` shows the top's
-  kind, raised on a foundation destination, wall + raised tower on a bare-dirt destination
+  kind (~~raised on a foundation destination, wall + raised tower on a bare-dirt destination~~ —
+  reverted in §9, the move ghost stands on the ground)
 - [x] 6.2 Verify the lift lifecycle ends on both branches (transfer moves the top's tile;
   relocate moves both), the origin put-down and Esc/tool-switch cancel dim every structure back,
   and the inspector's Move action lifts the tower's tile
@@ -99,7 +101,7 @@
   shows one; `setLifted` dims a list of ids
 - [x] 7.3 Visual check in the running game (Playwright): wall-mounted vs socket tower same
   silhouette per level, no doubled base, removing a tower leaves the wall, lifted stack dims
-  together, raised ghost over a wall, composite ghost over dirt during a stack move
+  together
 
 ## 8. Docs and wrap-up
 
@@ -107,3 +109,29 @@
   foundation", controls section); ARCHITECTURE.md D6 note and §7 placement summary
 - [x] 8.2 `npm run typecheck`, `npm test`, `npm run build` green; `openspec validate
   build-over-walls` clean
+
+## 9. Iteration: the tower tool lays its wall; every ghost on the ground (design D6)
+
+- [x] 9.1 `place` gains `withWall`; `Sim.placementVerdict` is the one verdict behind
+  `previewPlacement`, `previewRoutes` and `applyPlace` — a tower `withWall` validates as the wall
+  placement it contains and is gated on both purchases; `applyPlace` lands wall then tower
+  atomically through one `pushStructure`; `previewRoutes` projects for it as for a wall
+- [x] 9.2 Tests: the compound lands both with the hash of `mount`; seal / occupied / enemy verdicts
+  come from the wall rules; funds below the wall's cost reject with nothing placed; routing
+  rejection leaves no wall behind; `previewRoutes` projects lanes and the orphaned region;
+  previewing is hash-neutral; the bare tower on dirt still `needs-wall`
+- [x] 9.3 `GhostPreview` back on the ground: no foundation height, no raised tower, no stack ghost
+  for moves; a tower ghost `withWall` is drawn as a wall segment and a tower segment with a seam
+- [x] 9.4 `InputCore`: `withWallAt` (tower tool, dirt, no wall) drives the preview, the command,
+  the tint (both costs) and the ghost; `compound` exposes the tile and both costs per frame;
+  `projectGround` for screen anchoring
+- [x] 9.5 `GhostCaption` (src/ui/caption.ts): "wall 20 + rapid 50" beside the ghost tile's
+  screen-right corner while the compound previews; wired into the render loop in game.ts
+- [x] 9.6 UI rig tests: bare dirt shows the two-segment ghost and issues one `withWall` place
+  that lands both; a sealing tile flashes and issues nothing; a bare wall issues the plain place;
+  move ghosts carry no base
+- [x] 9.7 Visual check in the running game (Playwright): ghost over a wall stands on the ground as
+  on main; two-segment ghost and caption over bare dirt, valid and sealing; one click lands wall +
+  tower with one provisional tell
+- [x] 9.8 Proposal, design (D6 rewritten, the raised ghost recorded as the rejected alternative),
+  build-ui / structure-placement / path-preview deltas, README and ARCHITECTURE updated

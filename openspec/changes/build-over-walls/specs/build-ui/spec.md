@@ -2,15 +2,21 @@
 
 ## ADDED Requirements
 
-### Requirement: The tower ghost reads the foundation rule
+### Requirement: The tower ghost reads the foundation rule and lays the wall
 
 With a tower tool armed, the ghost over a tile holding a bare wall SHALL read as a legal
-placement — tinted valid or debt by the same authoritative validation as any placement, drawn
-standing on the wall rather than at ground level, with the archetype's range ring — and the ghost
-over bare dirt SHALL read invalid. The ghost over a wall that already carries a tower SHALL read
-invalid. The palette's tower items and the desktop hint line SHALL state that towers stand on
-walls, so a player who first arms a tower tool over an empty board learns the rule from the
-interface rather than from a field of red.
+placement — tinted valid or debt by the same authoritative validation as any placement, with the
+archetype's range ring — and a click there SHALL issue one tower placement. The ghost over a wall
+that already carries a tower SHALL read invalid.
+
+Over a dirt tile with no wall, the tool SHALL place the wall and the tower together: a click
+SHALL issue exactly one tower placement that lays its wall, and the ghost SHALL preview it as two
+structures — drawn as a wall segment and a tower segment with a visible seam, with a caption at
+the tile naming both purchases and their costs, tinted by the verdict of the wall placement it
+contains and by the sum of both costs against the balance. Every ghost SHALL stand on the ground
+plane; no ghost is raised to indicate what lies beneath it.
+
+The palette's tower items and the desktop hint line SHALL state that towers stand on walls.
 
 Selecting a stacked tile with no tool armed SHALL inspect the tower; the inspector's remove
 control on a mounted tower SHALL remove the tower alone, leaving the wall standing.
@@ -18,14 +24,29 @@ control on a mounted tower SHALL remove the tower alone, leaving the wall standi
 #### Scenario: A wall invites the tower
 
 - **WHEN** the player hovers a bare wall with a tower tool armed and balance ≥ the tower's cost
-- **THEN** the ghost reads valid, sits on top of the wall, and shows the level-1 range ring
-  centred on that tile
+- **THEN** the ghost reads valid and shows the level-1 range ring centred on that tile, and a
+  click issues one tower placement without a wall
 
-#### Scenario: Bare dirt refuses the tower
+#### Scenario: Bare dirt previews and places two
 
-- **WHEN** the player hovers a dirt tile with no wall on it with a tower tool armed
-- **THEN** the ghost reads invalid, and clicking there gives the ordinary reject feedback with no
-  command issued
+- **WHEN** the player hovers a dirt tile with no wall on it with a tower tool armed, where a wall
+  would be a legal placement, and clicks
+- **THEN** the ghost showed a wall segment and a tower segment with a caption naming the wall's
+  and the tower's costs, exactly one placement command is issued, and once it applies the tile
+  holds a wall and the tower on it
+
+#### Scenario: Bare dirt the wall rules refuse
+
+- **WHEN** the player hovers a dirt tile with no wall where a wall would seal a spawn, with a
+  tower tool armed
+- **THEN** the two-segment ghost reads invalid, the ribbon shows the orphaned region as for a wall,
+  and clicking there gives the ordinary reject feedback with no command issued
+
+#### Scenario: Both costs tint the ghost
+
+- **WHEN** the player hovers bare dirt with a tower tool armed and the balance covers the tower's
+  cost but not the wall's and the tower's together
+- **THEN** the ghost reads as the debt tint
 
 #### Scenario: The rule is named in the interface
 
@@ -65,7 +86,7 @@ standing at their origin. Putting a stack down this way is a cancel, not a move.
 
 Speculative evaluation while carrying SHALL NOT change simulation state.
 
-#### Scenario: Drag and drop moves the wall with its tower
+#### Scenario: Drag and drop moves the tower
 
 - **WHEN** the player presses on a tile holding a wall and a tower with the move tool armed,
   drags past the slop, and releases over a bare dirt tile whose ghost shows valid
@@ -79,7 +100,7 @@ Speculative evaluation while carrying SHALL NOT change simulation state.
 - **THEN** exactly one move command is queued, and once it applies the tower stands on the
   destination wall while the origin wall still stands
 
-#### Scenario: A bare wall lifts and drops as before
+#### Scenario: A wall lifts and drops like a tower
 
 - **WHEN** the player presses on a bare wall with the move tool armed, drags past the slop, and
   releases over a dirt tile whose ghost shows valid
@@ -93,7 +114,7 @@ Speculative evaluation while carrying SHALL NOT change simulation state.
 - **THEN** exactly one move command for that tile is queued, and the tower ghost followed the
   hover between the two clicks
 
-#### Scenario: Dropping back on the origin puts the stack down
+#### Scenario: Dropping back on the origin puts the structure down
 
 - **WHEN** the player lifts a stack and drops it on its own tile — by releasing a drag over it or
   by a second click on it — while the ghost there reads valid

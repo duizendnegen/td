@@ -5,11 +5,13 @@
 ### Requirement: Placements without projected routing show current lanes only
 
 A candidate placement whose rejection does not depend on routing — out of bounds, unbuildable
-terrain, an already occupied tile, bare dirt under a tower tool, an enemy standing in the
-footprint, or an unaffordable purchase — SHALL show the current lanes with no projected trail. A
-tower placement of any kind — on a wall or on a socket — never alters navigability and SHALL
-likewise show no projected trail, whatever its verdict. In all these cases the ribbon SHALL NOT
-display routing left over from a previously hovered tile.
+terrain, an already occupied tile, an enemy standing in the footprint, or an unaffordable
+purchase — SHALL show the current lanes with no projected trail. A tower placement onto a
+foundation — a wall or a socket — never alters navigability and SHALL likewise show no projected
+trail, whatever its verdict. A tower placement that lays its own wall (a tower tool over bare
+dirt) SHALL project exactly as the wall placement it contains — projected lanes when the wall
+would be accepted, the orphaned region when it would seal. In all these cases the ribbon SHALL
+NOT display routing left over from a previously hovered tile.
 
 #### Scenario: Hovering scenery shows no projection
 
@@ -20,6 +22,13 @@ display routing left over from a previously hovered tile.
 
 - **WHEN** the ghost occupies a bare wall with a tower tool armed
 - **THEN** the placement reads as valid and no projected trail is shown
+
+#### Scenario: A tower that lays its wall projects as a wall
+
+- **WHEN** the ghost occupies a bare dirt tile with a tower tool armed, where the wall it would
+  lay changes the lanes
+- **THEN** the projected trail shows the lanes after that wall, exactly as the wall tool's ghost
+  there would
 
 #### Scenario: A socket tower changes nothing
 
@@ -68,7 +77,7 @@ Evaluating move candidates SHALL NOT alter simulation state.
 - **THEN** only the current lanes are shown, with no projected trail, even though the ghost there
   reads valid
 
-#### Scenario: Hovering the stack's own tile shows no projection
+#### Scenario: Hovering the structure's own tile shows no projection
 
 - **WHEN** the move ghost sits on the lifted stack's own tile
 - **THEN** only the current lanes are shown, with no projected trail left over from a previous

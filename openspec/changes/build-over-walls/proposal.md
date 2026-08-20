@@ -30,14 +30,24 @@ never commits the tower early and unmounting it never opens the maze.
   stays and the mask never changes — so a tower still slides along a maze line without a sell.
 - **Sockets are built-in foundations.** A tower goes straight onto a socket; a wall never does.
   Nothing about sockets changes.
-- **Costs unchanged.** A fresh tower on bare dirt is now a wall plus a tower (20 + tower cost); a
+- **A tower tool lays its own wall.** A `place` of a tower may carry `withWall`: the wall and the
+  tower on it land in one command — validated as the wall placement it contains, gated on both
+  purchases, atomic (both or neither), and indistinguishable in state from a wall command followed
+  by a tower command. The tower tool issues it whenever the hovered dirt tile has no wall, so
+  arming a tower over an empty board is one click, not two. The bare `place` of a tower on bare
+  dirt still rejects with `needs-wall`.
+- **Costs unchanged.** A fresh tower on bare dirt is a wall plus a tower (20 + tower cost); a
   tower on an existing wall costs the tower alone. Balance retuning, if the leak harness calls for
   it, is a follow-up.
-- **UI.** The tower ghost reads valid over a bare wall (raised onto it, range ring shown) and
-  invalid over bare dirt; the palette's tower items and the desktop hint line say that towers
-  stand on walls, so the new rule is discoverable rather than a field of red. Selecting a stacked
-  tile inspects the tower; the inspector's remove takes the tower only. Ribbon: tower placements
-  and tower-only hops project no routing; wall placements and stack moves project as today.
+- **UI.** The tower ghost reads valid over a bare wall (range ring shown) and, over bare dirt,
+  previews the wall it will lay: the ghost splits into a wall segment and a tower segment, a
+  caption beside it names both purchases ("wall 20 + rapid 50"), the tint counts both costs, and
+  the ribbon projects the wall's routing. Every ghost stands on the ground — the first cut raised
+  the tower ghost onto its foundation, which under the dimetric camera reads as a tile further
+  back, so height says nothing. The palette's tower items and the desktop hint line say that
+  towers stand on walls. Selecting a stacked tile inspects the tower; the inspector's remove takes
+  the tower only. Ribbon: foundation-only tower placements and tower-only hops project no routing;
+  wall placements, compound placements and stack moves project as today.
 - **Render.** A mounted tower renders with the wall as its base segment — middles and head stacked
   on the wall — so a wall-mounted tower keeps today's silhouette and "height = level" still reads;
   a socket tower brings its own base. The lifted treatment dims the whole stack.
@@ -51,16 +61,19 @@ None — this reshapes existing placement, removal, move, and preview capabiliti
 ### Modified Capabilities
 
 - `structure-placement`: towers require a foundation (bare wall or empty socket) and never touch
-  the mask; two structures per tile with independent investment and provisional status; removal
-  peels the tower before the wall and a tower's removal never unblocks; the move command lifts the
-  tile's stack, relocating the wall with its payload onto bare dirt or transferring the tower alone
-  onto a foundation; terrain buildability restated for the foundation rule. Modifies the
-  tower-drag-move requirements this change builds on.
-- `build-ui`: the tower ghost's verdict over walls and bare dirt, its raised position on a wall,
-  and the palette/hint affordance that names the foundation rule; the move ghost carries the
-  stack's top and the lifted treatment covers the whole stack.
-- `path-preview`: tower placements never project routing (generalising the socket case); a lifted
-  stack projects routing only for a bare-dirt drop, a tower-only hop shows current lanes.
+  the mask; two structures per tile with independent investment and provisional status; a tower
+  placement `withWall` lays the wall and the tower atomically; removal peels the tower before the
+  wall and a tower's removal never unblocks; the move command lifts the tile's stack, relocating
+  the wall with its payload onto bare dirt or transferring the tower alone onto a foundation;
+  terrain buildability restated for the foundation rule. Modifies the tower-drag-move requirements
+  this change builds on.
+- `build-ui`: the tower ghost's verdict over walls and bare dirt, the two-segment ghost and
+  caption for a placement that lays its wall, and the palette/hint affordance that names the
+  foundation rule; the move ghost carries the stack's top and the lifted treatment covers the
+  whole stack.
+- `path-preview`: foundation-only tower placements never project routing (generalising the socket
+  case) while a placement that lays its wall projects as a wall; a lifted stack projects routing
+  only for a bare-dirt drop, a tower-only hop shows current lanes.
 - `render-pipeline`: mounted towers render on their wall as the base segment; socket towers keep
   their own base; one masonry vocabulary preserved.
 
@@ -68,15 +81,17 @@ None — this reshapes existing placement, removal, move, and preview capabiliti
 
 - **Sim**: `src/sim/placement.ts` (foundation rule in `validatePlacement`, `needs-wall` verdict,
   per-kind tile lookups replacing `structureAt`, stack-aware `validateMove`, `removeStructure` no
-  longer unblocking for towers), `src/sim/sim.ts` (`applyPlace` mounting without mask ops,
-  `applyRemove` peel, `applyMove` stack relocation vs payload transfer, `previewRoutes` /
-  `previewMoveRoutes` rebuilt-detection), `src/sim/tower.ts` (tower iteration by kind — unchanged
-  semantics). No new hashed fields; the scripted golden hash is re-minted because its script gains
-  walls, the idle golden stands.
-- **UI**: `src/ui/inputcore.ts` (ghost over walls, lift = tile stack, select = tower), `src/ui/palette.ts`
-  and `src/ui/input.ts` hint text, `src/ui/inspector.ts` (selection/removal target the tower).
-- **Render**: `src/render/towers.ts` (mounted stacking, dim-by-tile), `src/render/fx.ts` (raised
-  tower ghost on a wall).
+  longer unblocking for towers), `src/sim/commands.ts` (`withWall` on `place`), `src/sim/sim.ts`
+  (`applyPlace` mounting without mask ops and the atomic wall-plus-tower compound, `applyRemove`
+  peel, `applyMove` stack relocation vs payload transfer, `previewPlacement` / `previewRoutes` /
+  `previewMoveRoutes` with the compound and rebuilt-detection), `src/sim/tower.ts` (tower
+  iteration by kind — unchanged semantics). No new hashed fields; the scripted golden hash is
+  re-minted because its script gains walls, the idle golden stands.
+- **UI**: `src/ui/inputcore.ts` (compound over bare dirt, lift = tile stack, select = tower),
+  `src/ui/caption.ts` (the ghost caption), `src/ui/palette.ts` and `src/ui/input.ts` hint text,
+  `src/ui/inspector.ts` (selection/removal target the tower).
+- **Render**: `src/render/towers.ts` (mounted stacking, dim-by-tile), `src/render/fx.ts` (the
+  two-segment ghost).
 - **Tests and fixtures**: `tests/helpers.ts` gains a wall-then-tower helper; every scripted tower
   in `tests/placement.test.ts`, `tower.test.ts`, `upgrade.test.ts`, `economy.test.ts`,
   `tickseam.test.ts`, `leak.test.ts`/`leakData.ts`, `capture.test.ts`, `replay.test.ts` gets a

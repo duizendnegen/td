@@ -55,6 +55,39 @@ untouched.
 - **WHEN** a wall placement command targets a tile holding a wall, with or without a tower on it
 - **THEN** the placement is rejected as occupied
 
+### Requirement: A tower placement may lay its own wall
+
+A tower placement command MAY ask for its wall (`withWall`): the command SHALL then place a wall
+on the target tile and the tower on that wall, in that order, as two structures with their own
+identity, invested cost and provisional flag. Such a placement SHALL be validated exactly as the
+wall placement it contains — terrain, occupancy (a tile already holding a wall is occupied),
+enemy in footprint, spawn reachability and stranding — and SHALL be gated on both purchases: the
+wall at the current balance and the tower at the balance the wall leaves. It SHALL be atomic:
+on rejection neither structure is placed, the mask and fields are untouched and the balance is
+unchanged; on acceptance the resulting state SHALL be identical to that of a wall placement
+command followed by a tower placement command on the same tile. A tower placement without
+`withWall` on bare dirt SHALL still be rejected with `needs-wall`.
+
+#### Scenario: One command lands the wall and the tower
+
+- **WHEN** a tower placement with `withWall` targets a bare dirt tile where a wall would be valid
+- **THEN** a wall and a tower stand on that tile, the treasury is reduced by the wall's cost plus
+  the tower's cost, the tile is blocked and the flow fields rebuilt once, and the state hash
+  equals that of a wall command followed by a tower command on the same tile
+
+#### Scenario: The wall's rules decide
+
+- **WHEN** a tower placement with `withWall` targets a tile where a wall would seal a spawn, is
+  occupied by a wall, or holds an enemy
+- **THEN** it is rejected with the wall placement's verdict and simulation state is unchanged
+
+#### Scenario: Both purchases are gated
+
+- **WHEN** the balance is at or above zero but below the wall's cost, and a tower placement with
+  `withWall` is issued
+- **THEN** it is rejected as unaffordable, with no wall placed and the balance unchanged — even
+  though a wall alone would have been permitted
+
 ### Requirement: Removal peels a stacked tile top-down
 
 A removal command targeting a tile that holds both a wall and a tower SHALL apply to the tower;
@@ -137,6 +170,12 @@ bounds, the foundation rule, occupancy, and the spending gate.
 
 - **WHEN** a wall placement would leave every spawn connected but trap one live enemy in a pocket
   with no path to its current goal
+- **THEN** the placement is rejected
+
+#### Scenario: Cutting a carrier off from its own spawn is rejected
+
+- **WHEN** a wall placement would leave a returning enemy with no path to its origin spawn, even
+  though another active spawn remains reachable from the enemy's tile
 - **THEN** the placement is rejected
 
 #### Scenario: Enemy inside the footprint blocks placement
@@ -248,7 +287,7 @@ moved structure exactly as it commits an unmoved one.
 A move command SHALL be rejected in every phase other than the build phase — during a wave, in
 the settled-locked state, and after the run ends — including for provisional structures.
 
-#### Scenario: A confirmed stack move reroutes in its tick
+#### Scenario: A confirmed move reroutes in its tick
 
 - **WHEN** a valid move command for a tile holding a wall and a tower targets bare dirt
 - **THEN** in that same tick both stand on the destination, the origin tile is walkable, the
@@ -267,20 +306,20 @@ the settled-locked state, and after the run ends — including for provisional s
 - **THEN** the tower stands on the destination, the origin socket is empty and still
   terrain-blocked, and both flow fields are unchanged
 
-#### Scenario: Moving is free and preserves both refund bases
+#### Scenario: Moving is free and preserves the refund basis
 
 - **WHEN** a committed wall carrying a committed tower that cost 50 and received a 90-cost upgrade
   is moved to bare dirt, and both are later removed
 - **THEN** the move changes the treasury by nothing, the tower's removal credits 50% of 140 and
   the wall's credits 50% of its cost — the same refunds an unmoved stack would return
 
-#### Scenario: Provisional flags travel with each structure
+#### Scenario: A provisional tower stays provisional across a move
 
 - **WHEN** a provisional tower stands on a committed wall and the stack is moved to bare dirt
   before any wave starts
 - **THEN** the tower is still provisional and the wall still committed after the move
 
-#### Scenario: A bare wall moves like before
+#### Scenario: A wall moves like a tower
 
 - **WHEN** a valid move command for a tile holding only a wall targets bare dirt during the build
   phase
@@ -313,7 +352,7 @@ move, and the interaction layer treats such a drop as a cancel rather than issui
 lifted stack has no tower SHALL be rejected as occupied on a bare wall and as not buildable on a
 socket, exactly as a wall placement there would be.
 
-#### Scenario: A stack slides along its own wall line
+#### Scenario: A tower slides along its own wall line
 
 - **WHEN** a wall carrying a tower moves one tile sideways into a dirt gap that is only legal
   because its origin tile opens in the same evaluation
@@ -343,10 +382,10 @@ socket, exactly as a wall placement there would be.
   enemy currently stands on
 - **THEN** the move is rejected
 
-#### Scenario: A tower hop needs no path checks
+#### Scenario: Moving a tower onto a socket needs no path checks
 
-- **WHEN** a wall carrying a tower moves onto a bare wall whose position would seal a spawn if it
-  were a fresh wall placement
+- **WHEN** a wall carrying a tower moves onto an empty socket, or onto a bare wall whose position
+  would seal a spawn if it were a fresh wall placement
 - **THEN** the move is confirmed — only the tower transfers and no tile changes walkability
 
 #### Scenario: A wall cannot move onto a socket

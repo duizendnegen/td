@@ -34,8 +34,7 @@ See proposal.md for motivation. What this builds on, as it stands on main after 
 
 **Non-Goals:**
 
-- Any stat bonus for mounted towers, or a compound "wall + tower in one click" placement — both
-  purely additive later.
+- Any stat bonus for mounted towers — purely additive later.
 - Cascade removal (one click clears wall and tower), archetype swap in place, moving a tower off
   its wall onto bare dirt.
 - Balance retuning. Costs stay; the leak harness is re-verified, not re-solved.
@@ -119,15 +118,36 @@ takes the origin tile's structure ids (one or two) and dims each; the per-frame 
 kind with the tower's range ring, and the ghost draws a wall beneath the tower when the drop would
 land the wall (bare-dirt destination) — see D6.
 
-### D6 — The ghost shows what will land, where it will stand
+### D6 — A tower tool over bare dirt lays the wall too, and the ghost says so as two
 
-`GhostPreview.show` gains an *on-foundation* option: the tower ghost is raised by the wall model's
-height when the candidate tile has a foundation under it (build ghost over a wall; move ghost of a
-tower over a bare wall or socket) so it visibly stands on the wall. For a stack move onto bare
-dirt the ghost draws the wall mesh and the raised tower mesh together, since both land. The
-`needs-wall` verdict maps to the invalid tint like every other rejection; the ribbon treats it as
-routing-independent. `InputCore.tint` still uses the palette cost — the tower's own — which is
-now exact.
+A bare `place` of a tower on dirt stays `needs-wall` (D2) — but the tower *tool* never issues it.
+Over a dirt tile with no wall it issues `place` with `withWall: true`: one command that the sim
+validates as the wall placement it contains (terrain, occupancy, enemies, paths — through the
+same `placementVerdict` the plain paths use), gates on both purchases (`canSpend` at the current
+balance for the wall, and at the balance the wall leaves for the tower), and applies atomically:
+block, swap, push the wall, push the tower, charge both. The resulting state — ids, `paidMg`,
+`provisional`, treasury, hash — is exactly what a wall command followed by a tower command
+leaves, so the test helper `mount` and the compound are interchangeable. Over a standing wall,
+a socket, grass or rock the tool issues the plain tower placement as before.
+
+*Alternative rejected:* the UI issuing two commands. Same drain order, same state on success —
+but a funds or routing race at the applying tick could land the wall and refuse the tower,
+leaving a purchase the player did not mean. One command cannot half-apply.
+
+The ghost must make the two structures visible — a click that buys two things should preview as
+two. It does this on the ground: the tower ghost over bare dirt keeps its silhouette but is drawn
+as a wall segment and a tower segment with a seam between them; a caption beside the tile names
+both purchases ("wall 20 + rapid 50"); the tint counts both costs; and the ribbon projects the
+wall's routing, since the compound changes the mask. Over a foundation the ghost is the plain
+tower ghost from the ground up, range ring and all.
+
+*Alternative rejected (the first cut):* raising the tower ghost onto its foundation by the wall's
+height, and drawing a wall ghost beneath a raised tower ghost for the compound and for a stack
+move onto bare dirt. Under the fixed 2:1 dimetric camera a box raised by *h* is indistinguishable
+from a box on the ground roughly *h*/tan 30° ≈ 1.7 *h* tiles further back along the view axis, so the
+raised ghost read as standing on the wrong tile. What it communicated — "on top of, not instead
+of" — the tint, the ring and the palette caption already cover. No ghost uses height to say
+anything.
 
 Discoverability: the palette's tower items carry a short "on wall" caption and the desktop hint
 line says "towers go on walls". Nothing else changes in reject feedback — the red flash stays the
@@ -169,11 +189,13 @@ The wave-preview capture fixture and any preset that scripts towers gain walls t
   hide it.
 - [Two provisional marks or two lifted dims on one tile look wrong] → D7's suppression and D5's
   id-list.
-- [The transfer branch is a second move semantics players must infer] → the ghost shows exactly
-  what lands (D6), and the origin wall visibly stays; the build-ui delta pins it with scenarios.
+- [The transfer branch is a second move semantics players must infer] → the ribbon projects
+  nothing for a hop and the origin wall visibly stays; the build-ui delta pins it with scenarios.
+- [The palette badge shows the tower's own cost while a click on bare dirt spends wall + tower]
+  → the caption at the tile names both the moment it applies, and the tint counts both.
 - [Slow (round) tower's middle on a square wall base] → accepted for now; polish decided when seen.
-- [Players arm a tower tool over an empty board and see only red] → palette caption + hint line
-  (D6); the wall tool remains the first tool.
+- [Players arm a tower tool over an empty board and see only red] → there is no red: the tool
+  lays the wall (D6); the palette caption and hint line name the rule.
 
 ## Migration Plan
 
@@ -185,3 +207,5 @@ does not depend on that order (the move code is already on main). Rollback is a 
 
 - Exact wording of the palette caption and hint line — decided at implementation.
 - Whether the round tower gets a round wall variant beneath it — visual polish, decided when seen.
+- Whether the palette badge should read the compound cost while the ghost is over bare dirt — the
+  caption covers it for now.
