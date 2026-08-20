@@ -3,6 +3,10 @@
 //
 // Responsibilities:
 //   - Archetype, level, current stats, next-level cost
+//   - Performance block (tower-damage-stats design D5): the sim's recorded
+//     wave damage — labelled "This wave" during a wave, "Last wave" in every
+//     other phase, a dash for a tower that has never dealt damage outside a
+//     wave — and the total since purchase; omitted for the slow tower
 //   - Upgrade action with palette-consistent affordable/debt/blocked states
 //     as whole-literal class variants (design D1); maxed state at level 3
 //   - Move: arms the move tool and lifts this tower in one step — the
@@ -100,6 +104,35 @@ function statRows(data: GameData, s: Structure, stats: TowerLevelStats): [string
   return rows;
 }
 
+/**
+ * The performance block's rows (tower-damage-stats design D5), or null for
+ * the slow tower, which deals no damage and shows no block. One sim field
+ * carries the wave figure: it is this wave's while a wave runs and the last
+ * wave's in every other phase, so only the label changes. Outside a wave a
+ * tower whose total is still zero shows a dash, not a misleading zero — the
+ * UI cannot tell "placed this build phase" from "fought and dealt nothing",
+ * and both read correctly as a dash.
+ */
+function perfRows(state: SimState, s: Structure): [string, string][] | null {
+  if (ARCHETYPES[s.archetypeId] === 'slow') return null;
+  const inWave = state.runPhase === 'wave';
+  const wave = !inWave && s.totalDamage === 0 ? '—' : `${s.waveDamage}`;
+  return [
+    [inWave ? 'This wave' : 'Last wave', wave],
+    ['Total', `${s.totalDamage}`],
+  ];
+}
+
+function renderRows(rows: [string, string][]): string {
+  return rows
+    .map(
+      ([label, value]) =>
+        `<div class="${STAT_ROW}"><span class="${STAT_LABEL}">${label}</span>` +
+        `<span class="${STAT_VALUE}">${value}</span></div>`,
+    )
+    .join('');
+}
+
 export class InspectorUI {
   private readonly hudRoot: HTMLElement | null;
   private readonly root: HTMLDivElement;
@@ -107,6 +140,7 @@ export class InspectorUI {
   private readonly subtitle: HTMLSpanElement;
   private readonly headerIcon: HTMLSpanElement;
   private readonly stats: HTMLDivElement;
+  private readonly perf: HTMLDivElement;
   private readonly upgradeButton: HTMLButtonElement;
   private readonly moveButton: HTMLButtonElement;
   private readonly removeButton: HTMLButtonElement;
@@ -171,6 +205,14 @@ export class InspectorUI {
     this.stats = document.createElement('div');
     this.stats.className = 'flex flex-col gap-1 mobile:flex-row mobile:items-end mobile:justify-between mobile:gap-3';
 
+    // The performance block: the same row/label/value variants under the same
+    // rule the header uses, so it reads as the same instrument. Below the
+    // breakpoint it is its own flex row — the sheet gains a line, the stat
+    // columns do not gain a sixth.
+    this.perf = document.createElement('div');
+    this.perf.className =
+      'flex flex-col gap-1 border-t border-surface-bright pt-2 mobile:flex-row mobile:items-end mobile:justify-between mobile:gap-3';
+
     this.upgradeButton = document.createElement('button');
     this.upgradeButton.className = UPG_AFFORDABLE;
     this.upgradeButton.addEventListener('click', () => {
@@ -196,7 +238,7 @@ export class InspectorUI {
       }
     });
 
-    this.root.append(header, this.stats, this.upgradeButton, this.moveButton, this.removeButton);
+    this.root.append(header, this.stats, this.perf, this.upgradeButton, this.moveButton, this.removeButton);
   }
 
   /** The inspected tower, or null; the id survives re-selection checks. */
@@ -252,6 +294,10 @@ export class InspectorUI {
       this.removalAllowed,
       s.provisional,
       state.runPhase,
+      // The counters move as hits land, in every phase — including the build
+      // phase, where nothing else in this key changes.
+      s.waveDamage,
+      s.totalDamage,
     ].join(':');
     if (contentKey === this.lastContentKey) return;
     this.lastContentKey = contentKey;
@@ -261,13 +307,10 @@ export class InspectorUI {
     this.title.textContent = LABELS[archetype]!;
     this.subtitle.textContent = `LEVEL ${s.level} STRUCTURE`;
     this.headerIcon.textContent = ICONS[archetype]!;
-    this.stats.innerHTML = statRows(this.data, s, stats)
-      .map(
-        ([label, value]) =>
-          `<div class="${STAT_ROW}"><span class="${STAT_LABEL}">${label}</span>` +
-          `<span class="${STAT_VALUE}">${value}</span></div>`,
-      )
-      .join('');
+    this.stats.innerHTML = renderRows(statRows(this.data, s, stats));
+    const perf = perfRows(state, s);
+    this.perf.style.display = perf ? '' : 'none';
+    this.perf.innerHTML = perf ? renderRows(perf) : '';
 
     // Three states, not two (provisional-construction design D6): the revision
     // window, the ordinary between-waves dismantle, and the wave's block —

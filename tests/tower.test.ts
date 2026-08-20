@@ -1,7 +1,17 @@
 // See ARCHITECTURE.md §12 and the phase-3 tower-combat spec
 import { describe, expect, it } from 'vitest';
 import { effectiveSpeed } from '../src/sim/enemy';
-import { injectEnemy, makeSim, openLevel, place, testBalance } from './helpers';
+import {
+  injectEnemy,
+  makeSim,
+  move,
+  openLevel,
+  place,
+  startWave,
+  testBalance,
+  trivialWave,
+  upgrade,
+} from './helpers';
 
 // 9×5 board, lane on row 2; towers sit 1×1 on row 0 above it.
 const board = () => openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 });
@@ -327,5 +337,130 @@ describe('within-tick firing order (design D7)', () => {
     const kept = run(false);
     expect(kept.events).toBeGreaterThan(0); // tracers were actually emitted
     expect(drained.hash).toBe(kept.hash);
+  });
+});
+
+describe('damage counters (tower-damage-stats spec)', () => {
+  const counters = (t: { waveDamage: number; totalDamage: number }) => [t.waveDamage, t.totalDamage];
+
+  it('a hit within the target\'s hp counts the stat value in full', () => {
+    const { sim } = makeSim(board());
+    sim.tick([place('tower', 3, 0)]);
+    injectEnemy(sim, 5, 2, { hp: 130 });
+    sim.tick([]);
+    expect(counters(sim.state.structures[0]!)).toEqual([8, 8]);
+  });
+
+  it('overkill counts only what landed', () => {
+    const { sim } = makeSim(board());
+    sim.tick([place('tower', 3, 0, 'sniper')]); // 40 damage
+    injectEnemy(sim, 5, 2, { hp: 8 });
+    sim.tick([]);
+    expect(sim.state.enemies).toHaveLength(0);
+    expect(counters(sim.state.structures[0]!)).toEqual([8, 8]);
+  });
+
+  it('an area burst counts each struck enemy\'s own effective damage', () => {
+    const { sim } = makeSim(board(), testBalance(), 42);
+    sim.tick([place('tower', 3, 0, 'area')]); // 12 damage
+    injectEnemy(sim, 5, 2, { hp: 130 }); // the target
+    injectEnemy(sim, 5, 3, { hp: 130 }); // 1.0 tiles away
+    injectEnemy(sim, 4, 2, { hp: 5 }); // 1.0 tiles away, dies to the burst
+    sim.tick([]);
+    expect(counters(sim.state.structures[0]!)).toEqual([12 + 12 + 5, 12 + 12 + 5]);
+  });
+
+  it('a slow tower records nothing', () => {
+    const { sim } = makeSim(board(), testBalance(), 42);
+    sim.tick([place('tower', 3, 0, 'slow')]);
+    const e = injectEnemy(sim, 5, 2);
+    for (let t = 0; t < 40; t++) sim.tick([]);
+    expect(e.slowUntil).toBeGreaterThan(0); // it did fire
+    expect(counters(sim.state.structures[0]!)).toEqual([0, 0]);
+  });
+
+  it('walls carry both counters at zero', () => {
+    const { sim } = makeSim(board());
+    sim.tick([place('wall', 3, 0)]);
+    expect(counters(sim.state.structures[0]!)).toEqual([0, 0]);
+  });
+
+  // Three trivial waves whose one runner parks at the spawn (speed 0), out of
+  // range of a tower at (5,0): the wave's damage comes only from injected
+  // enemies, and settlement is forced by zeroing hp.
+  const wavesBoard = () =>
+    openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 }, [], {
+      waves: [trivialWave(), trivialWave(), trivialWave()],
+    });
+
+  it('settlement leaves the wave figure standing; the next start zeroes it and keeps the total', () => {
+    const { sim } = makeSim(wavesBoard());
+    sim.tick([place('tower', 5, 0)]);
+    const tower = sim.state.structures[0]!;
+    sim.tick([startWave()]);
+    expect(sim.state.runPhase).toBe('wave');
+    const e = injectEnemy(sim, 5, 2, { hp: 130 });
+    for (let t = 0; t < 10; t++) sim.tick([]); // fires at ticks 2 and 7
+    expect(counters(tower)).toEqual([16, 16]);
+    // Kill everything standing: the wave drains and settles this tick.
+    for (const enemy of sim.state.enemies) enemy.hp = 0;
+    sim.tick([]);
+    expect(sim.state.enemies).toHaveLength(0);
+    expect(sim.state.runPhase).toBe('build');
+    expect(e.alive).toBe(false);
+    // Between waves the counter is the previous wave's figure — no rollover.
+    for (let t = 0; t < 5; t++) sim.tick([]);
+    expect(counters(tower)).toEqual([16, 16]);
+    // The wave-start tick zeroes the wave counter and leaves the total alone.
+    sim.tick([startWave()]);
+    expect(sim.state.runPhase).toBe('wave');
+    expect(counters(tower)).toEqual([0, 16]);
+    // Damage in the new wave accumulates from zero onto the standing total.
+    injectEnemy(sim, 5, 2, { hp: 130 });
+    sim.tick([]);
+    expect(counters(tower)).toEqual([8, 24]);
+  });
+
+  it('a tower placed mid-wave counts only from its placement', () => {
+    const { sim } = makeSim(wavesBoard());
+    sim.tick([place('tower', 5, 0)]);
+    sim.tick([startWave()]);
+    injectEnemy(sim, 5, 2, { hp: 130 });
+    for (let t = 0; t < 10; t++) sim.tick([]);
+    const [veteran] = sim.state.structures;
+    expect(veteran!.waveDamage).toBe(16);
+    // The newcomer fires the tick it lands and starts from zero.
+    sim.tick([place('tower', 6, 0)]);
+    const rookie = sim.state.structures[1]!;
+    expect(counters(rookie)).toEqual([8, 8]);
+    expect(veteran!.waveDamage).toBeGreaterThan(rookie.waveDamage);
+  });
+
+  it('an upgrade continues the totals', () => {
+    const { sim } = makeSim(board());
+    sim.tick([place('tower', 3, 0)]);
+    const tower = sim.state.structures[0]!;
+    injectEnemy(sim, 5, 2, { hp: 130 });
+    sim.tick([]); // tick 1: 8 landed; next shot due at tick 6
+    expect(counters(tower)).toEqual([8, 8]);
+    sim.tick([upgrade(3, 0)]); // tick 2: level 2 (11 damage), no shot due
+    expect(tower.level).toBe(2);
+    expect(counters(tower)).toEqual([8, 8]);
+    let guard = 0;
+    while (tower.totalDamage === 8 && guard++ < 10) sim.tick([]);
+    expect(counters(tower)).toEqual([8 + 11, 8 + 11]);
+  });
+
+  it('a build-phase move keeps the history on the same structure', () => {
+    const { sim } = makeSim(board());
+    sim.tick([place('tower', 3, 0)]);
+    const tower = sim.state.structures[0]!;
+    tower.waveDamage = 120;
+    tower.totalDamage = 900;
+    sim.tick([move(3, 0, 6, 0)]);
+    const moved = sim.state.structures.find((s) => s.tx === 6 && s.ty === 0);
+    expect(moved).toBeDefined();
+    expect(moved!.id).toBe(tower.id);
+    expect(counters(moved!)).toEqual([120, 900]);
   });
 });

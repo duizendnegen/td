@@ -35,6 +35,12 @@
 // per-origin returning field change nothing it does (kills still 156). A
 // multi-spawn level's mid-run hashes DO shift; that break lands here the first
 // time a golden is minted on one.
+// Tower-damage-stats note: GOLDEN_SCRIPT_HASH alone was re-minted once more.
+// `Structure.waveDamage` and `Structure.totalDamage` add two mixed fields per
+// structure. The trajectory is untouched: the counters are written at every
+// hit and read by nothing in the simulation, and every milestone below still
+// holds (kills included, at 156). GOLDEN_IDLE_HASH again did NOT move — that
+// run places nothing, so the walk never reaches structure fields.
 import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import levelJson from '../src/data/levels/level_01.json';
@@ -49,7 +55,7 @@ const TICKS = 5600;
 /** Empty-command run: an inert build phase — nothing spawns without a wave. */
 const GOLDEN_IDLE_HASH = '69d49af9';
 /** Scripted full-run session (see script below). */
-const GOLDEN_SCRIPT_HASH = 'edc89a6b';
+const GOLDEN_SCRIPT_HASH = 'b09f7dae';
 
 function makeSim(): Sim {
   return new Sim(loadGameData(levelJson, balanceJson), SEED);
