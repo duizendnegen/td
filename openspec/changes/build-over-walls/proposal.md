@@ -39,10 +39,10 @@ never commits the tower early and unmounting it never opens the maze.
 - **Costs unchanged.** A fresh tower on bare dirt is a wall plus a tower (20 + tower cost); a
   tower on an existing wall costs the tower alone. Balance retuning, if the leak harness calls for
   it, is a follow-up.
-- **UI.** The tower ghost reads valid over a bare wall (range ring shown) and, over bare dirt,
-  previews the wall it will lay: the ghost splits into a wall segment and a tower segment, a
-  caption beside it names both purchases ("wall 20 + rapid 50"), the tint counts both costs, and
-  the ribbon projects the wall's routing. Every ghost stands on the ground — the first cut raised
+- **UI.** Every build ghost carries a price badge per box it draws. The tower ghost reads valid
+  over a bare wall (range ring shown) and, over bare dirt, previews the wall it will lay: the wall
+  ghost is drawn inside the tower ghost with its own badge, the tint counts both costs, and the
+  ribbon projects the wall's routing. Every ghost stands on the ground — the first cut raised
   the tower ghost onto its foundation, which under the dimetric camera reads as a tile further
   back, so height says nothing. The palette's tower items and the desktop hint line say that
   towers stand on walls. Selecting a stacked tile inspects the tower; the inspector's remove takes
@@ -67,8 +67,8 @@ None — this reshapes existing placement, removal, move, and preview capabiliti
   the wall with its payload onto bare dirt or transferring the tower alone onto a foundation;
   terrain buildability restated for the foundation rule. Modifies the tower-drag-move requirements
   this change builds on.
-- `build-ui`: the tower ghost's verdict over walls and bare dirt, the two-segment ghost and
-  caption for a placement that lays its wall, and the palette/hint affordance that names the
+- `build-ui`: the tower ghost's verdict over walls and bare dirt, the price badges, the wall
+  ghost inside the tower ghost for a placement that lays its wall, and the palette/hint affordance that names the
   foundation rule; the move ghost carries the stack's top and the lifted treatment covers the
   whole stack.
 - `path-preview`: foundation-only tower placements never project routing (generalising the socket
@@ -88,10 +88,10 @@ None — this reshapes existing placement, removal, move, and preview capabiliti
   iteration by kind — unchanged semantics). No new hashed fields; the scripted golden hash is
   re-minted because its script gains walls, the idle golden stands.
 - **UI**: `src/ui/inputcore.ts` (compound over bare dirt, lift = tile stack, select = tower),
-  `src/ui/caption.ts` (the ghost caption), `src/ui/palette.ts` and `src/ui/input.ts` hint text,
+  `src/ui/ghostbadges.ts` (the price badges), `src/ui/palette.ts` and `src/ui/input.ts` hint text,
   `src/ui/inspector.ts` (selection/removal target the tower).
 - **Render**: `src/render/towers.ts` (mounted stacking, dim-by-tile), `src/render/fx.ts` (the
-  two-segment ghost).
+  wall ghost inside the tower ghost).
 - **Tests and fixtures**: `tests/helpers.ts` gains a wall-then-tower helper; every scripted tower
   in `tests/placement.test.ts`, `tower.test.ts`, `upgrade.test.ts`, `economy.test.ts`,
   `tickseam.test.ts`, `leak.test.ts`/`leakData.ts`, `capture.test.ts`, `replay.test.ts` gets a

@@ -8,8 +8,8 @@
 //     clicks (design D8: one feedback implementation in the renderer)
 //   - Ghost preview mesh with valid / invalid / debt tinting + range rings
 //     (current level and next-level upgrade preview); a tower ghost that
-//     brings its own wall is drawn as two segments — the wall and the tower
-//     on it — so the two structures it places read as two
+//     brings its own wall draws the wall ghost inside it too, so the two
+//     structures it places read as two boxes, the lower one denser
 //     (build-over-walls design D6)
 
 import * as THREE from 'three';
@@ -197,12 +197,10 @@ export class FxRenderer {
   }
 }
 
-/** The wall ghost's height — also where a tower ghost's wall segment ends. */
-const WALL_GHOST_HEIGHT = 0.6;
+/** The wall ghost's height. */
+export const WALL_GHOST_HEIGHT = 0.6;
 /** The tower ghost's height, ground to top. */
-const TOWER_GHOST_HEIGHT = 1.4;
-/** The seam between the two segments of a ghost that places a wall and a tower. */
-const STACK_SEAM = 0.08;
+export const TOWER_GHOST_HEIGHT = 1.4;
 
 /**
  * The footprint ghost that follows the hovered tile, plus range rings for
@@ -221,13 +219,15 @@ export class GhostPreview {
   private readonly previewRing: THREE.LineLoop;
 
   constructor(scene: THREE.Scene) {
-    this.wallMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55 });
-    this.towerMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55 });
-    // Unit-height boxes, scaled per show call: the wall ghost to its height,
-    // the tower ghost to its full height — or to the part above the seam
-    // when it brings its wall along.
-    this.wallMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, 1, 0.94), this.wallMaterial);
-    this.towerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, 1, 0.94), this.towerMaterial);
+    // No depth writes: the two ghosts may share a tile (a tower that brings
+    // its wall), and the wall box must still show through the tower box
+    // around it — drawn first, so the overlap simply reads denser.
+    this.wallMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55, depthWrite: false });
+    this.towerMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55, depthWrite: false });
+    this.wallMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, WALL_GHOST_HEIGHT, 0.94), this.wallMaterial);
+    this.towerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, TOWER_GHOST_HEIGHT, 0.94), this.towerMaterial);
+    this.wallMesh.renderOrder = 1;
+    this.towerMesh.renderOrder = 2;
     this.wallMesh.visible = false;
     this.towerMesh.visible = false;
 
@@ -253,9 +253,10 @@ export class GhostPreview {
   /**
    * Show the ghost for `kind` at tile (tx, ty) with the given tint; a tower
    * ghost also shows its archetype's range ring. A tower ghost `withWall`
-   * (design D6) keeps the same silhouette but is drawn as two segments with
-   * a seam between them — the wall that will be laid and the tower that will
-   * stand on it — so a click that places two structures previews as two.
+   * (design D6) is the full tower ghost with the wall ghost drawn inside its
+   * base — the wall that will be laid and the tower that will stand on it —
+   * so a click that places two structures previews as two boxes, the lower
+   * one denser where they overlap.
    */
   show(
     kind: StructureKind,
@@ -273,15 +274,11 @@ export class GhostPreview {
     this.towerMesh.visible = towerHere;
     if (wallHere) {
       this.wallMaterial.color.setHex(color);
-      this.wallMesh.scale.y = WALL_GHOST_HEIGHT;
       this.wallMesh.position.set(centre.x, GROUND_TOP_Y + WALL_GHOST_HEIGHT / 2, centre.z);
     }
     if (towerHere) {
-      const from = wallHere ? WALL_GHOST_HEIGHT + STACK_SEAM : 0;
-      const height = TOWER_GHOST_HEIGHT - from;
       this.towerMaterial.color.setHex(color);
-      this.towerMesh.scale.y = height;
-      this.towerMesh.position.set(centre.x, GROUND_TOP_Y + from + height / 2, centre.z);
+      this.towerMesh.position.set(centre.x, GROUND_TOP_Y + TOWER_GHOST_HEIGHT / 2, centre.z);
     }
     // Range ring on the tower ghost (build-ui spec); none for a wall.
     this.showRingAt(towerHere ? centre : null, rangeUnits);

@@ -173,9 +173,9 @@ the layout reference the shipped HUD follows.
 (pointer: fine)`):
 
 - **Pointer**: hover drives the placement ghost, one click commits, right-click/Esc cancels —
-  no confirm step. With a tower tool armed the ghost over a wall or socket is the tower alone;
-  over bare dirt it splits into a wall segment and a tower segment, with a caption naming both
-  purchases ("wall 20 + rapid 50") — that click lays the wall and mounts the tower. The
+  no confirm step. Every ghost wears its price; with a tower tool armed the ghost over a wall or
+  socket is the tower alone, and over bare dirt the wall ghost shows inside it with its own price
+  badge — that click lays the wall and mounts the tower. The
   palette's tower items and the hint line say "on wall". The move tool lifts a tile's stack;
   the tower alone lands on a foundation, wall and tower together on bare dirt.
 - **Touch**: tap anchors the ghost as a *pending placement*; drag or tap moves it; a floating

@@ -121,17 +121,19 @@
   rejection leaves no wall behind; `previewRoutes` projects lanes and the orphaned region;
   previewing is hash-neutral; the bare tower on dirt still `needs-wall`
 - [x] 9.3 `GhostPreview` back on the ground: no foundation height, no raised tower, no stack ghost
-  for moves; a tower ghost `withWall` is drawn as a wall segment and a tower segment with a seam
+  for moves; a tower ghost `withWall` is the full tower ghost with the wall ghost drawn inside it
+  (no depth writes, wall first, so the overlap reads denser)
 - [x] 9.4 `InputCore`: `withWallAt` (tower tool, dirt, no wall) drives the preview, the command,
-  the tint (both costs) and the ghost; `compound` exposes the tile and both costs per frame;
-  `projectGround` for screen anchoring
-- [x] 9.5 `GhostCaption` (src/ui/caption.ts): "wall 20 + rapid 50" beside the ghost tile's
-  screen-right corner while the compound previews; wired into the render loop in game.ts
-- [x] 9.6 UI rig tests: bare dirt shows the two-segment ghost and issues one `withWall` place
+  the tint (both costs) and the ghost; `ghostCosts` exposes the tile and the price per box per
+  frame; `projectPoint` for screen anchoring
+- [x] 9.5 `GhostBadges` (src/ui/ghostbadges.ts): a price badge at the tower ghost's mid-height and
+  one low on the wall ghost, whichever boxes show; wired into the render loop in game.ts
+- [x] 9.6 UI rig tests: bare dirt shows the ghost with its wall and issues one `withWall` place
   that lands both; a sealing tile flashes and issues nothing; a bare wall issues the plain place;
   move ghosts carry no base
 - [x] 9.7 Visual check in the running game (Playwright): ghost over a wall stands on the ground as
-  on main; two-segment ghost and caption over bare dirt, valid and sealing; one click lands wall +
+  on main; wall ghost inside the tower ghost with two badges over bare dirt, valid and sealing;
+  one badge on a plain tower or wall ghost; one click lands wall +
   tower with one provisional tell
 - [x] 9.8 Proposal, design (D6 rewritten, the raised ghost recorded as the rejected alternative),
   build-ui / structure-placement / path-preview deltas, README and ARCHITECTURE updated

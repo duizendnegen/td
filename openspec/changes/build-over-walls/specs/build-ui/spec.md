@@ -9,12 +9,16 @@ placement — tinted valid or debt by the same authoritative validation as any p
 archetype's range ring — and a click there SHALL issue one tower placement. The ghost over a wall
 that already carries a tower SHALL read invalid.
 
+Every build ghost SHALL carry the price of each structure it previews as a badge on that
+structure's box: a tower ghost its tower's cost at the box's mid-height, a wall ghost its wall's
+cost low on the box.
+
 Over a dirt tile with no wall, the tool SHALL place the wall and the tower together: a click
 SHALL issue exactly one tower placement that lays its wall, and the ghost SHALL preview it as two
-structures — drawn as a wall segment and a tower segment with a visible seam, with a caption at
-the tile naming both purchases and their costs, tinted by the verdict of the wall placement it
-contains and by the sum of both costs against the balance. Every ghost SHALL stand on the ground
-plane; no ghost is raised to indicate what lies beneath it.
+structures — the full tower ghost with the wall ghost drawn inside its base, each with its own
+price badge, tinted by the verdict of the wall placement it contains and by the sum of both costs
+against the balance. Every ghost SHALL stand on the ground plane; no ghost is raised to indicate
+what lies beneath it.
 
 The palette's tower items and the desktop hint line SHALL state that towers stand on walls.
 
@@ -24,22 +28,22 @@ control on a mounted tower SHALL remove the tower alone, leaving the wall standi
 #### Scenario: A wall invites the tower
 
 - **WHEN** the player hovers a bare wall with a tower tool armed and balance ≥ the tower's cost
-- **THEN** the ghost reads valid and shows the level-1 range ring centred on that tile, and a
-  click issues one tower placement without a wall
+- **THEN** the ghost reads valid, shows the level-1 range ring centred on that tile and one price
+  badge — the tower's — and a click issues one tower placement without a wall
 
 #### Scenario: Bare dirt previews and places two
 
 - **WHEN** the player hovers a dirt tile with no wall on it with a tower tool armed, where a wall
   would be a legal placement, and clicks
-- **THEN** the ghost showed a wall segment and a tower segment with a caption naming the wall's
-  and the tower's costs, exactly one placement command is issued, and once it applies the tile
-  holds a wall and the tower on it
+- **THEN** the ghost showed the tower ghost with the wall ghost inside it and two price badges —
+  the tower's on the tower box, the wall's on the wall box — exactly one placement command is
+  issued, and once it applies the tile holds a wall and the tower on it
 
 #### Scenario: Bare dirt the wall rules refuse
 
 - **WHEN** the player hovers a dirt tile with no wall where a wall would seal a spawn, with a
   tower tool armed
-- **THEN** the two-segment ghost reads invalid, the ribbon shows the orphaned region as for a wall,
+- **THEN** the ghost with its wall reads invalid, the ribbon shows the orphaned region as for a wall,
   and clicking there gives the ordinary reject feedback with no command issued
 
 #### Scenario: Both costs tint the ghost

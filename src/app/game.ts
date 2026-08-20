@@ -27,7 +27,7 @@ import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
 import { LaneRibbon } from '../render/ribbon';
 import { StructureRenderer } from '../render/towers';
-import { GhostCaption } from '../ui/caption';
+import { GhostBadges } from '../ui/ghostbadges';
 import { TreasuryHud } from '../ui/hud';
 import { buildHintLine, PointerDriver } from '../ui/input';
 import { InputCore } from '../ui/inputcore';
@@ -248,9 +248,9 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     nextLevelUrl(levelEntry.next, window.location.search, window.location.pathname),
   );
   buildHintLine(hud);
-  // Names both purchases beside a ghost that places a wall and a tower at
-  // once (build-over-walls design D6).
-  const caption = new GhostCaption(hud);
+  // Prices each box the build ghost draws — two for a tower that lays its
+  // wall (build-over-walls design D6).
+  const badges = new GhostBadges(hud);
 
   // Run-phase observer. Two app-side rules hang off it, never off the sim:
   //   - Pause releases on any phase change (design D7) — one rule covering
@@ -380,7 +380,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     fx.drain(sim.events, nowMs);
     fx.update(nowMs);
     input.update();
-    caption.update(inputCore);
+    badges.update(inputCore);
     ribbon.animate(nowMs);
     treasuryHud.update(sim.state.treasuryMg);
     palette.refresh(

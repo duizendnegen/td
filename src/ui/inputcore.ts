@@ -18,8 +18,9 @@
 //   - Towers stand on walls (build-over-walls): a tile is read by layer —
 //     the tower for selection, the top structure for removal and the lift —
 //     and a tower tool over bare dirt places the wall and the tower in one
-//     click: a two-segment ghost, the wall's own routing projection, both
-//     costs in the tint, and a caption naming both purchases (design D6)
+//     click: the wall ghost inside the tower ghost, the wall's own routing
+//     projection, both costs in the tint, and a price badge on each box
+//     (design D6)
 //   - Never writes sim state directly — emits commands only
 //   - Every invalid commit plays the same red flash the sim's rejects use
 
@@ -88,13 +89,14 @@ export class InputCore {
   }
 
   /**
-   * The two purchases the build ghost previews right now — a tower tool over
-   * bare dirt, where one click lays the wall and mounts the tower on it
-   * (build-over-walls design D6) — or null for a single-structure ghost and
-   * whenever no build ghost shows. Refreshed by every per-frame ghost path;
-   * the ghost caption reads it to name both purchases at the tile.
+   * The prices the build ghost carries right now, one per box it draws: the
+   * tower's for a tower ghost, the wall's for a wall ghost — both for a
+   * tower tool over bare dirt, where one click lays the wall and mounts the
+   * tower on it (build-over-walls design D6). Null whenever no build ghost
+   * shows; refreshed by every per-frame ghost path. The ghost badges read
+   * it to price each box where it stands.
    */
-  compound: { tile: Tile; tool: Tool; wallMg: number; towerMg: number } | null = null;
+  ghostCosts: { tile: Tile; towerMg: number | null; wallMg: number | null } | null = null;
 
   /**
    * True while the move tool was armed by the inspector's Move action for
@@ -173,13 +175,13 @@ export class InputCore {
 
   /** Tile world centre → screen-space CSS pixels (confirm-affordance anchor). */
   projectTile(tile: Tile): { x: number; y: number } {
-    return this.projectGround(tile.tx + 0.5, tile.ty + 0.5);
+    return this.projectPoint(tile.tx + 0.5, GROUND_TOP_Y, tile.ty + 0.5);
   }
 
-  /** A ground-plane point (tile units) → screen-space CSS pixels. */
-  projectGround(x: number, z: number): { x: number; y: number } {
+  /** A world point (tile units, y up) → screen-space CSS pixels. */
+  projectPoint(x: number, y: number, z: number): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
-    const p = new THREE.Vector3(x, GROUND_TOP_Y, z).project(this.camera);
+    const p = new THREE.Vector3(x, y, z).project(this.camera);
     return {
       x: rect.left + ((p.x + 1) / 2) * rect.width,
       y: rect.top + ((1 - p.y) / 2) * rect.height,
@@ -372,7 +374,7 @@ export class InputCore {
   updateBuildGhost(tile: Tile | null): void {
     const tool = this.palette.selected;
     const structure = tool !== null ? toolStructure(tool) : null;
-    this.compound = null;
+    this.ghostCosts = null;
     if (!structure) {
       this.ghost.hide();
       this.ribbon.hide();
@@ -399,15 +401,16 @@ export class InputCore {
       this.ghost.hide();
       return;
     }
-    const wallMg = withWall ? this.sim.data.wallCostMg : 0;
-    if (withWall) {
-      this.compound = { tile, tool: tool!, wallMg, towerMg: this.palette.costOf(tool!) };
-    }
+    const extraMg = withWall ? this.sim.data.wallCostMg : 0;
+    this.ghostCosts =
+      structure.kind === 'wall'
+        ? { tile, towerMg: null, wallMg: this.palette.costOf(tool!) }
+        : { tile, towerMg: this.palette.costOf(tool!), wallMg: withWall ? extraMg : null };
     this.ghost.show(
       structure.kind,
       tile.tx,
       tile.ty,
-      this.tint(tool!, wallMg),
+      this.tint(tool!, extraMg),
       this.toolRangeUnits(tool!),
       withWall,
     );
@@ -434,7 +437,7 @@ export class InputCore {
    * only — never touches sim state.
    */
   updateMoveGhost(tile: Tile | null): void {
-    this.compound = null;
+    this.ghostCosts = null;
     const mover = this.liftedStructure();
     const tick = this.sim.state.tick;
     const key =
@@ -490,7 +493,7 @@ export class InputCore {
    * placed tower is selected for inspection (path-preview spec).
    */
   updateIdleRings(): void {
-    this.compound = null;
+    this.ghostCosts = null;
     this.ribbon.hide();
     const sel = this.inspector.current;
     if (sel) {

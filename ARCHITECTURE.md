@@ -140,7 +140,7 @@ src/
 ├─ ui/
 │  ├─ hud.ts               treasury, wave
 │  ├─ palette.ts           build menu
-│  ├─ caption.ts           ghost caption: names both purchases of a wall-and-tower click
+│  ├─ ghostbadges.ts       price badge on each box the placement ghost draws
 │  ├─ inspector.ts         selected tower panel
 │  └─ input.ts             pointer → grid picking → command emission
 └─ app/
@@ -655,9 +655,10 @@ so Tailwind's scanner sees every class verbatim.
   ignores the balance and greys out while a wave runs instead.
 - **Placement ghost** — a translucent box on the hovered tile, tinted by the real validation.
   Always on the ground plane: under the fixed dimetric camera a raised box reads as a box a tile
-  or two further back, so height is never used to say anything. A tower tool over bare dirt draws
-  the ghost as a wall segment and a tower segment with a seam, and a caption beside the tile
-  names both purchases — that click lays the wall and mounts the tower in one command.
+  or two further back, so height is never used to say anything. Each box carries a small price
+  badge at its mid-height. A tower tool over bare dirt draws the wall ghost inside the tower
+  ghost — two boxes, two badges, the overlap denser — because that click lays the wall and mounts
+  the tower in one command.
 - **Inspector** — selected tower: level, damage, rate, range, a performance block (effective
   damage this/last wave and in total, from the tower's own hashed counters), upgrade cost, and
   sell/remove showing the refund it returns, locked while a wave runs. Right panel on desktop;

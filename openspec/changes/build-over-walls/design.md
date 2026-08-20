@@ -135,11 +135,17 @@ but a funds or routing race at the applying tick could land the wall and refuse 
 leaving a purchase the player did not mean. One command cannot half-apply.
 
 The ghost must make the two structures visible — a click that buys two things should preview as
-two. It does this on the ground: the tower ghost over bare dirt keeps its silhouette but is drawn
-as a wall segment and a tower segment with a seam between them; a caption beside the tile names
-both purchases ("wall 20 + rapid 50"); the tint counts both costs; and the ribbon projects the
-wall's routing, since the compound changes the mask. Over a foundation the ghost is the plain
-tower ghost from the ground up, range ring and all.
+two. It does this on the ground: the full tower ghost always, and over bare dirt the wall ghost
+drawn inside its base as well — the two boxes intersect, and the overlap simply reads denser
+(both ghost materials skip depth writes, the wall box renders first). Every box the build ghost
+draws carries a small price badge at its mid-height — the tower's mid-way up the part above the
+wall box, the wall's low on the wall box — so a tower over a foundation shows one price, a wall
+one, and the compound two, each on the thing it buys. The tint counts both costs and the ribbon
+projects the wall's routing, since the compound changes the mask.
+
+*Alternative rejected:* a seam — drawing the tower ghost only above the wall ghost — with one
+caption beside the tile ("wall 20 + rapid 50"). It read as two things but looked fussier than
+the plain overlap, and the caption sat off the ghost rather than on it.
 
 *Alternative rejected (the first cut):* raising the tower ghost onto its foundation by the wall's
 height, and drawing a wall ghost beneath a raised tower ghost for the compound and for a stack
@@ -192,7 +198,7 @@ The wave-preview capture fixture and any preset that scripts towers gain walls t
 - [The transfer branch is a second move semantics players must infer] → the ribbon projects
   nothing for a hop and the origin wall visibly stays; the build-ui delta pins it with scenarios.
 - [The palette badge shows the tower's own cost while a click on bare dirt spends wall + tower]
-  → the caption at the tile names both the moment it applies, and the tint counts both.
+  → the badges on the ghost price both boxes the moment it applies, and the tint counts both.
 - [Slow (round) tower's middle on a square wall base] → accepted for now; polish decided when seen.
 - [Players arm a tower tool over an empty board and see only red] → there is no red: the tool
   lays the wall (D6); the palette caption and hint line name the rule.
@@ -208,4 +214,4 @@ does not depend on that order (the move code is already on main). Rollback is a 
 - Exact wording of the palette caption and hint line — decided at implementation.
 - Whether the round tower gets a round wall variant beneath it — visual polish, decided when seen.
 - Whether the palette badge should read the compound cost while the ghost is over bare dirt — the
-  caption covers it for now.
+  ghost badges cover it for now.

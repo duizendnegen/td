@@ -156,6 +156,7 @@ describe('move tool, pointer driver', () => {
     r.frame();
     // Bare dirt: the ghost is the tower on the wall it lands with.
     expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: false });
+    expect(r.core.ghostCosts).toBeNull(); // moves are free: no badges
     r.pointer('pointerup', 350, 250);
     const drained = r.drain();
     expect(drained).toHaveLength(1);
@@ -361,8 +362,8 @@ describe('tower tool over walls', () => {
     expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: true });
     expect(r.ghostShown!.rangeUnits).toBeGreaterThan(0);
     expect(r.core.verdictOk).toBe(true);
-    // The caption names both purchases at the tile.
-    expect(r.core.compound).toMatchObject({ tile: { tx: 1, ty: 2 }, tool: 'rapid', wallMg: 4_000 });
+    // Both boxes carry a price badge (the stub palette prices every tool at 0).
+    expect(r.core.ghostCosts).toEqual({ tile: { tx: 1, ty: 2 }, towerMg: 0, wallMg: 4_000 });
     r.pointer('pointerdown', 150, 250);
     expect(r.flashes).toBe(0);
     const drained = r.drain();
@@ -380,7 +381,7 @@ describe('tower tool over walls', () => {
     // Placed: the tile is a foundation now, so the ghost there is a plain tower ghost.
     r.frame();
     expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', withWall: false }); // occupied
-    expect(r.core.compound).toBeNull();
+    expect(r.core.ghostCosts).toEqual({ tile: { tx: 1, ty: 2 }, towerMg: 0, wallMg: null });
   });
 
   it('a compound the wall rules refuse flashes and issues nothing', () => {
@@ -405,7 +406,7 @@ describe('tower tool over walls', () => {
     r.frame();
     expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: false });
     expect(r.ghostShown!.rangeUnits).toBeGreaterThan(0); // the level-1 ring
-    expect(r.core.compound).toBeNull();
+    expect(r.core.ghostCosts).toEqual({ tile: { tx: 1, ty: 2 }, towerMg: 0, wallMg: null }); // one badge
     r.pointer('pointerdown', 150, 250);
     expect(r.flashes).toBe(0);
     const drained = r.drain();
@@ -433,7 +434,7 @@ describe('tower tool over walls', () => {
     r.pointer('pointermove', 150, 250);
     r.frame();
     expect(r.ghostShown).toEqual({ kind: 'wall', tint: 'valid', rangeUnits: 0, withWall: false });
-    expect(r.core.compound).toBeNull();
+    expect(r.core.ghostCosts).toEqual({ tile: { tx: 1, ty: 2 }, towerMg: null, wallMg: 0 }); // the wall's badge
   });
 });
 
