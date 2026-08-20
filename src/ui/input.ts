@@ -123,7 +123,11 @@ export class PointerDriver {
   }
 }
 
-/** HUD hint line for the phase-3 controls; desktop-only like the hotkeys. */
+/**
+ * HUD hint line for the phase-3 controls; desktop-only like the hotkeys. Names
+ * the foundation rule — towers go on walls (build-over-walls) — so the rule
+ * is discoverable from the interface, not from a field of red ghosts.
+ */
 export function buildHintLine(hud: HTMLElement): void {
   const el = document.createElement('div');
   el.className =
@@ -131,8 +135,8 @@ export function buildHintLine(hud: HTMLElement): void {
     'border-outline/20 bg-surface-container/80 px-3 py-2 font-mono text-label-xs ' +
     'leading-relaxed text-on-surface-variant desktop:block';
   el.innerHTML =
-    '1 wall · 2-5 towers · 6 remove · 7 move<br>click tower to inspect · Esc cancels<br>' +
-    'Space start wave / pause · hold F to fast-forward<br>' +
+    '1 wall · 2-5 towers · 6 remove<br>7 move · towers go on walls<br>' +
+    'click tower to inspect · Esc cancels<br>Space start wave / pause<br>hold F to fast-forward<br>' +
     'F2 waypoints · F3 ranges<br>F4 readout · F8 probe';
   hud.appendChild(el);
 }

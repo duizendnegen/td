@@ -16,7 +16,10 @@
 //     like the remove action
 //   - Remove, immediate and refunding the amount it actually credits;
 //     unavailable while a wave runs only for committed towers — a provisional
-//     one stays sellable, framed as the revision window it is
+//     one stays sellable, framed as the revision window it is. The command
+//     names the tile, and the sim peels the tower off its wall (build-over-
+//     walls design D3): the tower goes, the wall stands, and this panel
+//     closes because its tower's id is gone
 //   - Desktop: right bevel panel. Below the breakpoint: bottom sheet that
 //     swaps with the build menu (#hud[data-sheet-open] hides #rail)
 //   - Emits commands only; reads sim state per frame, never mutates it

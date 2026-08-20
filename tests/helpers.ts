@@ -178,6 +178,24 @@ export function place(
   return { kind: 'place', structure, archetype, tx, ty, seq: seq++ };
 }
 
+/**
+ * A wall and a tower on it, as two place commands (build-over-walls design
+ * D8): both are `place`, so ascending `seq` applies the wall first in the
+ * same tick and the tower finds its foundation standing. The way every
+ * scripted tower on dirt is built now that a tower needs a wall beneath it.
+ */
+export function mount(tx: number, ty: number, archetype: TowerArchetype = 'rapid'): Command[] {
+  return [place('wall', tx, ty), place('tower', tx, ty, archetype)];
+}
+
+/**
+ * A tower that brings its own wall — one place command with `withWall`
+ * (build-over-walls design D6): the tower tool's click on bare dirt.
+ */
+export function placeWithWall(tx: number, ty: number, archetype: TowerArchetype = 'rapid'): Command {
+  return { kind: 'place', structure: 'tower', archetype, tx, ty, withWall: true, seq: seq++ };
+}
+
 export function upgrade(tx: number, ty: number): Command {
   return { kind: 'upgrade', tx, ty, seq: seq++ };
 }

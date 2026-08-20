@@ -3,6 +3,9 @@
 //
 // Responsibilities:
 //   - Wall + all four tower archetypes with level-1 costs, plus removal
+//   - Tower items carry an "on wall" caption: towers stand on walls
+//     (build-over-walls), and the palette is where a player armed over an
+//     empty board learns it before the ghost reads red
 //   - Affordable / debt-warning / blocked / selected states as whole-literal
 //     class variants (design D1), refreshed per frame
 //   - Debt-warned items stay selectable; below 0 everything is blocked
@@ -59,6 +62,10 @@ const BADGE_DEBT =
 
 const KEY_HINT =
   'pointer-events-none absolute left-1 top-0.5 font-mono text-label-xs text-on-surface-variant/60 mobile:hidden';
+
+/** The foundation rule, named on every tower item (build-ui delta). */
+const CAPTION = 'pointer-events-none font-mono text-[8px] leading-none uppercase tracking-wider opacity-60';
+const TOWER_CAPTION = 'on wall';
 
 const ICONS: Record<Tool, string> = {
   wall: 'foundation',
@@ -135,7 +142,14 @@ export class PaletteUI {
       const hint = document.createElement('div');
       hint.className = KEY_HINT;
       hint.textContent = key;
-      button.append(icon, name, badge, hint);
+      button.append(icon, name);
+      if (toolStructure(tool)?.kind === 'tower') {
+        const caption = document.createElement('span');
+        caption.className = CAPTION;
+        caption.textContent = TOWER_CAPTION;
+        button.appendChild(caption);
+      }
+      button.append(badge, hint);
 
       button.addEventListener('click', () => this.select(tool));
       panel.appendChild(button);

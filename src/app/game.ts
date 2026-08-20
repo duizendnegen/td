@@ -14,6 +14,7 @@ import balanceJson from '../data/balance.json';
 import { loadGameData } from '../data/schema';
 import { levelForParam, nextLevelUrl } from './levels';
 import { CommandQueue } from '../sim/commands';
+import { TERRAIN } from '../sim/grid';
 import { moveOpenIn, removalOpenIn } from '../sim/placement';
 import { Sim } from '../sim/sim';
 import { formatHash } from '../sim/hash';
@@ -26,6 +27,7 @@ import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
 import { LaneRibbon } from '../render/ribbon';
 import { StructureRenderer } from '../render/towers';
+import { GhostBadges } from '../ui/ghostbadges';
 import { TreasuryHud } from '../ui/hud';
 import { buildHintLine, PointerDriver } from '../ui/input';
 import { InputCore } from '../ui/inputcore';
@@ -174,7 +176,13 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     data.enemyTypes.map((t) => t.hp),
     camera.camera,
   );
-  const structures = new StructureRenderer(renderer.scene, assets);
+  // Towers stand on walls (build-over-walls): the renderer learns which tiles
+  // are sockets from the grid.
+  const structures = new StructureRenderer(
+    renderer.scene,
+    assets,
+    (tx, ty) => data.grid.terrainAt(tx, ty) === TERRAIN.socket,
+  );
   const sacks = new SackRenderer(renderer.scene);
   const fx = new FxRenderer(renderer.scene);
   const ghost = new GhostPreview(renderer.scene);
@@ -240,6 +248,9 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     nextLevelUrl(levelEntry.next, window.location.search, window.location.pathname),
   );
   buildHintLine(hud);
+  // Prices each box the build ghost draws — two for a tower that lays its
+  // wall (build-over-walls design D6).
+  const badges = new GhostBadges(hud);
 
   // Run-phase observer. Two app-side rules hang off it, never off the sim:
   //   - Pause releases on any phase change (design D7) — one rule covering
@@ -362,13 +373,14 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   // read here (debug-tooling spec: "Frames depend on tick, not elapsed time").
   const renderFrame = (nowMs: number, alpha = 0): void => {
     enemies.sync(sim.state.enemies, alpha, nowMs, sim.state.tick);
-    // The lifted structure's origin mesh dims while the move tool carries it.
-    structures.setLifted(inputCore.lifted?.id ?? null);
+    // The lifted stack's origin meshes dim while the move tool carries it.
+    structures.setLifted(inputCore.liftedIds);
     structures.sync(sim.state.structures, (s) => sim.currentTarget(s), nowMs);
     sacks.sync(sim.state.sacks, nowMs);
     fx.drain(sim.events, nowMs);
     fx.update(nowMs);
     input.update();
+    badges.update(inputCore);
     ribbon.animate(nowMs);
     treasuryHud.update(sim.state.treasuryMg);
     palette.refresh(

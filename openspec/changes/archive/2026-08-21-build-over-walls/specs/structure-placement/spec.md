@@ -1,12 +1,128 @@
-# structure-placement
+# structure-placement — delta for build-over-walls
 
-## Purpose
+## ADDED Requirements
 
-Player-built walls and towers as the maze's raw material: validated placement that can never seal
-or strand, atomic rejection, and immediate between-waves removal — the mechanics that make mazing
-expressive while keeping every path guarantee intact.
+### Requirement: Towers stand on foundations and never own the mask
 
-## Requirements
+A tower SHALL be placeable only on a tile that already holds a bare wall (dirt) or on an empty
+socket tile — a *foundation*. A tower placement on bare dirt SHALL be rejected with a distinct
+verdict (`needs-wall`); a tower placement on a tile whose foundation already carries a tower SHALL
+be rejected as occupied. A wall and the tower standing on it SHALL be two structures on the same
+tile, each with its own identity, its own total invested cost, and its own provisional flag; the
+treasury SHALL be charged the tower's cost alone when mounting on an existing wall.
+
+Because a foundation tile is already blocked — by the wall on dirt, by terrain on a socket — a
+tower placement SHALL NOT change the blocked mask, SHALL run no path or enemy validation, and
+SHALL cause no flow-field rebuild; it SHALL validate only bounds, the foundation rule, occupancy,
+and the spending gate. Only walls (on dirt) block tiles: the blocked mask SHALL be a function of
+terrain and standing walls alone.
+
+Tower placement SHALL remain ungated by wave phase, so a tower may be mounted on a committed wall
+while a wave is running; the tower is provisional as any placement is, and the wall's status is
+untouched.
+
+#### Scenario: Mounting on a wall charges the tower only and touches no field
+
+- **WHEN** a valid tower placement command targets a tile holding a bare wall
+- **THEN** the tower stands on that tile alongside the wall, the treasury is reduced by the
+  tower's cost only, the blocked mask and both flow fields are unchanged, and no rebuild occurs
+
+#### Scenario: Bare dirt needs a wall
+
+- **WHEN** a tower placement command targets a dirt tile with no wall on it
+- **THEN** the placement is rejected with the `needs-wall` verdict and simulation state is
+  unchanged
+
+#### Scenario: One tower per foundation
+
+- **WHEN** a tower placement command targets a wall or socket that already carries a tower
+- **THEN** the placement is rejected as occupied
+
+#### Scenario: Wall and tower keep separate books
+
+- **WHEN** a tower is mounted during a build phase on a wall that lived through an earlier wave
+- **THEN** the tower is provisional and the wall is committed; removing the tower credits its full
+  cost, and the wall's refund basis is unchanged
+
+#### Scenario: Mounting mid-wave on a committed wall
+
+- **WHEN** a tower placement command targets a committed wall while a wave is running
+- **THEN** the placement is confirmed and charged as usual, the tower is provisional, and the wall
+  remains committed
+
+#### Scenario: A wall never accepts a second wall
+
+- **WHEN** a wall placement command targets a tile holding a wall, with or without a tower on it
+- **THEN** the placement is rejected as occupied
+
+### Requirement: A tower placement may lay its own wall
+
+A tower placement command MAY ask for its wall (`withWall`): the command SHALL then place a wall
+on the target tile and the tower on that wall, in that order, as two structures with their own
+identity, invested cost and provisional flag. Such a placement SHALL be validated exactly as the
+wall placement it contains — terrain, occupancy (a tile already holding a wall is occupied),
+enemy in footprint, spawn reachability and stranding — and SHALL be gated on both purchases: the
+wall at the current balance and the tower at the balance the wall leaves. It SHALL be atomic:
+on rejection neither structure is placed, the mask and fields are untouched and the balance is
+unchanged; on acceptance the resulting state SHALL be identical to that of a wall placement
+command followed by a tower placement command on the same tile. A tower placement without
+`withWall` on bare dirt SHALL still be rejected with `needs-wall`.
+
+#### Scenario: One command lands the wall and the tower
+
+- **WHEN** a tower placement with `withWall` targets a bare dirt tile where a wall would be valid
+- **THEN** a wall and a tower stand on that tile, the treasury is reduced by the wall's cost plus
+  the tower's cost, the tile is blocked and the flow fields rebuilt once, and the state hash
+  equals that of a wall command followed by a tower command on the same tile
+
+#### Scenario: The wall's rules decide
+
+- **WHEN** a tower placement with `withWall` targets a tile where a wall would seal a spawn, is
+  occupied by a wall, or holds an enemy
+- **THEN** it is rejected with the wall placement's verdict and simulation state is unchanged
+
+#### Scenario: Both purchases are gated
+
+- **WHEN** the balance is at or above zero but below the wall's cost, and a tower placement with
+  `withWall` is issued
+- **THEN** it is rejected as unaffordable, with no wall placed and the balance unchanged — even
+  though a wall alone would have been permitted
+
+### Requirement: Removal peels a stacked tile top-down
+
+A removal command targeting a tile that holds both a wall and a tower SHALL apply to the tower;
+the wall SHALL become the removal target only once the tile holds no tower. Each removal SHALL be
+judged by the removal gate for the structure it actually targets. Removing a tower SHALL credit
+the tower's refund, leave the wall standing, and SHALL NOT unblock the tile or rebuild the flow
+fields — the wall still owns the tile. Removing a bare wall SHALL unblock its tile as before.
+
+#### Scenario: The tower comes off first
+
+- **WHEN** a removal command applies to a tile holding a wall and a tower during the build phase
+- **THEN** the tower is gone and its refund credited, the wall stands, the tile is still blocked,
+  and both flow fields are unchanged
+
+#### Scenario: Then the wall
+
+- **WHEN** a second removal command applies to that tile once it holds only the wall
+- **THEN** the wall is gone and refunded, the tile is walkable, and both flow fields reflect the
+  new mask that same tick
+
+#### Scenario: Unmounting mid-wave leaves the maze intact
+
+- **WHEN** a provisional tower stands on a committed wall while a wave is running, and a removal
+  command targets that tile
+- **THEN** the tower is removed with a full refund and the committed wall stands, so the blocked
+  mask is unchanged
+
+#### Scenario: A committed tower shields nothing
+
+- **WHEN** a committed tower stands on a wall while a wave is running, and a removal command
+  targets that tile
+- **THEN** the removal is rejected — the tower is the target and a wave gates it — and the wall
+  is not touched either
+
+## MODIFIED Requirements
 
 ### Requirement: Structures are placed by command and charged to the treasury
 
@@ -73,82 +189,6 @@ bounds, the foundation rule, occupancy, and the spending gate.
   seal a spawn
 - **THEN** the placement is confirmed anyway — the tile was already blocked, so no route changes
 
-### Requirement: Rejected placement leaves simulation state unchanged
-
-A rejected placement SHALL have no observable effect on simulation state: no treasury charge, no
-blocked-mask change, no flow-field change, and an unchanged state hash relative to the same tick
-without the attempt.
-
-#### Scenario: Rejection is atomic
-
-- **WHEN** a placement command is rejected during validation
-- **THEN** the post-tick state hash is identical to the hash the same tick produces when the
-  command is never issued
-
-### Requirement: Structures are provisional until they have lived through a wave tick
-
-Every structure SHALL carry a provisional flag as hashed simulation state. A structure SHALL be
-provisional from the tick it is placed until the simulation advances time while a wave is running;
-that advance SHALL clear the flag on every standing structure before the wave's own step order runs
-for that tick.
-
-Because the flag is cleared only by time advancing under an active wave, a structure SHALL remain
-provisional for the whole of a build phase however many ticks it spans, and SHALL remain provisional
-for as long as the game is not advancing at all.
-
-The flag SHALL be a pure function of the seed, the command stream, and the ticks advanced, so that
-replays reproduce it.
-
-#### Scenario: The build phase does not commit construction
-
-- **WHEN** a structure is placed during the build phase and hundreds of ticks pass before the player
-  starts a wave
-- **THEN** the structure is still provisional immediately before the wave starts
-
-#### Scenario: Starting a wave commits everything standing
-
-- **WHEN** a wave starts and the simulation advances its first tick
-- **THEN** every standing structure is no longer provisional
-
-#### Scenario: Time not advancing does not commit
-
-- **WHEN** a structure is placed while the game is not advancing, and commands continue to be
-  committed without time advancing
-- **THEN** the structure is still provisional
-
-#### Scenario: Live play commits promptly
-
-- **WHEN** a structure is placed while a wave is running and time is advancing
-- **THEN** it is no longer provisional after the next tick
-
-#### Scenario: Provisional state is deterministic
-
-- **WHEN** two runs replay the same seed and commands
-- **THEN** the same structures are provisional at every tick and both produce identical state hashes
-
-### Requirement: Provisional structures refund in full
-
-Removal of a provisional structure SHALL credit 100% of its total invested cost — base cost plus
-every upgrade paid — rather than the removal refund fraction. Removal of a committed structure SHALL
-be unchanged.
-
-#### Scenario: Full refund on a provisional structure
-
-- **WHEN** a wall costing 20 is placed during the build phase and removed before any wave starts
-- **THEN** the treasury is credited 20, returning the balance to what it was before the placement
-
-#### Scenario: Upgrades return with a provisional tower
-
-- **WHEN** a tower is placed and upgraded during the same build phase, then removed before the wave
-  starts
-- **THEN** the treasury is credited the full base cost plus the full upgrade cost
-
-#### Scenario: A committed structure still refunds half
-
-- **WHEN** a structure that has lived through a wave tick is removed during a later build phase
-- **THEN** the treasury is credited the removal refund fraction of its total invested cost, as
-  before
-
 ### Requirement: Removal is immediate and refunds half the total invested
 
 A removal command SHALL take full effect in the tick it applies: the targeted structure is
@@ -194,52 +234,6 @@ the flow fields.
 - **THEN** the tile is walkable and back in both flow fields in that same tick, and each enemy
   routes through it from its next waypoint re-evaluation onward — its current one-tile commitment
   still stands, because unblocking a tile can never invalidate a committed waypoint
-
-### Requirement: Removal is refused while a wave is running
-
-A removal command targeting a **committed** structure SHALL be rejected while a wave is running, so
-a player cannot open and close an established maze during a wave. A rejected removal SHALL leave
-simulation state unchanged: no refund, no blocked-mask change, no flow-field change, and an
-unchanged state hash relative to the same tick without the attempt.
-
-A removal command targeting a **provisional** structure SHALL be permitted in every live phase,
-including while a wave is running. Such a structure has not existed for a single advanced tick of
-that wave, so unwinding it cannot alter the maze the wave began against.
-
-Removal SHALL remain available for all structures in every other live phase — the build phase
-between waves and the locked state after the final wave — so liquidation is always the way back to
-solvency.
-
-Placement SHALL NOT be gated by wave phase: building mid-wave remains legitimate.
-
-#### Scenario: Mid-wave removal of committed construction is rejected
-
-- **WHEN** a removal command targeting a structure that has lived through a wave tick applies while
-  a wave is running
-- **THEN** the structure still stands, the treasury is unchanged, and the post-tick state hash
-  equals the hash the same tick produces without the attempt
-
-#### Scenario: Unwinding a provisional structure during a wave
-
-- **WHEN** a structure is placed while a wave is running but time is not advancing, and a removal
-  command for it is committed before time advances
-- **THEN** the removal succeeds, the full amount is credited, its tile is unblocked, and both flow
-  fields reflect the new mask
-
-#### Scenario: The window closes when time advances
-
-- **WHEN** a structure is placed during a wave and time then advances
-- **THEN** a subsequent removal command for it is rejected while that wave is still running
-
-#### Scenario: Removal works between waves
-
-- **WHEN** the same removal command applies during the build phase
-- **THEN** the structure is removed and refunded in that tick
-
-#### Scenario: Building mid-wave is still allowed
-
-- **WHEN** a valid placement command applies while a wave is running
-- **THEN** the placement is confirmed and charged as usual
 
 ### Requirement: Terrain kinds govern buildability
 
@@ -404,135 +398,3 @@ socket, exactly as a wall placement there would be.
 
 - **WHEN** a move command for a tower on a socket targets a bare dirt tile
 - **THEN** the move is rejected with the `needs-wall` verdict
-
-### Requirement: A rejected move leaves simulation state unchanged
-
-A rejected move SHALL have no observable effect on simulation state: the structure stays at its
-origin, no blocked-mask change, no flow-field change, no treasury change, and an unchanged state
-hash relative to the same tick without the attempt.
-
-#### Scenario: Move rejection is atomic
-
-- **WHEN** a move command is rejected during validation
-- **THEN** the post-tick state hash is identical to the hash the same tick produces when the
-  command is never issued
-
-### Requirement: Towers stand on foundations and never own the mask
-
-A tower SHALL be placeable only on a tile that already holds a bare wall (dirt) or on an empty
-socket tile — a *foundation*. A tower placement on bare dirt SHALL be rejected with a distinct
-verdict (`needs-wall`); a tower placement on a tile whose foundation already carries a tower SHALL
-be rejected as occupied. A wall and the tower standing on it SHALL be two structures on the same
-tile, each with its own identity, its own total invested cost, and its own provisional flag; the
-treasury SHALL be charged the tower's cost alone when mounting on an existing wall.
-
-Because a foundation tile is already blocked — by the wall on dirt, by terrain on a socket — a
-tower placement SHALL NOT change the blocked mask, SHALL run no path or enemy validation, and
-SHALL cause no flow-field rebuild; it SHALL validate only bounds, the foundation rule, occupancy,
-and the spending gate. Only walls (on dirt) block tiles: the blocked mask SHALL be a function of
-terrain and standing walls alone.
-
-Tower placement SHALL remain ungated by wave phase, so a tower may be mounted on a committed wall
-while a wave is running; the tower is provisional as any placement is, and the wall's status is
-untouched.
-
-#### Scenario: Mounting on a wall charges the tower only and touches no field
-
-- **WHEN** a valid tower placement command targets a tile holding a bare wall
-- **THEN** the tower stands on that tile alongside the wall, the treasury is reduced by the
-  tower's cost only, the blocked mask and both flow fields are unchanged, and no rebuild occurs
-
-#### Scenario: Bare dirt needs a wall
-
-- **WHEN** a tower placement command targets a dirt tile with no wall on it
-- **THEN** the placement is rejected with the `needs-wall` verdict and simulation state is
-  unchanged
-
-#### Scenario: One tower per foundation
-
-- **WHEN** a tower placement command targets a wall or socket that already carries a tower
-- **THEN** the placement is rejected as occupied
-
-#### Scenario: Wall and tower keep separate books
-
-- **WHEN** a tower is mounted during a build phase on a wall that lived through an earlier wave
-- **THEN** the tower is provisional and the wall is committed; removing the tower credits its full
-  cost, and the wall's refund basis is unchanged
-
-#### Scenario: Mounting mid-wave on a committed wall
-
-- **WHEN** a tower placement command targets a committed wall while a wave is running
-- **THEN** the placement is confirmed and charged as usual, the tower is provisional, and the wall
-  remains committed
-
-#### Scenario: A wall never accepts a second wall
-
-- **WHEN** a wall placement command targets a tile holding a wall, with or without a tower on it
-- **THEN** the placement is rejected as occupied
-
-### Requirement: A tower placement may lay its own wall
-
-A tower placement command MAY ask for its wall (`withWall`): the command SHALL then place a wall
-on the target tile and the tower on that wall, in that order, as two structures with their own
-identity, invested cost and provisional flag. Such a placement SHALL be validated exactly as the
-wall placement it contains — terrain, occupancy (a tile already holding a wall is occupied),
-enemy in footprint, spawn reachability and stranding — and SHALL be gated on both purchases: the
-wall at the current balance and the tower at the balance the wall leaves. It SHALL be atomic:
-on rejection neither structure is placed, the mask and fields are untouched and the balance is
-unchanged; on acceptance the resulting state SHALL be identical to that of a wall placement
-command followed by a tower placement command on the same tile. A tower placement without
-`withWall` on bare dirt SHALL still be rejected with `needs-wall`.
-
-#### Scenario: One command lands the wall and the tower
-
-- **WHEN** a tower placement with `withWall` targets a bare dirt tile where a wall would be valid
-- **THEN** a wall and a tower stand on that tile, the treasury is reduced by the wall's cost plus
-  the tower's cost, the tile is blocked and the flow fields rebuilt once, and the state hash
-  equals that of a wall command followed by a tower command on the same tile
-
-#### Scenario: The wall's rules decide
-
-- **WHEN** a tower placement with `withWall` targets a tile where a wall would seal a spawn, is
-  occupied by a wall, or holds an enemy
-- **THEN** it is rejected with the wall placement's verdict and simulation state is unchanged
-
-#### Scenario: Both purchases are gated
-
-- **WHEN** the balance is at or above zero but below the wall's cost, and a tower placement with
-  `withWall` is issued
-- **THEN** it is rejected as unaffordable, with no wall placed and the balance unchanged — even
-  though a wall alone would have been permitted
-
-### Requirement: Removal peels a stacked tile top-down
-
-A removal command targeting a tile that holds both a wall and a tower SHALL apply to the tower;
-the wall SHALL become the removal target only once the tile holds no tower. Each removal SHALL be
-judged by the removal gate for the structure it actually targets. Removing a tower SHALL credit
-the tower's refund, leave the wall standing, and SHALL NOT unblock the tile or rebuild the flow
-fields — the wall still owns the tile. Removing a bare wall SHALL unblock its tile as before.
-
-#### Scenario: The tower comes off first
-
-- **WHEN** a removal command applies to a tile holding a wall and a tower during the build phase
-- **THEN** the tower is gone and its refund credited, the wall stands, the tile is still blocked,
-  and both flow fields are unchanged
-
-#### Scenario: Then the wall
-
-- **WHEN** a second removal command applies to that tile once it holds only the wall
-- **THEN** the wall is gone and refunded, the tile is walkable, and both flow fields reflect the
-  new mask that same tick
-
-#### Scenario: Unmounting mid-wave leaves the maze intact
-
-- **WHEN** a provisional tower stands on a committed wall while a wave is running, and a removal
-  command targets that tile
-- **THEN** the tower is removed with a full refund and the committed wall stands, so the blocked
-  mask is unchanged
-
-#### Scenario: A committed tower shields nothing
-
-- **WHEN** a committed tower stands on a wall while a wave is running, and a removal command
-  targets that tile
-- **THEN** the removal is rejected — the tower is the target and a wave gates it — and the wall
-  is not touched either

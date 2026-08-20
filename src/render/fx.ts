@@ -7,7 +7,10 @@
 //   - The SAME red flash serves sim-side rejections and local red-ghost
 //     clicks (design D8: one feedback implementation in the renderer)
 //   - Ghost preview mesh with valid / invalid / debt tinting + range rings
-//     (current level and next-level upgrade preview)
+//     (current level and next-level upgrade preview); a tower ghost that
+//     brings its own wall draws the wall ghost inside it too, so the two
+//     structures it places read as two boxes, the lower one denser
+//     (build-over-walls design D6)
 
 import * as THREE from 'three';
 import type { RenderEvent } from '../sim/events';
@@ -194,11 +197,18 @@ export class FxRenderer {
   }
 }
 
+/** The wall ghost's height. */
+export const WALL_GHOST_HEIGHT = 0.6;
+/** The tower ghost's height, ground to top. */
+export const TOWER_GHOST_HEIGHT = 1.4;
+
 /**
  * The footprint ghost that follows the hovered tile, plus range rings for
  * tower ghosts, selected towers, and the next-level upgrade preview. Purely
  * cosmetic — all verdicts come from the caller, which runs the real
- * validation.
+ * validation. Every ghost stands on the ground: under the dimetric camera a
+ * raised box is indistinguishable from one a tile further back, so height
+ * is never used to say anything.
  */
 export class GhostPreview {
   private readonly wallMesh: THREE.Mesh;
@@ -209,10 +219,15 @@ export class GhostPreview {
   private readonly previewRing: THREE.LineLoop;
 
   constructor(scene: THREE.Scene) {
-    this.wallMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55 });
-    this.towerMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55 });
-    this.wallMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.6, 0.94), this.wallMaterial);
-    this.towerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, 1.4, 0.94), this.towerMaterial);
+    // No depth writes: the two ghosts may share a tile (a tower that brings
+    // its wall), and the wall box must still show through the tower box
+    // around it — drawn first, so the overlap simply reads denser.
+    this.wallMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55, depthWrite: false });
+    this.towerMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55, depthWrite: false });
+    this.wallMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, WALL_GHOST_HEIGHT, 0.94), this.wallMaterial);
+    this.towerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, TOWER_GHOST_HEIGHT, 0.94), this.towerMaterial);
+    this.wallMesh.renderOrder = 1;
+    this.towerMesh.renderOrder = 2;
     this.wallMesh.visible = false;
     this.towerMesh.visible = false;
 
@@ -237,25 +252,36 @@ export class GhostPreview {
 
   /**
    * Show the ghost for `kind` at tile (tx, ty) with the given tint; a tower
-   * ghost also shows its archetype's level-1 range ring.
+   * ghost also shows its archetype's range ring. A tower ghost `withWall`
+   * (design D6) is the full tower ghost with the wall ghost drawn inside its
+   * base — the wall that will be laid and the tower that will stand on it —
+   * so a click that places two structures previews as two boxes, the lower
+   * one denser where they overlap.
    */
-  show(kind: StructureKind, tx: number, ty: number, tint: GhostTint, rangeUnits = 0): void {
+  show(
+    kind: StructureKind,
+    tx: number,
+    ty: number,
+    tint: GhostTint,
+    rangeUnits = 0,
+    withWall = false,
+  ): void {
     const color = GHOST_COLORS[tint];
     const centre = { x: tx + 0.5, z: ty + 0.5 };
-    if (kind === 'wall') {
-      this.wallMesh.visible = true;
-      this.towerMesh.visible = false;
+    const towerHere = kind === 'tower';
+    const wallHere = kind === 'wall' || (towerHere && withWall);
+    this.wallMesh.visible = wallHere;
+    this.towerMesh.visible = towerHere;
+    if (wallHere) {
       this.wallMaterial.color.setHex(color);
-      this.wallMesh.position.set(centre.x, GROUND_TOP_Y + 0.3, centre.z);
-      this.showRingAt(null);
-    } else {
-      this.towerMesh.visible = true;
-      this.wallMesh.visible = false;
-      this.towerMaterial.color.setHex(color);
-      this.towerMesh.position.set(centre.x, GROUND_TOP_Y + 0.7, centre.z);
-      // Range ring on the tower ghost (build-ui spec).
-      this.showRingAt(centre, rangeUnits);
+      this.wallMesh.position.set(centre.x, GROUND_TOP_Y + WALL_GHOST_HEIGHT / 2, centre.z);
     }
+    if (towerHere) {
+      this.towerMaterial.color.setHex(color);
+      this.towerMesh.position.set(centre.x, GROUND_TOP_Y + TOWER_GHOST_HEIGHT / 2, centre.z);
+    }
+    // Range ring on the tower ghost (build-ui spec); none for a wall.
+    this.showRingAt(towerHere ? centre : null, rangeUnits);
   }
 
   /** Range ring alone — used for a selected placed tower. */

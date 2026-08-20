@@ -18,12 +18,13 @@ Demonstrate feasibility of:
 - **Sim code stays engine/framework-agnostic** — plain classes, no render-loop logic.
 - **Flow-field pathing**, not per-enemy A*. One BFS from each goal outward per placement event; enemies read their tile's direction.
 - **Two flow fields** maintained at all times: one toward the treasury (inbound), one toward spawn/exits (returning). Enemies read the field matching their state.
-- **Placement validation:** before confirming any tower/wall, rebuild the field; if any active spawn cannot reach the treasury, reject the placement. Full blocks are impossible by construction.
+- **Placement validation:** before confirming any wall, rebuild the field; if any active spawn cannot reach the treasury, reject the placement. Full blocks are impossible by construction. Towers never enter this pipeline — they stand on foundations whose tiles are already blocked.
 - **Enemies live in a flat array** as the source of truth. No tile-occupancy grid as primary storage; a spatial hash can be added later as a derived structure if range checks ever become a bottleneck (they won't at this scale).
 
 ## Grid & Movement
 
 - **30×20 playable tiles.** Every structure — wall or tower — occupies a **1×1 footprint**: towers are wall segments that shoot, so they slot directly into wall lines and the whole maze shares one building vocabulary. (Phase-2 playtest rework: the original 2×2 tower footprint could not join 1-wide wall lines and fought the mazing.)
+- **Towers stand on walls.** A tower goes on a tile that already holds a wall (or on a socket, a built-in foundation). Wall and tower are two structures on one tile, each with its own investment and its own provisional status. Only walls (and terrain) block: placing, removing, or moving a tower between foundations never changes the maze, so it needs no path check and never seals or strands. Removal peels the tower off first; the wall comes down once bare. Lay the maze, then arm its chokepoints — or click a tower tool on bare dirt and it lays the wall and mounts the tower in one go (wall cost + tower cost, validated as the wall, both or neither).
 - **Diagonal movement allowed**, with corner-cutting prevented: the flow field never points diagonally between two blocked tiles (enforced at field-build time).
 - **Enemy position is continuous:** `(x, y)` floats in tile-space. Current tile = `(floor(x), floor(y))` — used for field lookup, gold drops, and pickups.
 - **Movement is waypoint-based:** enemies steer toward the *center of the next tile* the field indicates, not along raw field vectors. On arrival (within epsilon) they re-read the field and pick the next center. This prevents wall-hugging and gives smooth re-pathing.
@@ -89,6 +90,7 @@ Three types for the POC, each designed to punish a missing tower:
 - **What you build this phase stays undoable until the wave runs.** A structure is *provisional* until a tick of live wave time passes over it: sell it and you get **100%** back, whatever the phase. The build phase is a planning board, and **START WAVE is the decision** — its first tick locks in everything standing. Provisional structures are marked on the board, so what is about to lock in is visible without clicking each one. A misclicked wall costs nothing; a maze you have already fought behind costs the usual half. (The same rule makes a purchase during a *paused* wave undoable, since no live tick has passed — resume time and it commits.)
 - **Selling committed construction is instant, but only between waves.** This is the anti-juggling rule: open/close treadmill exploits need removal cycles *during* a wave, so removal of anything the wave has already run against is simply refused while one runs — which bans the exploit outright without taxing deliberate re-mazing, and without banning legitimate mid-wave construction. The **50% refund** on committed structures is what makes re-mazing an established maze cost something.
 - **Upgrades are not undoable** once the tower is committed — selling a provisional tower returns its upgrades too, but a committed tower's upgrade is a one-way spend.
+- **Moving is free, build phase only, and moves the tile's stack.** Drop a wall with its tower on bare dirt and both relocate under the usual wall rules (origin freed, destination blocked, full path validation); drop it on a bare wall or an empty socket and only the tower hops across — the origin wall stays and the maze never changes. Identity, investment, and provisional status all travel with each structure. Because a tower on a committed wall is its own structure, mounting one mid-wave is allowed and unmounting a provisional one leaves the committed wall standing.
 - Fully sealing the path is impossible (placement validation rejects it).
 - Fallback if juggling persists in testing: penalize enemies whose new waypoint equals their previous tile (turn-around detection) — the hook already exists in the waypoint cache.
 
@@ -105,7 +107,7 @@ Three types for the POC, each designed to punish a missing tower:
 - **Waves are hand-authored data, not formulas.** The wave curve teaches the rock-paper-scissors: e.g. wave 3 introduces runners, wave 5 is a tank check, wave 7 a swarm check.
 - **Waves are strictly sequential**: a wave is active from start until every enemy it spawned is dead or has escaped (fleeing carriers included). Between waves the game sits in the untimed build phase; the next wave starts only by player command, gated on solvency.
 - **Multiple spawn points**, each with an activation wave — a second front opening mid-run reshapes the maze problem. POC ships with levels using one and two spawns. Placement validation protects every declared spawn's path from tick 0, dormant ones included.
-- **Terrain is a four-kind palette**, authored as a char-map: `dirt` (navigable, buildable), `grass` and `rock` (scenery, neither), `socket` (never navigable, towers only — a free tower platform that skips path validation entirely). Socket count and position are a level-balance knob.
+- **Terrain is a four-kind palette**, authored as a char-map: `dirt` (navigable, buildable — walls, and towers on walls), `grass` and `rock` (scenery, neither), `socket` (never navigable — a built-in foundation that takes a tower directly with no wall beneath it, and never a wall). Socket count and position are a level-balance knob.
 - **10 waves** per POC level.
 - Enemy stat blocks and tower definitions live in a **shared balance file**; level files are pure composition referencing them by `type`.
 
@@ -171,7 +173,11 @@ the layout reference the shipped HUD follows.
 (pointer: fine)`):
 
 - **Pointer**: hover drives the placement ghost, one click commits, right-click/Esc cancels —
-  no confirm step.
+  no confirm step. Every ghost wears its price; with a tower tool armed the ghost over a wall or
+  socket is the tower alone, and over bare dirt the wall ghost shows inside it with its own price
+  badge — that click lays the wall and mounts the tower. The
+  palette's tower items and the hint line say "on wall". The move tool lifts a tile's stack;
+  the tower alone lands on a foundation, wall and tower together on bare dirt.
 - **Touch**: tap anchors the ghost as a *pending placement*; drag or tap moves it; a floating
   ✓/✕ pair commits or dismisses. Tap selects towers. One-finger drag pans (no tool) or adjusts
   the ghost (build tool); two-finger gestures always drive the camera (pinch-zoom about the

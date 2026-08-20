@@ -17,7 +17,7 @@ rather than an accident.
 | D3 | HUD layer | **Plain DOM + TypeScript** | POC HUD is small; no framework lifecycle fighting a 20 Hz loop |
 | D4 | Testing | **Targeted sim tests (Vitest)** + one replay-hash test | Cover the invariants that are invisible by eye, nothing more |
 | D5 | Phasing | **4 phases, risk-first** | Both hard unknowns (determinism, WebGL) proven on day one |
-| D6 | Tower footprint | ~~Scale kit models 2×~~ **All structures 1×1, kit models at native scale** (reworked in Phase 3) | The Phase-2 playtest showed a 2×2 tower cannot be a segment of a 1-wide wall line; towers are now wall segments that shoot |
+| D6 | Tower footprint | ~~Scale kit models 2×~~ **All structures 1×1, kit models at native scale** (reworked in Phase 3); **towers stand on wall segments** (build-over-walls) | The Phase-2 playtest showed a 2×2 tower cannot be a segment of a 1-wide wall line; towers are now wall segments that shoot — literally: a tower is placed on a standing wall (or a socket) and the wall stays the mask-owning segment, so arming a maze never means selling part of it |
 | D7 | Attack resolution | **Hitscan + render-only tracer** | Smallest deterministic surface; no projectile entities in the hash |
 | D8 | Data authoring | **JSON + zod validation** | Matches the README format; hand-editable; validator doubles as reachability check |
 | D9 | Interpolation | **prev/curr on each entity** | Near-free, no per-tick allocation, sufficient for client prediction |
@@ -140,6 +140,7 @@ src/
 ├─ ui/
 │  ├─ hud.ts               treasury, wave
 │  ├─ palette.ts           build menu
+│  ├─ ghostbadges.ts       price badge on each box the placement ghost draws
 │  ├─ inspector.ts         selected tower panel
 │  └─ input.ts             pointer → grid picking → command emission
 └─ app/
@@ -418,9 +419,9 @@ if anti-juggling needs escalating.
 
 ### Placement validation
 
-Before any build is confirmed:
+Before any wall is confirmed:
 
-1. Footprint is in bounds, all tiles walkable, no existing structure.
+1. Footprint is in bounds, all tiles walkable, no existing wall.
 2. **No enemy currently occupies any footprint tile** — reject rather than displace.
 3. Tentatively set the blocked mask, rebuild every field — inbound plus each declared spawn's
    returning field — into the scratch set.
@@ -433,6 +434,21 @@ Before any build is confirmed:
 
 The previous fields are kept in a spare buffer set and swapped wholesale, so a rejected placement
 costs one rebuild pass (`1 + N` Dijkstras) and no allocation.
+
+**Towers stand on foundations and never own the mask** (build-over-walls). A tower is placed on a
+tile that already holds a bare wall, or on an empty socket; bare dirt rejects it (`needs-wall`), a
+foundation already carrying a tower rejects it as occupied. Because the foundation's tile is
+already blocked, a tower placement validates only bounds, the foundation rule, occupancy and the
+spending gate — no mask edit, no path or enemy check, no field rebuild — the socket fast path
+generalised to every tower. A tower `place` may carry `withWall`: then it is the wall placement it
+contains — same pipeline, gated on both purchases — and lands the wall and the tower atomically,
+leaving exactly the state two consecutive commands would; the tower tool issues it over bare dirt.
+Wall and tower are two structures on one tile; a tile is read by layer (`wallAt` / `towerAt` /
+`topAt`), never as "the structure here". Removal peels the tower first and the wall once bare;
+only a wall's removal unblocks. A move lifts the tile's stack and lets the destination decide:
+bare dirt relocates the wall with its tower under the wall rules above (origin freed and
+destination blocked in one evaluation), a foundation takes the tower alone with no mask change at
+all.
 
 **Removal is immediate, and refused during a wave for committed construction.** Selling an
 established maze is a between-waves action: the gate (`canRemove`, shared by the sim and every UI
@@ -561,6 +577,13 @@ upgrade level stacks one more middle segment:
 Upgrading literally makes the tower taller — a spire above the 0.55-unit walls. The spire
 proportions at a 1-unit-wide base are a cosmetic call, re-judged at the Phase-3 gate.
 
+A tower on dirt stands on its wall, and the wall *is* its base segment (build-over-walls): the
+renderer starts the tower's middles and head at the wall's height and draws no base of its own, so
+a wall-mounted tower has exactly the composition above and no masonry is doubled; a socket tower
+keeps its own base. The renderer learns which tiles are sockets from a predicate injected at
+construction, never by scanning structures. One provisional tell per tile — a wall's is suppressed
+while a provisional tower on it shows one — and a lifted stack dims every structure at its origin.
+
 The head is the top segment and yaws toward the tower's current target, re-derived read-only from
 sim state each frame (the same pure selection the sim fires with). Since damage is hitscan, the
 yaw is cosmetic and lives entirely in `render/`.
@@ -626,9 +649,16 @@ so Tailwind's scanner sees every class verbatim.
 (responsive variants at one breakpoint: ≥768px wide and ≥480px tall is desktop).
 
 - **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar.
-- **Palette** — four towers plus wall and remove, with costs, greyed out when unaffordable or
-  when `balance < 0` (the README's no-spending-while-negative rule). The remove tool ignores the
-  balance and greys out while a wave runs instead.
+- **Palette** — four towers plus wall, remove and move, with costs, greyed out when unaffordable
+  or when `balance < 0` (the README's no-spending-while-negative rule). Tower items carry an
+  "on wall" caption, naming the foundation rule where a player first arms one. The remove tool
+  ignores the balance and greys out while a wave runs instead.
+- **Placement ghost** — a translucent box on the hovered tile, tinted by the real validation.
+  Always on the ground plane: under the fixed dimetric camera a raised box reads as a box a tile
+  or two further back, so height is never used to say anything. Each box carries a small price
+  badge at its mid-height while the placement reads valid. A tower tool over bare dirt draws the wall ghost inside the tower
+  ghost — two boxes, two badges, the overlap denser — because that click lays the wall and mounts
+  the tower in one command.
 - **Inspector** — selected tower: level, damage, rate, range, a performance block (effective
   damage this/last wave and in total, from the tower's own hashed counters), upgrade cost, and
   sell/remove showing the refund it returns, locked while a wave runs. Right panel on desktop;
