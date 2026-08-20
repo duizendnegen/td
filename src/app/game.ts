@@ -27,6 +27,7 @@ import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
 import { LaneRibbon } from '../render/ribbon';
 import { StructureRenderer } from '../render/towers';
+import { GhostCaption } from '../ui/caption';
 import { TreasuryHud } from '../ui/hud';
 import { buildHintLine, PointerDriver } from '../ui/input';
 import { InputCore } from '../ui/inputcore';
@@ -176,7 +177,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     camera.camera,
   );
   // Towers stand on walls (build-over-walls): the renderer learns which tiles
-  // are sockets from the grid, and the ghost is raised by the wall's height.
+  // are sockets from the grid.
   const structures = new StructureRenderer(
     renderer.scene,
     assets,
@@ -184,7 +185,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   );
   const sacks = new SackRenderer(renderer.scene);
   const fx = new FxRenderer(renderer.scene);
-  const ghost = new GhostPreview(renderer.scene, StructureRenderer.wallHeight(assets));
+  const ghost = new GhostPreview(renderer.scene);
   const ribbon = new LaneRibbon(renderer.scene);
 
   // UI: reads sim state, emits commands — never mutates state directly.
@@ -247,6 +248,9 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     nextLevelUrl(levelEntry.next, window.location.search, window.location.pathname),
   );
   buildHintLine(hud);
+  // Names both purchases beside a ghost that places a wall and a tower at
+  // once (build-over-walls design D6).
+  const caption = new GhostCaption(hud);
 
   // Run-phase observer. Two app-side rules hang off it, never off the sim:
   //   - Pause releases on any phase change (design D7) — one rule covering
@@ -376,6 +380,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     fx.drain(sim.events, nowMs);
     fx.update(nowMs);
     input.update();
+    caption.update(inputCore);
     ribbon.animate(nowMs);
     treasuryHud.update(sim.state.treasuryMg);
     palette.refresh(

@@ -140,6 +140,7 @@ src/
 ├─ ui/
 │  ├─ hud.ts               treasury, wave
 │  ├─ palette.ts           build menu
+│  ├─ caption.ts           ghost caption: names both purchases of a wall-and-tower click
 │  ├─ inspector.ts         selected tower panel
 │  └─ input.ts             pointer → grid picking → command emission
 └─ app/
@@ -439,12 +440,15 @@ tile that already holds a bare wall, or on an empty socket; bare dirt rejects it
 foundation already carrying a tower rejects it as occupied. Because the foundation's tile is
 already blocked, a tower placement validates only bounds, the foundation rule, occupancy and the
 spending gate — no mask edit, no path or enemy check, no field rebuild — the socket fast path
-generalised to every tower. Wall and tower are two structures on one tile; a tile is read by layer
-(`wallAt` / `towerAt` / `topAt`), never as "the structure here". Removal peels the tower first and
-the wall once bare; only a wall's removal unblocks. A move lifts the tile's stack and lets the
-destination decide: bare dirt relocates the wall with its tower under the wall rules above (origin
-freed and destination blocked in one evaluation), a foundation takes the tower alone with no mask
-change at all.
+generalised to every tower. A tower `place` may carry `withWall`: then it is the wall placement it
+contains — same pipeline, gated on both purchases — and lands the wall and the tower atomically,
+leaving exactly the state two consecutive commands would; the tower tool issues it over bare dirt.
+Wall and tower are two structures on one tile; a tile is read by layer (`wallAt` / `towerAt` /
+`topAt`), never as "the structure here". Removal peels the tower first and the wall once bare;
+only a wall's removal unblocks. A move lifts the tile's stack and lets the destination decide:
+bare dirt relocates the wall with its tower under the wall rules above (origin freed and
+destination blocked in one evaluation), a foundation takes the tower alone with no mask change at
+all.
 
 **Removal is immediate, and refused during a wave for committed construction.** Selling an
 established maze is a between-waves action: the gate (`canRemove`, shared by the sim and every UI
@@ -649,6 +653,11 @@ so Tailwind's scanner sees every class verbatim.
   or when `balance < 0` (the README's no-spending-while-negative rule). Tower items carry an
   "on wall" caption, naming the foundation rule where a player first arms one. The remove tool
   ignores the balance and greys out while a wave runs instead.
+- **Placement ghost** — a translucent box on the hovered tile, tinted by the real validation.
+  Always on the ground plane: under the fixed dimetric camera a raised box reads as a box a tile
+  or two further back, so height is never used to say anything. A tower tool over bare dirt draws
+  the ghost as a wall segment and a tower segment with a seam, and a caption beside the tile
+  names both purchases — that click lays the wall and mounts the tower in one command.
 - **Inspector** — selected tower: level, damage, rate, range, a performance block (effective
   damage this/last wave and in total, from the tower's own hashed counters), upgrade cost, and
   sell/remove showing the refund it returns, locked while a wave runs. Right panel on desktop;

@@ -2,8 +2,8 @@
 // (build-ui delta, design D6) — towers and walls, the origin tile as the
 // put-down, and the inspector's Move action as arm-then-lift (design D9) —
 // and build-over-walls: the lift carries the tile's stack, the destination
-// decides what lands, the tower tool reads the foundation rule, and every
-// ghost says where it will stand — over the stubbed-canvas pattern from
+// decides what lands, and the tower tool lays the wall with the tower on
+// bare dirt (design D6) — over the stubbed-canvas pattern from
 // mousecam.test.ts. The InputCore + PointerDriver pair runs against a real
 // Sim and CommandQueue; picking is stubbed to a flat 100px-per-tile mapping
 // so the slop arithmetic stays real while the camera does not exist.
@@ -57,7 +57,7 @@ interface Rig {
   /** Every origin the core's onLift hook reported (the touch driver's cue). */
   lifts: Tile[];
   /** The last ghost.show call, or null after hide. */
-  ghostShown: { kind: string; tint: string; rangeUnits: number; base: string } | null;
+  ghostShown: { kind: string; tint: string; rangeUnits: number; withWall: boolean } | null;
   sim: ReturnType<typeof makeSim>['sim'];
   drain: () => Command[];
   /** One frame of the driver's per-frame maintenance. */
@@ -85,8 +85,8 @@ function rig(): Rig {
   const palette = new StubPalette();
   const noop = (): void => {};
   const ghost = {
-    show: (kind: string, _tx: number, _ty: number, tint: string, rangeUnits: number, base = 'ground') => {
-      r.ghostShown = { kind, tint, rangeUnits, base };
+    show: (kind: string, _tx: number, _ty: number, tint: string, rangeUnits: number, withWall = false) => {
+      r.ghostShown = { kind, tint, rangeUnits, withWall };
     },
     hide: () => (r.ghostShown = null),
     showRingAt: noop,
@@ -155,7 +155,7 @@ describe('move tool, pointer driver', () => {
     r.pointer('pointermove', 350, 250); // past the slop: a drag
     r.frame();
     // Bare dirt: the ghost is the tower on the wall it lands with.
-    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', base: 'stack' });
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: false });
     r.pointer('pointerup', 350, 250);
     const drained = r.drain();
     expect(drained).toHaveLength(1);
@@ -180,7 +180,7 @@ describe('move tool, pointer driver', () => {
     r.pointer('pointermove', 350, 250);
     r.frame();
     // A foundation candidate: the tower ghost is raised onto the wall.
-    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', base: 'foundation' });
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: false });
     r.pointer('pointerup', 350, 250);
     const drained = r.drain();
     expect(drained).toHaveLength(1);
@@ -222,7 +222,7 @@ describe('move tool, pointer driver', () => {
     r.pointer('pointermove', 351, 52); // …then wanders back within the slop
     r.frame();
     // The origin reads legal, and the ghost stands on its own wall there.
-    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', base: 'foundation' });
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: false });
     r.pointer('pointerup', 351, 52); // release over the origin: the put-down
     expect(r.flashes).toBe(0);
     expect(r.drain()).toHaveLength(0);
@@ -258,7 +258,7 @@ describe('move tool, pointer driver', () => {
     expect(r.core.liftedIds).toEqual([2]);
     r.pointer('pointermove', 150, 250); // past the slop, over open dirt
     r.frame();
-    expect(r.ghostShown).toEqual({ kind: 'wall', tint: 'valid', rangeUnits: 0, base: 'ground' });
+    expect(r.ghostShown).toEqual({ kind: 'wall', tint: 'valid', rangeUnits: 0, withWall: false });
     r.pointer('pointerup', 150, 250);
     const drained = r.drain();
     expect(drained).toHaveLength(1);
@@ -291,7 +291,7 @@ describe('move tool, pointer driver', () => {
     r.pointer('pointerdown', 350, 50);
     r.pointer('pointermove', 550, 50);
     r.frame();
-    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', base: 'foundation' });
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', withWall: false });
     r.pointer('pointerup', 550, 50); // occupied: rejected locally
     expect(r.flashes).toBe(1);
     expect(r.drain()).toHaveLength(0);
@@ -353,52 +353,87 @@ describe('move tool, pointer driver', () => {
 });
 
 describe('tower tool over walls', () => {
-  it('a click on bare dirt flashes and issues nothing; the ghost reads invalid at ground', () => {
+  it('on bare dirt the ghost brings its wall, and a click places both with one command', () => {
     const r = rig();
     r.palette.select('rapid');
     r.pointer('pointermove', 150, 250); // bare dirt
     r.frame();
-    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', base: 'ground' });
-    expect(r.core.verdictOk).toBe(false);
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: true });
+    expect(r.ghostShown!.rangeUnits).toBeGreaterThan(0);
+    expect(r.core.verdictOk).toBe(true);
+    // The caption names both purchases at the tile.
+    expect(r.core.compound).toMatchObject({ tile: { tx: 1, ty: 2 }, tool: 'rapid', wallMg: 4_000 });
     r.pointer('pointerdown', 150, 250);
+    expect(r.flashes).toBe(0);
+    const drained = r.drain();
+    expect(drained).toHaveLength(1);
+    expect(drained[0]).toMatchObject({
+      kind: 'place',
+      structure: 'tower',
+      archetype: 'rapid',
+      tx: 1,
+      ty: 2,
+      withWall: true,
+    });
+    r.sim.tick(drained);
+    expect(r.sim.state.structures.filter((s) => s.tx === 1 && s.ty === 2).map((s) => s.kind)).toEqual(['wall', 'tower']);
+    // Placed: the tile is a foundation now, so the ghost there is a plain tower ghost.
+    r.frame();
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', withWall: false }); // occupied
+    expect(r.core.compound).toBeNull();
+  });
+
+  it('a compound the wall rules refuse flashes and issues nothing', () => {
+    const r = rig();
+    // Seal the corridor's middle row: walls above and below (1,1) leave (1,1)
+    // the only way through, so a wall there seals the spawn.
+    r.sim.tick([place('wall', 1, 0), place('wall', 1, 2)]);
+    r.palette.select('rapid');
+    r.pointer('pointermove', 150, 150);
+    r.frame();
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', withWall: true });
+    r.pointer('pointerdown', 150, 150);
     expect(r.flashes).toBe(1);
     expect(r.drain()).toHaveLength(0);
   });
 
-  it('a click on a bare wall issues one place; the ghost stands on the wall', () => {
+  it('a click on a bare wall issues one plain place; the ghost is a plain tower ghost', () => {
     const r = rig();
     r.sim.tick([place('wall', 1, 2)]);
     r.palette.select('rapid');
     r.pointer('pointermove', 150, 250);
     r.frame();
-    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', base: 'foundation' });
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'valid', withWall: false });
     expect(r.ghostShown!.rangeUnits).toBeGreaterThan(0); // the level-1 ring
+    expect(r.core.compound).toBeNull();
     r.pointer('pointerdown', 150, 250);
     expect(r.flashes).toBe(0);
     const drained = r.drain();
     expect(drained).toHaveLength(1);
     expect(drained[0]).toMatchObject({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 1, ty: 2 });
+    expect(drained[0]).not.toHaveProperty('withWall');
     r.sim.tick(drained);
     expect(r.sim.state.structures.filter((s) => s.tx === 1 && s.ty === 2).map((s) => s.kind)).toEqual(['wall', 'tower']);
   });
 
-  it('over a wall that already carries a tower the ghost reads invalid on the wall', () => {
+  it('over a wall that already carries a tower the ghost reads invalid and brings no wall', () => {
     const r = rig();
     r.palette.select('rapid');
     r.pointer('pointermove', 350, 50); // the mounted stack
     r.frame();
-    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', base: 'foundation' });
+    expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', withWall: false });
     r.pointer('pointerdown', 350, 50);
     expect(r.flashes).toBe(1);
     expect(r.drain()).toHaveLength(0);
   });
 
-  it('a wall ghost stays at ground', () => {
+  it('a wall ghost is a wall ghost', () => {
     const r = rig();
     r.palette.select('wall');
     r.pointer('pointermove', 150, 250);
     r.frame();
-    expect(r.ghostShown).toEqual({ kind: 'wall', tint: 'valid', rangeUnits: 0, base: 'ground' });
+    expect(r.ghostShown).toEqual({ kind: 'wall', tint: 'valid', rangeUnits: 0, withWall: false });
+    expect(r.core.compound).toBeNull();
   });
 });
 

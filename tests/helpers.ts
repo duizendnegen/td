@@ -188,6 +188,14 @@ export function mount(tx: number, ty: number, archetype: TowerArchetype = 'rapid
   return [place('wall', tx, ty), place('tower', tx, ty, archetype)];
 }
 
+/**
+ * A tower that brings its own wall — one place command with `withWall`
+ * (build-over-walls design D6): the tower tool's click on bare dirt.
+ */
+export function placeWithWall(tx: number, ty: number, archetype: TowerArchetype = 'rapid'): Command {
+  return { kind: 'place', structure: 'tower', archetype, tx, ty, withWall: true, seq: seq++ };
+}
+
 export function upgrade(tx: number, ty: number): Command {
   return { kind: 'upgrade', tx, ty, seq: seq++ };
 }

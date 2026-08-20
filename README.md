@@ -24,7 +24,7 @@ Demonstrate feasibility of:
 ## Grid & Movement
 
 - **30×20 playable tiles.** Every structure — wall or tower — occupies a **1×1 footprint**: towers are wall segments that shoot, so they slot directly into wall lines and the whole maze shares one building vocabulary. (Phase-2 playtest rework: the original 2×2 tower footprint could not join 1-wide wall lines and fought the mazing.)
-- **Towers stand on walls.** A tower goes on a tile that already holds a wall (or on a socket, a built-in foundation); bare dirt refuses it. Wall and tower are two structures on one tile, each with its own investment and its own provisional status. Only walls (and terrain) block: placing, removing, or moving a tower between foundations never changes the maze, so it needs no path check and never seals or strands. Removal peels the tower off first; the wall comes down once bare. Lay the maze, then arm its chokepoints.
+- **Towers stand on walls.** A tower goes on a tile that already holds a wall (or on a socket, a built-in foundation). Wall and tower are two structures on one tile, each with its own investment and its own provisional status. Only walls (and terrain) block: placing, removing, or moving a tower between foundations never changes the maze, so it needs no path check and never seals or strands. Removal peels the tower off first; the wall comes down once bare. Lay the maze, then arm its chokepoints — or click a tower tool on bare dirt and it lays the wall and mounts the tower in one go (wall cost + tower cost, validated as the wall, both or neither).
 - **Diagonal movement allowed**, with corner-cutting prevented: the flow field never points diagonally between two blocked tiles (enforced at field-build time).
 - **Enemy position is continuous:** `(x, y)` floats in tile-space. Current tile = `(floor(x), floor(y))` — used for field lookup, gold drops, and pickups.
 - **Movement is waypoint-based:** enemies steer toward the *center of the next tile* the field indicates, not along raw field vectors. On arrival (within epsilon) they re-read the field and pick the next center. This prevents wall-hugging and gives smooth re-pathing.
@@ -173,10 +173,11 @@ the layout reference the shipped HUD follows.
 (pointer: fine)`):
 
 - **Pointer**: hover drives the placement ghost, one click commits, right-click/Esc cancels —
-  no confirm step. With a tower tool armed the ghost stands on the wall or socket under the
-  cursor and reads invalid over bare dirt; the palette's tower items and the hint line say
-  "on wall". The move tool lifts a tile's stack; its ghost shows what lands — the tower alone
-  on a foundation, wall and tower together on bare dirt.
+  no confirm step. With a tower tool armed the ghost over a wall or socket is the tower alone;
+  over bare dirt it splits into a wall segment and a tower segment, with a caption naming both
+  purchases ("wall 20 + rapid 50") — that click lays the wall and mounts the tower. The
+  palette's tower items and the hint line say "on wall". The move tool lifts a tile's stack;
+  the tower alone lands on a foundation, wall and tower together on bare dirt.
 - **Touch**: tap anchors the ghost as a *pending placement*; drag or tap moves it; a floating
   ✓/✕ pair commits or dismisses. Tap selects towers. One-finger drag pans (no tool) or adjusts
   the ghost (build tool); two-finger gestures always drive the camera (pinch-zoom about the

@@ -23,7 +23,20 @@ export type CommandBody =
    * list (stable across activations); dormant or out-of-range is rejected.
    */
   | { kind: 'spawn'; type: string; spawn: number }
-  | { kind: 'place'; structure: StructureKind; archetype?: TowerArchetype; tx: number; ty: number }
+  /**
+   * Place a structure. `withWall` on a tower builds the wall beneath it in
+   * the same command (build-over-walls design D6): the wall's full placement
+   * validation decides, both land or neither does, and both costs are
+   * charged — the tower tool's one click on bare dirt.
+   */
+  | {
+      kind: 'place';
+      structure: StructureKind;
+      archetype?: TowerArchetype;
+      tx: number;
+      ty: number;
+      withWall?: boolean;
+    }
   /** Relocate the tower at (tx, ty) to (toTx, toTy) — build phase only. */
   | { kind: 'move'; tx: number; ty: number; toTx: number; toTy: number }
   | { kind: 'upgrade'; tx: number; ty: number }

@@ -17,17 +17,19 @@
 //     again once that one lift ends
 //   - Towers stand on walls (build-over-walls): a tile is read by layer —
 //     the tower for selection, the top structure for removal and the lift —
-//     and every ghost says where it will stand: a tower ghost is raised onto
-//     a foundation, a lifted stack draws the wall it lands with
+//     and a tower tool over bare dirt places the wall and the tower in one
+//     click: a two-segment ghost, the wall's own routing projection, both
+//     costs in the tint, and a caption naming both purchases (design D6)
 //   - Never writes sim state directly — emits commands only
 //   - Every invalid commit plays the same red flash the sim's rejects use
 
 import * as THREE from 'three';
 import type { CommandQueue } from '../sim/commands';
-import { canRemove, footprintFor, isFoundation, moveOpenIn, stackAt, topAt, towerAt } from '../sim/placement';
+import { TERRAIN } from '../sim/grid';
+import { canRemove, footprintFor, moveOpenIn, stackAt, topAt, towerAt, wallAt } from '../sim/placement';
 import type { Sim } from '../sim/sim';
 import { towerStats } from '../sim/tower';
-import type { FxRenderer, GhostBase, GhostPreview, GhostTint } from '../render/fx';
+import type { FxRenderer, GhostPreview, GhostTint } from '../render/fx';
 import { GROUND_TOP_Y } from '../render/renderer';
 import type { LaneRibbon } from '../render/ribbon';
 import type { Structure } from '../sim/types';
@@ -84,6 +86,15 @@ export class InputCore {
     const stack = stackAt(this.sim.state.structures, lifted.tx, lifted.ty);
     return [stack.wall, stack.tower].filter((s) => s !== null).map((s) => s.id);
   }
+
+  /**
+   * The two purchases the build ghost previews right now — a tower tool over
+   * bare dirt, where one click lays the wall and mounts the tower on it
+   * (build-over-walls design D6) — or null for a single-structure ghost and
+   * whenever no build ghost shows. Refreshed by every per-frame ghost path;
+   * the ghost caption reads it to name both purchases at the tile.
+   */
+  compound: { tile: Tile; tool: Tool; wallMg: number; towerMg: number } | null = null;
 
   /**
    * True while the move tool was armed by the inspector's Move action for
@@ -162,8 +173,13 @@ export class InputCore {
 
   /** Tile world centre → screen-space CSS pixels (confirm-affordance anchor). */
   projectTile(tile: Tile): { x: number; y: number } {
+    return this.projectGround(tile.tx + 0.5, tile.ty + 0.5);
+  }
+
+  /** A ground-plane point (tile units) → screen-space CSS pixels. */
+  projectGround(x: number, z: number): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
-    const p = new THREE.Vector3(tile.tx + 0.5, GROUND_TOP_Y, tile.ty + 0.5).project(this.camera);
+    const p = new THREE.Vector3(x, GROUND_TOP_Y, z).project(this.camera);
     return {
       x: rect.left + ((p.x + 1) / 2) * rect.width,
       y: rect.top + ((1 - p.y) / 2) * rect.height,
@@ -188,7 +204,8 @@ export class InputCore {
     const tool = this.palette.selected;
     const structure = tool !== null ? toolStructure(tool) : null;
     if (!structure) return false;
-    const verdict = this.sim.previewPlacement(structure.kind, tile.tx, tile.ty);
+    const withWall = this.withWallAt(structure.kind, tile);
+    const verdict = this.sim.previewPlacement(structure.kind, tile.tx, tile.ty, withWall);
     if (verdict === 'ok') {
       this.commands.issue({
         kind: 'place',
@@ -196,11 +213,25 @@ export class InputCore {
         ...(structure.kind === 'tower' ? { archetype: structure.archetype } : {}),
         tx: tile.tx,
         ty: tile.ty,
+        ...(withWall ? { withWall: true } : {}),
       });
       return true;
     }
     this.fx.flashReject(footprintFor(tile.tx, tile.ty), performance.now());
     return false;
+  }
+
+  /**
+   * Whether a placement of `kind` at `tile` brings its own wall (design D6):
+   * a tower on dirt with no wall standing there. The tool never issues a
+   * bare tower placement the sim would refuse as needs-wall; it lays the
+   * wall in the same command instead. Terrain the sim refuses (grass, rock)
+   * and foundations (a socket, a standing wall) take the tower alone.
+   */
+  private withWallAt(kind: Structure['kind'], tile: Tile): boolean {
+    if (kind !== 'tower') return false;
+    if (this.sim.grid.terrainAt(tile.tx, tile.ty) !== TERRAIN.dirt) return false;
+    return wallAt(this.sim.state.structures, tile.tx, tile.ty) === null;
   }
 
   /**
@@ -341,18 +372,26 @@ export class InputCore {
   updateBuildGhost(tile: Tile | null): void {
     const tool = this.palette.selected;
     const structure = tool !== null ? toolStructure(tool) : null;
+    this.compound = null;
     if (!structure) {
       this.ghost.hide();
       this.ribbon.hide();
       this.lastEvalTile = '';
       return;
     }
+    // A tower over bare dirt previews — and places — its wall too (design
+    // D6): the routing projection, the verdict and the tint are the
+    // compound's. Whether the tile is bare only changes with a tick, so the
+    // (tile, tick) key already covers it.
+    const withWall = tile !== null && this.withWallAt(structure.kind, tile);
     const tick = this.sim.state.tick;
     const key = tile ? `${tool}:${tile.tx},${tile.ty}` : `${tool}:off`;
     if (tick !== this.lastEvalTick || key !== this.lastEvalTile) {
       this.lastEvalTick = tick;
       this.lastEvalTile = key;
-      const preview = tile ? this.sim.previewRoutes(structure.kind, tile.tx, tile.ty) : null;
+      const preview = tile
+        ? this.sim.previewRoutes(structure.kind, tile.tx, tile.ty, withWall)
+        : null;
       this.lastVerdictOk = preview?.verdict === 'ok';
       this.ribbon.update(this.sim.currentLanes(), preview?.lanes ?? null, preview?.orphaned ?? null);
     }
@@ -360,19 +399,17 @@ export class InputCore {
       this.ghost.hide();
       return;
     }
-    // A tower ghost stands on the wall or socket beneath the candidate tile
-    // (design D6); over bare dirt it stays at ground, tinted by its verdict.
-    const base: GhostBase =
-      structure.kind === 'tower' && isFoundation(this.sim.grid, this.sim.state.structures, tile.tx, tile.ty)
-        ? 'foundation'
-        : 'ground';
+    const wallMg = withWall ? this.sim.data.wallCostMg : 0;
+    if (withWall) {
+      this.compound = { tile, tool: tool!, wallMg, towerMg: this.palette.costOf(tool!) };
+    }
     this.ghost.show(
       structure.kind,
       tile.tx,
       tile.ty,
-      this.tint(tool!),
+      this.tint(tool!, wallMg),
       this.toolRangeUnits(tool!),
-      base,
+      withWall,
     );
     this.ghost.showPreviewRingAt(null);
   }
@@ -390,15 +427,14 @@ export class InputCore {
    * debt tint: moves are free — with a tower's own range ring at the
    * candidate tile, and the projected routes, re-evaluated when the
    * candidate tile, the sim tick, or the lifted id changes, so lifting a
-   * different structure on the same tile re-projects (design D5). The ghost
-   * shows what will land where it will stand (build-over-walls design D6): a
-   * tower raised onto a foundation candidate, wall + raised tower on bare
-   * dirt when the stack holds a wall. The origin tile reads valid: dropping
-   * there is the put-down, so the tint (and the touch confirm class, which
-   * reads the same flag) agrees with what the drop will do, while the ribbon
-   * shows no projection for it. Speculative only — never touches sim state.
+   * different structure on the same tile re-projects (design D5). The origin
+   * tile reads valid: dropping there is the put-down, so the tint (and the
+   * touch confirm class, which reads the same flag) agrees with what the
+   * drop will do, while the ribbon shows no projection for it. Speculative
+   * only — never touches sim state.
    */
   updateMoveGhost(tile: Tile | null): void {
+    this.compound = null;
     const mover = this.liftedStructure();
     const tick = this.sim.state.tick;
     const key =
@@ -421,19 +457,12 @@ export class InputCore {
       this.ghost.hide();
       return;
     }
-    let base: GhostBase = 'ground';
-    if (mover.kind === 'tower') {
-      const structures = this.sim.state.structures;
-      if (isFoundation(this.sim.grid, structures, tile.tx, tile.ty)) base = 'foundation';
-      else if (stackAt(structures, mover.tx, mover.ty).wall) base = 'stack';
-    }
     this.ghost.show(
       mover.kind,
       tile.tx,
       tile.ty,
       this.lastVerdictOk ? 'valid' : 'invalid',
       mover.kind === 'tower' ? towerStats(mover, this.sim.data).rangeUnits : 0,
-      base,
     );
     this.ghost.showPreviewRingAt(null);
   }
@@ -461,6 +490,7 @@ export class InputCore {
    * placed tower is selected for inspection (path-preview spec).
    */
   updateIdleRings(): void {
+    this.compound = null;
     this.ribbon.hide();
     const sel = this.inspector.current;
     if (sel) {
@@ -483,9 +513,10 @@ export class InputCore {
     return this.sim.data.towers[id]!.levels[0]!.rangeUnits;
   }
 
-  private tint(tool: Tool): GhostTint {
+  /** The verdict tint; `extraMg` is the wall a compound placement buys too. */
+  private tint(tool: Tool, extraMg = 0): GhostTint {
     if (!this.lastVerdictOk) return 'invalid';
-    const debt = this.palette.costOf(tool) > this.sim.state.treasuryMg;
+    const debt = this.palette.costOf(tool) + extraMg > this.sim.state.treasuryMg;
     return debt ? 'debt' : 'valid';
   }
 }

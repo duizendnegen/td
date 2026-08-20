@@ -7,9 +7,10 @@
 //   - The SAME red flash serves sim-side rejections and local red-ghost
 //     clicks (design D8: one feedback implementation in the renderer)
 //   - Ghost preview mesh with valid / invalid / debt tinting + range rings
-//     (current level and next-level upgrade preview); a tower ghost stands
-//     on the wall or socket beneath the candidate tile, and a stack move onto
-//     bare dirt draws the wall it lands with (build-over-walls design D6)
+//     (current level and next-level upgrade preview); a tower ghost that
+//     brings its own wall is drawn as two segments — the wall and the tower
+//     on it — so the two structures it places read as two
+//     (build-over-walls design D6)
 
 import * as THREE from 'three';
 import type { RenderEvent } from '../sim/events';
@@ -196,32 +197,20 @@ export class FxRenderer {
   }
 }
 
-/** The wall ghost's height, and the default a tower ghost is raised by. */
+/** The wall ghost's height — also where a tower ghost's wall segment ends. */
 const WALL_GHOST_HEIGHT = 0.6;
-/** The full tower ghost's height, ground to top — a wall-mounted tower's silhouette. */
+/** The tower ghost's height, ground to top. */
 const TOWER_GHOST_HEIGHT = 1.4;
-/** The raised tower ghost never shrinks below this, however tall the foundation. */
-const MIN_PAYLOAD_HEIGHT = 0.5;
-
-/**
- * Where a tower ghost stands (build-over-walls design D6): on the ground
- * (bare dirt — an invalid candidate, drawn at full height so it reads as the
- * tower it cannot be); on a foundation (a wall or socket under the candidate
- * tile — raised onto it, so the ghost is the payload the foundation gets);
- * or as a stack (a wall ghost drawn beneath the raised tower — a stack move
- * onto bare dirt lands both). Ignored for a wall ghost.
- */
-export type GhostBase = 'ground' | 'foundation' | 'stack';
+/** The seam between the two segments of a ghost that places a wall and a tower. */
+const STACK_SEAM = 0.08;
 
 /**
  * The footprint ghost that follows the hovered tile, plus range rings for
  * tower ghosts, selected towers, and the next-level upgrade preview. Purely
  * cosmetic — all verdicts come from the caller, which runs the real
- * validation.
- *
- * `foundationHeight` is the wall model's height (measured by the caller): the
- * wall ghost is drawn that tall, and a tower ghost on a foundation is raised
- * by exactly that, so it visibly stands on the masonry beneath it.
+ * validation. Every ghost stands on the ground: under the dimetric camera a
+ * raised box is indistinguishable from one a tile further back, so height
+ * is never used to say anything.
  */
 export class GhostPreview {
   private readonly wallMesh: THREE.Mesh;
@@ -230,14 +219,13 @@ export class GhostPreview {
   private readonly towerMaterial: THREE.MeshLambertMaterial;
   private readonly ring: THREE.LineLoop;
   private readonly previewRing: THREE.LineLoop;
-  private readonly foundationHeight: number;
 
-  constructor(scene: THREE.Scene, foundationHeight = WALL_GHOST_HEIGHT) {
-    this.foundationHeight = foundationHeight;
+  constructor(scene: THREE.Scene) {
     this.wallMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55 });
     this.towerMaterial = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55 });
-    // Unit-height boxes, scaled per show call: the wall to the foundation
-    // height, the tower to whatever stands above its base.
+    // Unit-height boxes, scaled per show call: the wall ghost to its height,
+    // the tower ghost to its full height — or to the part above the seam
+    // when it brings its wall along.
     this.wallMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, 1, 0.94), this.wallMaterial);
     this.towerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.94, 1, 0.94), this.towerMaterial);
     this.wallMesh.visible = false;
@@ -264,9 +252,10 @@ export class GhostPreview {
 
   /**
    * Show the ghost for `kind` at tile (tx, ty) with the given tint; a tower
-   * ghost also shows its archetype's range ring, and stands where `base`
-   * says (design D6): at ground on bare dirt, raised onto a foundation, or
-   * on a wall ghost of its own for a stack landing together.
+   * ghost also shows its archetype's range ring. A tower ghost `withWall`
+   * (design D6) keeps the same silhouette but is drawn as two segments with
+   * a seam between them — the wall that will be laid and the tower that will
+   * stand on it — so a click that places two structures previews as two.
    */
   show(
     kind: StructureKind,
@@ -274,28 +263,25 @@ export class GhostPreview {
     ty: number,
     tint: GhostTint,
     rangeUnits = 0,
-    base: GhostBase = 'ground',
+    withWall = false,
   ): void {
     const color = GHOST_COLORS[tint];
     const centre = { x: tx + 0.5, z: ty + 0.5 };
-    const wallHere = kind === 'wall' || base === 'stack';
     const towerHere = kind === 'tower';
+    const wallHere = kind === 'wall' || (towerHere && withWall);
     this.wallMesh.visible = wallHere;
     this.towerMesh.visible = towerHere;
     if (wallHere) {
       this.wallMaterial.color.setHex(color);
-      this.wallMesh.scale.y = this.foundationHeight;
-      this.wallMesh.position.set(centre.x, GROUND_TOP_Y + this.foundationHeight / 2, centre.z);
+      this.wallMesh.scale.y = WALL_GHOST_HEIGHT;
+      this.wallMesh.position.set(centre.x, GROUND_TOP_Y + WALL_GHOST_HEIGHT / 2, centre.z);
     }
     if (towerHere) {
-      // On a foundation the ghost is the payload the foundation gets — its
-      // top lands where a full tower's would, so the silhouette matches
-      // whatever ends up standing there.
-      const lift = base === 'ground' ? 0 : this.foundationHeight;
-      const height = Math.max(TOWER_GHOST_HEIGHT - lift, MIN_PAYLOAD_HEIGHT);
+      const from = wallHere ? WALL_GHOST_HEIGHT + STACK_SEAM : 0;
+      const height = TOWER_GHOST_HEIGHT - from;
       this.towerMaterial.color.setHex(color);
       this.towerMesh.scale.y = height;
-      this.towerMesh.position.set(centre.x, GROUND_TOP_Y + lift + height / 2, centre.z);
+      this.towerMesh.position.set(centre.x, GROUND_TOP_Y + from + height / 2, centre.z);
     }
     // Range ring on the tower ghost (build-ui spec); none for a wall.
     this.showRingAt(towerHere ? centre : null, rangeUnits);

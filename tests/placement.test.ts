@@ -13,6 +13,7 @@ import {
   move,
   openLevel,
   place,
+  placeWithWall,
   remove,
   spawnCmd,
   startWave,
@@ -590,6 +591,94 @@ describe('towers stand on foundations (build-over-walls)', () => {
 
 // Removal peels a stacked tile top-down (build-over-walls design D3): the
 // tower first, the wall once bare; a tower's removal never touches the mask.
+describe('a tower placed with its wall (build-over-walls design D6)', () => {
+  const corridor = () => openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 });
+
+  it('lands the wall and the tower on it, each its own structure, exactly as two commands would', () => {
+    const { sim } = makeSim(corridor());
+    const inboundBefore = sim.inbound;
+    expect(sim.previewPlacement('tower', 3, 0, true)).toBe('ok');
+    sim.tick([placeWithWall(3, 0)]);
+    expect(sim.state.structures.map((s) => [s.kind, s.tx, s.ty, s.paidMg, s.provisional])).toEqual([
+      ['wall', 3, 0, 4_000, true],
+      ['tower', 3, 0, 50_000, true],
+    ]);
+    expect(sim.state.treasuryMg).toBe(200_000 - 54_000);
+    expect(sim.grid.isBlocked(3, 0)).toBe(true);
+    expect(sim.inbound).not.toBe(inboundBefore); // the wall's one rebuild
+    expect(sim.events.some((e) => e.kind === 'placementRejected')).toBe(false);
+
+    const twin = makeSim(corridor()).sim;
+    twin.tick(mount(3, 0));
+    expect(sim.hash()).toBe(twin.hash());
+  });
+
+  it('validates as the wall placement it contains: sealing, occupancy, enemies', () => {
+    const { sim } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
+    sim.tick([place('wall', 2, 0), place('wall', 2, 2)]);
+    expect(sim.previewPlacement('tower', 2, 1, true)).toBe('seals-spawn');
+    expect(sim.previewPlacement('tower', 2, 0, true)).toBe('occupied'); // a wall stands: no second wall
+    expect(sim.previewPlacement('tower', 2, 0)).toBe('ok'); // …but the tower alone mounts
+    injectEnemy(sim, 1, 1);
+    expect(sim.previewPlacement('tower', 1, 1, true)).toBe('enemy-in-footprint');
+  });
+
+  it('is gated on both purchases, and rejects atomically', () => {
+    // 3g buys a wall alone (into debt) but not a wall and then a tower.
+    const poor = () =>
+      makeSim(
+        openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }, [], {
+          economy: { startingTreasury: 3, interestRatePerTick: 0 },
+        }),
+      ).sim;
+    const sim = poor();
+    expect(sim.previewPlacement('wall', 3, 0)).toBe('ok');
+    expect(sim.previewPlacement('tower', 3, 0, true)).toBe('no-funds');
+    const without = poor();
+    sim.tick([placeWithWall(3, 0)]);
+    without.tick([]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(3_000);
+    expect(sim.grid.isBlocked(3, 0)).toBe(false);
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(1);
+    expect(sim.hash()).toBe(without.hash());
+
+    // A routing rejection is just as atomic: no wall is left behind.
+    const build = () => {
+      const { sim: s } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
+      s.tick([place('wall', 2, 0), place('wall', 2, 2)]);
+      return s;
+    };
+    const withAttempt = build();
+    const twin = build();
+    withAttempt.tick([placeWithWall(2, 1)]);
+    twin.tick([]);
+    expect(withAttempt.state.structures).toHaveLength(2);
+    expect(withAttempt.hash()).toBe(twin.hash());
+  });
+
+  it('projects routing like the wall it lays; the bare tower projects nothing', () => {
+    const { sim } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
+    sim.tick([place('wall', 2, 0)]);
+    const bare = sim.previewRoutes('tower', 2, 1);
+    expect(bare.verdict).toBe('needs-wall');
+    expect(bare.lanes).toBeNull();
+    const compound = sim.previewRoutes('tower', 2, 1, true);
+    expect(compound.verdict).toBe('ok');
+    expect(compound.lanes).not.toBeNull();
+    expect(compound.lanes!.length).toBeGreaterThan(0);
+    expect(compound.lanes!.some((lane) => lane.some((t) => t.x === 2 && t.y === 2))).toBe(true);
+    sim.tick([place('wall', 2, 2)]);
+    const sealing = sim.previewRoutes('tower', 2, 1, true);
+    expect(sealing.verdict).toBe('seals-spawn');
+    expect(sealing.orphaned).not.toBeNull();
+    const settled = sim.hash();
+    sim.previewRoutes('tower', 2, 1, true);
+    sim.previewPlacement('tower', 1, 1, true);
+    expect(sim.hash()).toBe(settled); // previewing changed nothing
+  });
+});
+
 describe('removal peels a stacked tile', () => {
   it('the tower comes off first, the wall stands, no rebuild', () => {
     const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));

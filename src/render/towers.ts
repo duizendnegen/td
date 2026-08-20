@@ -109,8 +109,8 @@ export class StructureRenderer {
     this.isSocket = isSocket;
   }
 
-  /** The wall model's height — what a tower ghost is raised by (see GhostPreview). */
-  static wallHeight(assets: Assets): number {
+  /** The wall model's height — where a mounted tower's payload starts. */
+  private static wallHeight(assets: Assets): number {
     const box = new THREE.Box3().setFromObject(assets.instance(WALL_MODEL));
     return Math.max(box.max.y - box.min.y, 0);
   }

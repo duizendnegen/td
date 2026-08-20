@@ -24,7 +24,7 @@ import type { FlowField, TileXY } from './flowfield';
 import { UNREACHABLE, allocField, buildFieldInto, tracePath } from './flowfield';
 import type { Grid } from './grid';
 import { hashState } from './hash';
-import type { PlacementVerdict } from './placement';
+import type { FootprintTile, PlacementVerdict } from './placement';
 import {
   canRemove,
   footprintFor,
@@ -303,20 +303,48 @@ export class Sim {
   /**
    * Speculative validation for the ghost preview (design D1): the same
    * pipeline the authoritative apply runs, against live state, with no
-   * observable mutation — hovering never changes the hash.
+   * observable mutation — hovering never changes the hash. `withWall` asks
+   * for the verdict of a tower placement that lays its own wall
+   * (build-over-walls design D6).
    */
-  previewPlacement(kind: StructureKind, tx: number, ty: number): PlacementVerdict {
-    if (!canSpend(this.state.treasuryMg)) return 'no-funds';
+  previewPlacement(kind: StructureKind, tx: number, ty: number, withWall = false): PlacementVerdict {
+    return this.placementVerdict(kind, footprintFor(tx, ty), withWall);
+  }
+
+  /**
+   * The one verdict behind previewPlacement, previewRoutes and applyPlace:
+   * the spending gate, then the validation pipeline. A tower placed with its
+   * wall validates as the wall placement it contains — terrain, occupancy,
+   * enemies, paths — and is gated on both purchases: the wall at the current
+   * balance and the tower at the balance the wall leaves, so a compound is
+   * never half-affordable and never half-applied (design D6). `scratch`
+   * holds the post-placement fields afterwards exactly when a wall's
+   * routing-dependent verdict rebuilt them — see laysWall.
+   */
+  private placementVerdict(
+    kind: StructureKind,
+    footprint: readonly FootprintTile[],
+    withWall: boolean,
+  ): PlacementVerdict {
+    const treasuryMg = this.state.treasuryMg;
+    if (!canSpend(treasuryMg)) return 'no-funds';
+    const compound = kind === 'tower' && withWall;
+    if (compound && !canSpend(treasuryMg - this.data.wallCostMg)) return 'no-funds';
     return validatePlacement(
       this.grid,
-      kind,
+      compound ? 'wall' : kind,
       this.state.structures,
       this.state.enemies,
       this.allSpawns,
       this.treasury,
-      footprintFor(tx, ty),
+      footprint,
       this.scratch,
     );
+  }
+
+  /** Whether a placement of `kind` (with or without its wall) lays a wall — and so owns mask and fields. */
+  private static laysWall(kind: StructureKind, withWall: boolean): boolean {
+    return kind === 'wall' || withWall;
   }
 
   /**
@@ -360,29 +388,20 @@ export class Sim {
    *
    * `lanes` is null for every verdict reached before `scratch` was rebuilt:
    * no-funds, out-of-bounds, not-buildable, occupied, enemy-in-footprint,
-   * and every tower placement, whatever its verdict — a tower never touches
-   * the mask or the fields (build-over-walls design D2).
+   * and every tower placement on an existing foundation, whatever its
+   * verdict — such a tower never touches the mask or the fields
+   * (build-over-walls design D2). A tower placed with its wall projects
+   * exactly as the wall placement it contains (design D6).
    */
-  previewRoutes(kind: StructureKind, tx: number, ty: number): PlacementRoutes {
-    if (!canSpend(this.state.treasuryMg)) {
-      return { verdict: 'no-funds', lanes: null, orphaned: null };
-    }
+  previewRoutes(kind: StructureKind, tx: number, ty: number, withWall = false): PlacementRoutes {
     const footprint = footprintFor(tx, ty);
-    const verdict = validatePlacement(
-      this.grid,
-      kind,
-      this.state.structures,
-      this.state.enemies,
-      this.allSpawns,
-      this.treasury,
-      footprint,
-      this.scratch,
-    );
-    // A tower placement short-circuits before the rebuild, so the buffers
-    // still hold the previous evaluation's fields — never readable as this
-    // one's. Only a wall's routing-dependent verdicts rebuilt them.
+    const verdict = this.placementVerdict(kind, footprint, withWall);
+    // A foundation-only tower placement short-circuits before the rebuild,
+    // so the buffers still hold the previous evaluation's fields — never
+    // readable as this one's. Only a wall's routing-dependent verdicts
+    // rebuilt them.
     const rebuilt =
-      kind === 'wall' &&
+      Sim.laysWall(kind, withWall) &&
       (verdict === 'ok' || verdict === 'seals-spawn' || verdict === 'strands-enemy');
     if (!rebuilt) return { verdict, lanes: null, orphaned: null };
     return {
@@ -505,7 +524,13 @@ export class Sim {
         this.applySpawn(command.type, command.spawn);
         break;
       case 'place':
-        this.applyPlace(command.structure, command.archetype ?? 'rapid', command.tx, command.ty);
+        this.applyPlace(
+          command.structure,
+          command.archetype ?? 'rapid',
+          command.tx,
+          command.ty,
+          command.withWall ?? false,
+        );
         break;
       case 'move':
         this.applyMove(command.tx, command.ty, command.toTx, command.toTy);
@@ -560,25 +585,24 @@ export class Sim {
     spawnEnemy(this.state, this.allSpawns[spawnIndex]!, spawnIndex, typeId, stats.speed, stats.hp);
   }
 
-  private applyPlace(kind: StructureKind, archetype: TowerArchetype, tx: number, ty: number): void {
-    const s = this.state;
+  /**
+   * place: one structure, or — a tower `withWall` — the wall and the tower
+   * on it in one command (build-over-walls design D6). The compound is
+   * atomic: the wall placement's verdict is the verdict, and on 'ok' the
+   * wall lands first and the tower on it, each its own structure with its
+   * own cost, exactly the state two consecutive place commands would leave.
+   */
+  private applyPlace(
+    kind: StructureKind,
+    archetype: TowerArchetype,
+    tx: number,
+    ty: number,
+    withWall: boolean,
+  ): void {
     const footprint = footprintFor(tx, ty);
-    const archetypeId = kind === 'wall' ? -1 : ARCHETYPES.indexOf(archetype);
-    const costMg =
-      kind === 'wall' ? this.data.wallCostMg : this.data.towers[archetypeId]!.levels[0]!.costMg;
+    const laysWall = Sim.laysWall(kind, withWall);
 
-    const verdict = canSpend(s.treasuryMg)
-      ? validatePlacement(
-          this.grid,
-          kind,
-          s.structures,
-          s.enemies,
-          this.allSpawns,
-          this.treasury,
-          footprint,
-          this.scratch,
-        )
-      : 'no-funds';
+    const verdict = this.placementVerdict(kind, footprint, withWall);
     if (verdict !== 'ok') {
       this.events.push({ kind: 'placementRejected', tiles: footprint });
       return;
@@ -588,11 +612,27 @@ export class Sim {
     // so it never touches the mask or the fields (build-over-walls design
     // D2); a wall re-blocks the footprint and swaps in the fields the
     // validation just built for exactly this mask — one rebuild per attempt.
-    if (kind === 'wall') {
+    if (laysWall) {
       for (const t of footprint) this.grid.setBlocked(t.x, t.y, true);
       this.swapScratchFields();
       this.maskChanged = true;
+      this.pushStructure('wall', -1, tx, ty, this.data.wallCostMg);
     }
+    if (kind === 'tower') {
+      const archetypeId = ARCHETYPES.indexOf(archetype);
+      this.pushStructure(kind, archetypeId, tx, ty, this.data.towers[archetypeId]!.levels[0]!.costMg);
+    }
+  }
+
+  /** Append a freshly bought structure and charge it — provisional until a wave tick runs over it (design D1). */
+  private pushStructure(
+    kind: StructureKind,
+    archetypeId: number,
+    tx: number,
+    ty: number,
+    costMg: number,
+  ): void {
+    const s = this.state;
     s.structures.push({
       id: s.nextStructureId++,
       kind,
@@ -602,7 +642,6 @@ export class Sim {
       level: kind === 'wall' ? 0 : 1,
       paidMg: costMg,
       nextFireTick: 0,
-      // Uncommitted until a wave tick runs over it (design D1).
       provisional: true,
       // Damage counters start empty; walls carry them at zero like nextFireTick.
       waveDamage: 0,
