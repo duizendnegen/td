@@ -14,6 +14,8 @@ import type { SimState } from './types';
 /** One authored group, resolved against balance and the spawn list at load. */
 export interface ResolvedGroup {
   spawn: { x: number; y: number };
+  /** Index of `spawn` in the level's declared spawn list (design D3). */
+  originSpawn: number;
   typeId: number;
   speed: number;
   hp: number;
@@ -27,13 +29,16 @@ export interface ResolvedGroup {
  * already guaranteed each reference exists, so lookups here cannot miss.
  */
 export function resolveWaves(data: GameData): ResolvedGroup[][] {
-  const spawnById = new Map(data.level.spawns.map((s) => [s.id, { x: s.x, y: s.y }]));
+  const indexById = new Map(data.level.spawns.map((s, i) => [s.id, i]));
   return data.level.waves.map((wave) =>
     wave.groups.map((g) => {
       const typeId = data.enemyTypes.findIndex((t) => t.key === g.type);
       const stats = data.enemyTypes[typeId]!;
+      const originSpawn = indexById.get(g.spawn)!;
+      const spawn = data.level.spawns[originSpawn]!;
       return {
-        spawn: spawnById.get(g.spawn)!,
+        spawn: { x: spawn.x, y: spawn.y },
+        originSpawn,
         typeId,
         speed: stats.speed,
         hp: stats.hp,
@@ -57,7 +62,7 @@ export function stepWaveSpawns(state: SimState, groups: readonly ResolvedGroup[]
       cursor < g.count &&
       state.waveStartTick + g.delay + cursor * g.spawnInterval <= state.tick
     ) {
-      spawnEnemy(state, g.spawn, g.typeId, g.speed, g.hp);
+      spawnEnemy(state, g.spawn, g.originSpawn, g.typeId, g.speed, g.hp);
       cursor++;
     }
     state.groupCursors[i] = cursor;

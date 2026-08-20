@@ -3,7 +3,8 @@
 //
 // Responsibilities:
 //   - F2 enemy state and committed waypoints
-//   - F3 tower ranges and target lines (Phase 3)
+//   - F3 tower ranges and target lines (Phase 3), plus every active spawn's
+//     returning field as per-tile direction ticks (return-to-origin-spawn D6)
 //   - F4 tick / state hash / entity count / ms-per-tick
 //
 // "Where do enemies go" is a player surface now, not a debug one: the
@@ -12,6 +13,7 @@
 
 import * as THREE from 'three';
 import { TILE } from '../sim/fixed';
+import { DIR_DX, DIR_DY } from '../sim/flowfield';
 import { formatHash } from '../sim/hash';
 import type { Sim } from '../sim/sim';
 import { towerCentre, towerStats } from '../sim/tower';
@@ -22,6 +24,11 @@ const INBOUND_COLOR = 0x35d0ff; // cyan
 const RETURNING_COLOR = 0xffa03c; // orange
 /** F3 tower colours per archetypeId (canonical ARCHETYPES order). */
 const TOWER_COLORS = [0xffe08a, 0xff8a5c, 0xffb02e, 0x6fd9ff];
+/**
+ * F3 per-spawn shades for the returning fields, cycled in active-spawn
+ * order — debug tooling, so running out of distinct shades just repeats.
+ */
+const RETURNING_FIELD_COLORS = [0xffa03c, 0xff5c8a, 0xb8ff5c, 0xd08cff];
 
 function lineSegments(points: number[], color: number): THREE.LineSegments {
   const geo = new THREE.BufferGeometry();
@@ -117,6 +124,27 @@ export class DebugOverlay {
     this.dropCombatLayer();
     const layer = new THREE.Group();
     const y = OVERLAY_Y + 0.02;
+
+    // Every ACTIVE spawn's returning field as a tick per tile pointing the
+    // way a returning enemy of that origin steps (return-to-origin-spawn
+    // design D6); one shade per spawn.
+    const grid = this.sim.grid;
+    this.sim.activeSpawnIndices.forEach((spawnId, order) => {
+      const field = this.sim.returning[spawnId]!;
+      const points: number[] = [];
+      for (let ty = 0; ty < grid.height; ty++) {
+        for (let tx = 0; tx < grid.width; tx++) {
+          const d = field.dir[grid.idx(tx, ty)]!;
+          if (d < 0) continue;
+          const cx = tx + 0.5;
+          const cz = ty + 0.5;
+          points.push(cx, y, cz, cx + DIR_DX[d]! * 0.35, y, cz + DIR_DY[d]! * 0.35);
+        }
+      }
+      layer.add(
+        lineSegments(points, RETURNING_FIELD_COLORS[order % RETURNING_FIELD_COLORS.length]!),
+      );
+    });
     for (const t of this.sim.state.structures) {
       if (t.kind !== 'tower') continue;
       const color = TOWER_COLORS[t.archetypeId] ?? 0xffffff;

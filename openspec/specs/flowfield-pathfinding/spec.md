@@ -2,37 +2,70 @@
 
 ## Purpose
 
-Grid pathfinding via dual multi-source flow fields that steer enemies from spawns to the treasury
-(and, from Phase 2 on, back out), with corner-cutting made impossible by construction and every
-result deterministic.
+Grid pathfinding via flow fields — one inbound field plus one returning field per declared spawn —
+that steer enemies from spawns to the treasury and back out to the spawn each entered from, with
+corner-cutting made impossible by construction and every result deterministic.
 
 ## Requirements
 
-### Requirement: Dual flow fields
+### Requirement: Per-origin flow fields
 
-The system SHALL maintain two flow fields over the level grid: an **inbound** field with the
-treasury tiles as sources, and a **returning** field with all currently active spawn tiles as
-simultaneous sources (yielding nearest-active-spawn routing without per-enemy target selection).
-Both fields SHALL be rebuilt whenever the blocked mask changes **or the active spawn set
-changes** and SHALL be available for display at all times. A spawn activation SHALL NOT force
-an immediate waypoint re-read: no tile changed walkability, so enemies pick up the new field at
-their next waypoint as usual.
+The system SHALL maintain one **inbound** field with the treasury tiles as sources, and one
+**returning** field per declared spawn, with that spawn's tile as the field's sole source. Every
+enemy SHALL be permanently associated, at the moment it spawns, with the spawn it entered play
+from, and this origin SHALL be hashed simulation state. A returning enemy SHALL steer by its
+origin spawn's returning field.
+
+All fields SHALL be rebuilt whenever the blocked mask changes and SHALL be available for display
+at all times. Because each returning field's source set is a single declared spawn, spawn
+activation SHALL NOT change any field and SHALL NOT force a waypoint re-read.
 
 #### Scenario: Inbound field reaches the treasury
 
 - **WHEN** the inbound field is built on a level where a spawn can reach the treasury
 - **THEN** following the field's directions tile-by-tile from that spawn arrives at the treasury
 
-#### Scenario: Returning field routes to the nearest active spawn
+#### Scenario: Carrier returns to its origin, not the nearest exit
 
-- **WHEN** the returning field is built with multiple active spawns
-- **THEN** each tile's cost equals the cheapest path cost to any active spawn
+- **WHEN** two spawns are active, and an enemy that entered from the farther spawn flips to
+  returning at the treasury while the other spawn is cheaper to reach
+- **THEN** it follows its origin spawn's field and exits at the spawn it entered from
 
-#### Scenario: Activation redraws the exits
+#### Scenario: Each returning field costs toward its own spawn
 
-- **WHEN** a second spawn activates at a wave start while a carrier is walking toward the first
-- **THEN** the returning field is rebuilt with both spawns as sources that tick, and the carrier
-  adopts the new routing at its next waypoint re-read
+- **WHEN** a returning field is built for one declared spawn
+- **THEN** each tile's cost equals the cheapest path cost to that spawn alone, regardless of any
+  other spawn
+
+#### Scenario: Activation changes nothing about routing
+
+- **WHEN** a second spawn activates at a wave start while a carrier is walking home
+- **THEN** no existing field changes, the carrier's routing is unaffected, and no waypoint
+  re-read is forced
+
+### Requirement: Spawn tiles are endpoints, not corridors
+
+No field SHALL route through any declared spawn tile — dormant included — as an intermediate
+step: a spawn tile MAY receive a finite cost and direction, so that an enemy standing on it can
+step off, but no route followed from any other tile SHALL enter a spawn tile that is not that
+field's own source.
+
+#### Scenario: Inbound routing skirts a spawn tile
+
+- **WHEN** the geometrically cheapest route from a tile to the treasury passes over a declared
+  spawn tile
+- **THEN** the inbound field routes around that spawn tile instead
+
+#### Scenario: An enemy can step off its own spawn
+
+- **WHEN** an enemy spawns on its spawn tile
+- **THEN** the inbound field gives that tile a finite cost and a direction leading off it
+
+#### Scenario: A foreign spawn tile is never entered
+
+- **WHEN** a returning enemy's route home passes near another declared spawn's tile
+- **THEN** the route never enters that tile, so the enemy can never stand on a spawn that is not
+  its own
 
 ### Requirement: 8-connected movement with integer costs
 

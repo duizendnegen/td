@@ -43,6 +43,14 @@ export interface Enemy {
   pos: Vec2;
   /** Interpolation snapshot, re-taken at the top of every tick. Render-only: NOT hashed. */
   prevPos: Vec2;
+  /**
+   * Index into the level's DECLARED spawn list of the spawn this enemy
+   * entered play from — declared, not active, because the active list
+   * reshuffles as dormant spawns wake (return-to-origin-spawn design D3).
+   * Permanent from birth; a returning enemy steers by and escapes through
+   * this spawn alone.
+   */
+  originSpawn: number;
   /** The committed waypoint — a tile centre, in units. */
   waypoint: Vec2;
   /** Movement speed in units per tick. */

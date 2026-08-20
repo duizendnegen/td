@@ -115,7 +115,7 @@ src/
 │  ├─ hash.ts              FNV-1a state hash for replay tests
 │  ├─ types.ts             entity and state types
 │  ├─ grid.ts              tile storage, blocked mask, footprints
-│  ├─ flowfield.ts         dual Dijkstra fields + corner rule
+│  ├─ flowfield.ts         Dijkstra fields + corner rule + no-transit spawns
 │  ├─ placement.ts         validation, removal + its phase gate
 │  ├─ enemy.ts             steering, state machine, theft
 │  ├─ tower.ts             targeting, firing, upgrades
@@ -357,7 +357,9 @@ Fixed and documented, because order is part of the determinism contract:
 3. Rebuild flow fields if step 2's commands changed the blocked mask; sweep stale commitments
 4. Wave scheduler — the active wave's group cursors spawn due enemies
 5. Enemy movement and waypoint re-evaluation
-6. Enemy arrival: theft at treasury (full-capacity overdraw), escape at spawn, gold pickup
+6. Enemy arrival: theft at treasury (full-capacity overdraw), escape at the enemy's origin
+   spawn (origin-only — no-transit routing means no other spawn tile is ever reachable), gold
+   pickup
 7. Tower targeting and firing (damage applies this tick)
 8. Deaths, bounties, gold-sack drops
 9. Run progression: interest accrual while the wave is live; end-of-wave settlement (sack
@@ -375,11 +377,25 @@ Range checks compare **squared** fixed-point distances, avoiding a square root e
 
 ### Flow fields
 
-Two fields, both rebuilt on any blocked-mask change:
+One inbound field plus one returning field per **declared** spawn — `1 + N` fields, all built at
+construction (dormant spawns included) and all rebuilt on any blocked-mask change:
 
 - **Inbound** — multi-source Dijkstra from the treasury tiles outward.
-- **Returning** — multi-source Dijkstra from **all currently active spawns** simultaneously, which
-  gives "nearest active spawn" for free without per-enemy target selection.
+- **Returning, per declared spawn** — single-source Dijkstra from that spawn's tile. Every enemy
+  records `originSpawn` (its declared-spawn index, hashed state) at birth; a returning enemy
+  steers by and escapes through **its origin's** field alone — carriers run home, never to the
+  nearest exit. Declared-index keying keeps the association stable when dormant spawns wake and
+  reshuffle the active list.
+
+Because every declared spawn's field exists from construction, **spawn activation is a pure
+source-set event**: it changes no field, allocates nothing, and forces no waypoint re-read.
+
+**Spawn tiles are endpoints, not corridors**: every field is built with the declared spawn set as
+*no-transit* tiles — a spawn tile may be relaxed *into* (it gets a cost and a direction, so an
+enemy standing on it can step off) but is never expanded *from*, so no route ever crosses a spawn
+tile that is not the field's own source. The grid mask is untouched: spawn tiles stay walkable for
+`isBlocked` and the corner rule. Load-time level validation checks spawn→treasury reachability
+under the same rule.
 
 8-connected, with integer costs `1024` orthogonal and `1448` diagonal. A bucket queue keyed on cost
 is used rather than a comparison heap — costs are small integers, and it keeps pop order
@@ -390,8 +406,8 @@ is only relaxed if both orthogonally-adjacent tiles between them are walkable. E
 cannot express an illegal move, because the field never points that way.
 
 Each field stores `dir: Int8Array` (0–7 direction index, or −1 unreachable) plus `cost: Int32Array`
-for the debug overlay. Two `Int8Array(600)` allocations for a 30×20 board — rebuilt in well under a
-millisecond.
+for the debug overlay. `1 + N` live fields plus an equal scratch set — still a few small typed
+arrays per field on a 20×10 board, rebuilt in well under a millisecond at this game's spawn counts.
 
 ### Movement
 
@@ -406,15 +422,17 @@ Before any build is confirmed:
 
 1. Footprint is in bounds, all tiles walkable, no existing structure.
 2. **No enemy currently occupies any footprint tile** — reject rather than displace.
-3. Tentatively set the blocked mask, rebuild the inbound field.
-4. Every **active** spawn must have finite cost to the treasury.
-5. **Every live enemy's current tile** must also have finite cost in the field matching its state.
-   This is stricter than the README's spawn-only check and is necessary: a placement can strand an
-   enemy already inside the maze without sealing any spawn.
-6. Pass → commit and charge the treasury. Fail → revert the mask, restore the previous field, reject.
+3. Tentatively set the blocked mask, rebuild every field — inbound plus each declared spawn's
+   returning field — into the scratch set.
+4. Every **declared** spawn — dormant included — must have finite cost to the treasury.
+5. **Every live enemy's current tile** must also have finite cost in the field it steers by:
+   inbound enemies in the inbound field, returning enemies each in **its origin spawn's** field.
+   Per-origin is stricter than any-exit-reachable and deliberate: a placement that cuts a carrier
+   off from its own exit is rejected even when another spawn stays reachable from its tile.
+6. Pass → commit and charge the treasury. Fail → revert the mask, restore the previous fields, reject.
 
-The previous field is kept in a spare buffer and swapped, so a rejected placement costs one rebuild
-and no allocation.
+The previous fields are kept in a spare buffer set and swapped wholesale, so a rejected placement
+costs one rebuild pass (`1 + N` Dijkstras) and no allocation.
 
 **Removal is immediate, and refused during a wave for committed construction.** Selling an
 established maze is a between-waves action: the gate (`canRemove`, shared by the sim and every UI
@@ -472,9 +490,10 @@ if (sim.tick >= t.nextFireTick) {
 Stats (`damage`, `fireIntervalTicks`, range, slow duration) come from the tower archetype's
 current level row in balance data. Within a tick, towers due to fire resolve in **insertion
 order**, and target selection skips enemies already at `hp ≤ 0` from an earlier same-tick shot —
-build order pins same-tick resolution, and no shot is wasted on the dead. Priorities read the two
+build order pins same-tick resolution, and no shot is wasted on the dead. Priorities read the
 flow fields: rapid/area/slow pick minimal *inbound* cost (first along path); the sniper's
-carrier rule picks minimal *returning* cost (closest to escaping), otherwise max stat-block hp.
+carrier rule picks minimal cost in each carrier's **origin** returning field (closest to escaping
+through its own exit), otherwise max stat-block hp.
 
 `events` is drained by the renderer each frame and never read by the sim, so it is outside the state
 hash. The known cost: a catapult boulder can visibly land after its target has already died.
@@ -661,13 +680,15 @@ by watching the game:
 | Key | Shows |
 |---|---|
 | `F2` | Enemy state: committed waypoint line, inbound/returning, carried gold, slow timer |
-| `F3` | Tower ranges and current target lines |
+| `F3` | Tower ranges and current target lines; every active spawn's returning field as per-tile direction ticks |
 | `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count |
 
-Routing has no debug overlay: the player-facing **lane ribbon** (§9) is the answer to "where do
-they go", and its orphaned-region shade covers walkable-but-unreachable tiles. The corner-cutting
-rule is verified by `flowfield.test.ts`, which sweeps the whole board rather than one route — an
-illegal diagonal is invisible as motion and would be missed by eye either way.
+The player-facing **lane ribbon** (§9) remains the answer to "where do they go"; F3's returning
+fields exist because per-origin routing multiplies the fields, and "is spawn 2's field sane" can
+no longer be eyeballed from one shared return lane. The ribbon's orphaned-region shade covers
+walkable-but-unreachable tiles. The corner-cutting rule is verified by `flowfield.test.ts`, which
+sweeps the whole board rather than one route — an illegal diagonal is invisible as motion and
+would be missed by eye either way.
 
 ### Headless capture mode
 

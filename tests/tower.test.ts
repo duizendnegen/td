@@ -133,6 +133,45 @@ describe('sniper cascade (design D5)', () => {
     expect(far.hp).toBe(130);
   });
 
+  it('carriers from different spawns rank by their OWN origin fields', () => {
+    // Two active fronts: west (0,2) and south-east (6,4). The far carrier
+    // stands right beside the FOREIGN south-east spawn — nearest-exit costing
+    // would call it almost escaped — but its own west field prices it ~5
+    // tiles out, so the mid-board south-east carrier at 2 tiles dies first.
+    const wave = (spawn: string) => ({
+      groups: [{ spawn, type: 'runner', count: 1, spawnInterval: 1, delay: 0 }],
+    });
+    const { sim } = makeSim({
+      id: 'test',
+      grid: { width: 7, height: 5 },
+      treasury: { x: 6, y: 2 },
+      spawns: [
+        { id: 'west', x: 0, y: 2, activeFromWave: 1 },
+        { id: 'southeast', x: 6, y: 4, activeFromWave: 1 },
+      ],
+      terrain: {
+        legend: { '.': 'dirt' },
+        map: ['.......', '.......', '.......', '.......', '.......'],
+      },
+      economy: { startingTreasury: 200, interestRatePerTick: 0 },
+      waves: [wave('west'), wave('southeast')],
+    });
+    sim.tick([place('tower', 3, 1, 'sniper')]);
+    const farFromOwn = injectEnemy(sim, 5, 4, {
+      mode: 'returning',
+      carriedMg: 10_000,
+      originSpawn: 0,
+    });
+    const nearOwn = injectEnemy(sim, 4, 4, {
+      mode: 'returning',
+      carriedMg: 10_000,
+      originSpawn: 1,
+    });
+    sim.tick([]);
+    expect(nearOwn.hp).toBe(130 - 40);
+    expect(farFromOwn.hp).toBe(130);
+  });
+
   it('equal stat-hp enemies are focus-fired by inbound progress, not alternated', () => {
     const sim = sniperBoard();
     const behind = injectEnemy(sim, 4, 2); // higher inbound cost

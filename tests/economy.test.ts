@@ -250,6 +250,40 @@ describe('winning (run-lifecycle spec)', () => {
   });
 });
 
+describe('origin-only escape (return-to-origin-spawn spec)', () => {
+  // Two active fronts: west (0,1) and east (6,0), treasury (6,1). Routing can
+  // never put an enemy on a foreign spawn tile (no-transit rule); these park
+  // one there by fiat to pin the escape comparison itself to the origin.
+  const twoExit = (): Record<string, unknown> => ({
+    id: 'test',
+    grid: { width: 7, height: 3 },
+    treasury: { x: 6, y: 1 },
+    spawns: [
+      { id: 'west', x: 0, y: 1, activeFromWave: 1 },
+      { id: 'east', x: 6, y: 0, activeFromWave: 1 },
+    ],
+    terrain: { legend: { '.': 'dirt' }, map: ['.......', '.......', '.......'] },
+    economy: { startingTreasury: 200, interestRatePerTick: 0 },
+    waves: [trivialWave('west'), trivialWave('east')],
+  });
+
+  it('a returning enemy standing on a foreign spawn tile does not escape', () => {
+    const { sim } = makeSim(twoExit());
+    const e = injectEnemy(sim, 6, 0, { mode: 'returning', carriedMg: 25_000, originSpawn: 0 });
+    for (let t = 0; t < 10; t++) sim.tick([]);
+    expect(e.alive).toBe(true);
+    expect(sim.state.escapedMg).toBe(0);
+  });
+
+  it('the same tile removes an enemy whose origin it is, gold and all', () => {
+    const { sim } = makeSim(twoExit());
+    injectEnemy(sim, 6, 0, { mode: 'returning', carriedMg: 25_000, originSpawn: 1 });
+    sim.tick([]);
+    expect(sim.state.enemies).toHaveLength(0);
+    expect(sim.state.escapedMg).toBe(25_000);
+  });
+});
+
 describe('liquidation total (design D8)', () => {
   it('sums the floored refund of every committed structure', () => {
     expect(

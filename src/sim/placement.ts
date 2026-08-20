@@ -8,7 +8,8 @@
 //     was never navigable, so the mask and fields are unaffected (D6)
 //   - Bounds, occupancy, and no-enemy-in-footprint checks
 //   - Reachability: every DECLARED spawn (dormant included, D4) AND every
-//     live enemy in the field matching its state
+//     live enemy — inbound enemies in the inbound field, returning enemies
+//     each in its origin spawn's field (return-to-origin-spawn spec)
 //   - Purity: the tentative mask is unconditionally restored; fields are
 //     rebuilt into caller-owned scratch buffers (spare-buffer swap)
 //   - The removal gate (canRemove) — the one predicate the sim and every UI
@@ -66,11 +67,12 @@ export type PlacementVerdict =
 
 /**
  * The validation pipeline (phase-2 design D1 + phase-4 terrain rules), pure
- * in the observable sense: the footprint is tentatively blocked, both fields
- * are rebuilt into `scratch`, and the mask is unconditionally restored before
- * returning. On a dirt 'ok' the scratch fields hold exactly the
- * post-placement fields, so an accepting caller re-blocks the footprint and
- * swaps them in without a second rebuild.
+ * in the observable sense: the footprint is tentatively blocked, every field
+ * — inbound plus one returning field per declared spawn — is rebuilt into
+ * `scratch`, and the mask is unconditionally restored before returning. On a
+ * dirt 'ok' the scratch fields hold exactly the post-placement fields, so an
+ * accepting caller re-blocks the footprint and swaps them in without a
+ * second rebuild.
  *
  * A socket placement returns 'ok' WITHOUT touching the mask or scratch (D6):
  * the tile was never navigable, so there is nothing to re-validate and the
@@ -78,8 +80,9 @@ export type PlacementVerdict =
  *
  * Spawn reachability iterates every DECLARED spawn — dormant included — so
  * the no-sealing invariant already holds when a spawn activates mid-run (D4).
- * The returning scratch field keeps active-spawn sources, matching what live
- * enemies actually steer by.
+ * The strand check is per-origin (return-to-origin-spawn spec): a returning
+ * enemy is checked against ITS origin spawn's field, so cutting a carrier
+ * off from its own exit is rejected even when another spawn stays reachable.
  */
 export function validatePlacement(
   grid: Grid,
@@ -87,10 +90,9 @@ export function validatePlacement(
   structures: readonly Structure[],
   enemies: readonly Enemy[],
   allSpawns: readonly { x: number; y: number }[],
-  activeSpawns: readonly { x: number; y: number }[],
   treasury: { x: number; y: number },
   footprint: readonly FootprintTile[],
-  scratch: { inbound: FlowField; returning: FlowField },
+  scratch: { inbound: FlowField; returning: FlowField[] },
 ): PlacementVerdict {
   for (const t of footprint) {
     if (!grid.inBounds(t.x, t.y)) return 'out-of-bounds';
@@ -114,8 +116,10 @@ export function validatePlacement(
 
   // Tentative mask; every return path below restores it.
   for (const t of footprint) grid.setBlocked(t.x, t.y, true);
-  buildFieldInto(grid, [treasury], scratch.inbound);
-  buildFieldInto(grid, activeSpawns, scratch.returning);
+  buildFieldInto(grid, [treasury], scratch.inbound, allSpawns);
+  allSpawns.forEach((s, i) => {
+    buildFieldInto(grid, [s], scratch.returning[i]!, allSpawns);
+  });
 
   let verdict: PlacementVerdict = 'ok';
   for (const s of allSpawns) {
@@ -127,7 +131,7 @@ export function validatePlacement(
   if (verdict === 'ok') {
     for (const e of enemies) {
       if (!e.alive) continue;
-      const field = e.mode === 'inbound' ? scratch.inbound : scratch.returning;
+      const field = e.mode === 'inbound' ? scratch.inbound : scratch.returning[e.originSpawn]!;
       if (field.cost[grid.idx(toTile(e.pos.x), toTile(e.pos.y))]! < 0) {
         verdict = 'strands-enemy';
         break;
@@ -170,9 +174,8 @@ export function validateMove(
   structures: readonly Structure[],
   enemies: readonly Enemy[],
   allSpawns: readonly { x: number; y: number }[],
-  activeSpawns: readonly { x: number; y: number }[],
   treasury: { x: number; y: number },
-  scratch: { inbound: FlowField; returning: FlowField },
+  scratch: { inbound: FlowField; returning: FlowField[] },
 ): PlacementVerdict {
   if (toTx === mover.tx && toTy === mover.ty) return 'occupied';
   if (!grid.inBounds(toTx, toTy)) return 'out-of-bounds';
@@ -188,8 +191,10 @@ export function validateMove(
     if (structureAt(structures, toTx, toTy)) return 'occupied';
     if (originFrees) {
       grid.setBlocked(mover.tx, mover.ty, false);
-      buildFieldInto(grid, [treasury], scratch.inbound);
-      buildFieldInto(grid, activeSpawns, scratch.returning);
+      buildFieldInto(grid, [treasury], scratch.inbound, allSpawns);
+      allSpawns.forEach((s, i) => {
+        buildFieldInto(grid, [s], scratch.returning[i]!, allSpawns);
+      });
       grid.setBlocked(mover.tx, mover.ty, true);
     }
     return 'ok';
@@ -206,8 +211,10 @@ export function validateMove(
   // Both tentative mask edits together; every return path below restores them.
   if (originFrees) grid.setBlocked(mover.tx, mover.ty, false);
   for (const t of footprint) grid.setBlocked(t.x, t.y, true);
-  buildFieldInto(grid, [treasury], scratch.inbound);
-  buildFieldInto(grid, activeSpawns, scratch.returning);
+  buildFieldInto(grid, [treasury], scratch.inbound, allSpawns);
+  allSpawns.forEach((s, i) => {
+    buildFieldInto(grid, [s], scratch.returning[i]!, allSpawns);
+  });
 
   let verdict: PlacementVerdict = 'ok';
   for (const s of allSpawns) {
@@ -219,7 +226,7 @@ export function validateMove(
   if (verdict === 'ok') {
     for (const e of enemies) {
       if (!e.alive) continue;
-      const field = e.mode === 'inbound' ? scratch.inbound : scratch.returning;
+      const field = e.mode === 'inbound' ? scratch.inbound : scratch.returning[e.originSpawn]!;
       if (field.cost[grid.idx(toTile(e.pos.x), toTile(e.pos.y))]! < 0) {
         verdict = 'strands-enemy';
         break;

@@ -8,6 +8,7 @@ function makeEnemy(id: number): Enemy {
   return {
     id,
     typeId: 0,
+    originSpawn: 0,
     pos: { x: 512, y: 10752 },
     prevPos: { x: 512, y: 10752 },
     waypoint: { x: 1536, y: 10752 },
@@ -98,6 +99,8 @@ describe('state hash', () => {
       (s) => (s.lastWaveBonusMg += 1000),
       // Provisional-construction field: the uncommitted flag per structure.
       (s) => (s.structures[0]!.provisional = true),
+      // Return-to-origin-spawn field: the enemy's declared origin spawn.
+      (s) => s.enemies[0]!.originSpawn++,
     ];
     for (const mutate of mutations) {
       const state = makeState();

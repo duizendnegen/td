@@ -12,10 +12,19 @@ import { nextTile } from './flowfield';
 import type { Grid } from './grid';
 import type { Enemy, SimState } from './types';
 
-/** Both live fields, picked per enemy by its mode. */
+/**
+ * The live fields, picked per enemy by its mode — inbound enemies share one
+ * field, returning enemies read the field of their origin spawn.
+ */
 export interface Fields {
   inbound: FlowField;
-  returning: FlowField;
+  /** One returning field per DECLARED spawn, indexed by Enemy.originSpawn. */
+  returning: FlowField[];
+}
+
+/** The field `e` steers by right now: inbound, or its origin's returning. */
+export function fieldFor(e: Enemy, fields: Fields): FlowField {
+  return e.mode === 'inbound' ? fields.inbound : fields.returning[e.originSpawn]!;
 }
 
 /**
@@ -46,7 +55,7 @@ export function stepEnemies(
 ): void {
   for (const e of state.enemies) {
     if (!e.alive) continue;
-    const field = e.mode === 'inbound' ? fields.inbound : fields.returning;
+    const field = fieldFor(e, fields);
     let budget = effectiveSpeed(e, state.tick, slowSpeedPer100);
     // An enemy that lands mid-tick with movement budget left continues toward
     // the next waypoint, so speed is honoured exactly through turns.
@@ -93,8 +102,7 @@ export function invalidateCommitments(state: SimState, grid: Grid, fields: Field
       grid.isBlocked(wtx, wty) ||
       (diagonal && (grid.isBlocked(wtx, cty) || grid.isBlocked(ctx, wty)));
     if (!illegal) continue;
-    const field = e.mode === 'inbound' ? fields.inbound : fields.returning;
-    const next = nextTile(field, grid, ctx, cty);
+    const next = nextTile(fieldFor(e, fields), grid, ctx, cty);
     // Placement validation guarantees a live enemy is never stranded, so
     // next is null only when the enemy already stands on a source tile.
     e.waypoint.x = tileCentre(next ? next.x : ctx);
@@ -102,10 +110,15 @@ export function invalidateCommitments(state: SimState, grid: Grid, fields: Field
   }
 }
 
-/** Spawn one typed enemy at a spawn tile — shared by the timer and the spawn command. */
+/**
+ * Spawn one typed enemy at a spawn tile — shared by the timer and the spawn
+ * command. `originSpawn` is the tile's index in the DECLARED spawn list; the
+ * enemy keeps it for life (design D3).
+ */
 export function spawnEnemy(
   state: SimState,
   spawn: { x: number; y: number },
+  originSpawn: number,
   typeId: number,
   speed: number,
   hp: number,
@@ -115,6 +128,7 @@ export function spawnEnemy(
   const enemy: Enemy = {
     id: state.nextEnemyId++,
     typeId,
+    originSpawn,
     pos: { x, y },
     prevPos: { x, y },
     // Committing the own tile centre makes the first movement tick re-read

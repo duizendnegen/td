@@ -139,7 +139,8 @@ describe('wave scheduling', () => {
 
 describe('spawn activation by wave (design D7)', () => {
   // Two spawns: main (0,1) active from wave 1, east (6,0) dormant until wave
-  // 2 — right next to the treasury, so nearest-spawn routing flips hard.
+  // 2 — deliberately one tile from the treasury, the maximally tempting
+  // wrong exit for anything that is not origin-true routing.
   const twoFront = (waves: Record<string, unknown>[]): Record<string, unknown> => ({
     id: 'test',
     grid: { width: 7, height: 3 },
@@ -192,12 +193,71 @@ describe('spawn activation by wave (design D7)', () => {
     const e = sim.state.enemies[0]!;
     expect(toTile(e.pos.x)).toBe(6);
     expect(toTile(e.pos.y)).toBe(0);
-    // The returning field now sources both spawns: a carrier grabbing at the
-    // treasury (6,1) escapes through the adjacent east spawn, not the west.
+    // East is this carrier's ORIGIN: it grabs at the treasury (6,1) and
+    // escapes right back through the adjacent east spawn it entered from.
     guard = 0;
     while (sim.state.enemies.length > 0 && guard++ < 500) sim.tick([]);
     expect(sim.state.escapedMg).toBe(50_000); // wave 1's carrier plus this one
     expect(guard).toBeLessThan(30); // one tile in, one tile out — not a trek west
+  });
+
+  it('a carrier from the farther spawn exits at its origin, never the nearer one', () => {
+    // Both fronts active from wave 1; the wave's runner enters at the far
+    // west spawn, so its whole return trip runs PAST the east spawn that
+    // sits one tile from the treasury.
+    const level = twoFront([
+      { groups: [group()] },
+      { groups: [group({ spawn: 'east' })] },
+    ]) as { spawns: { activeFromWave: number }[] };
+    level.spawns[1]!.activeFromWave = 1;
+    const { sim } = makeSim(level, testBalance({ speed: 128 }));
+    sim.tick([startWave()]);
+    expect(sim.state.enemies[0]!.originSpawn).toBe(0); // declared index of west
+    let walkedHomeWest = false;
+    let guard = 0;
+    while (sim.state.enemies.length > 0 && guard++ < 500) {
+      const e = sim.state.enemies[0]!;
+      const tile = { x: toTile(e.pos.x), y: toTile(e.pos.y) };
+      // The active east spawn tile (6,0) is never entered — not inbound, not
+      // returning — even though it is the nearest exit from the treasury.
+      expect(tile).not.toEqual({ x: 6, y: 0 });
+      if (e.mode === 'returning' && tile.x <= 1) walkedHomeWest = true;
+      sim.tick([]);
+    }
+    // It escaped — and did so via the full trek back to the west spawn, not
+    // through the exit one tile from the treasury. (The spawn tile itself is
+    // unobservable from outside a tick: arrival and despawn share the tick.)
+    expect(sim.state.escapedMg).toBe(25_000);
+    expect(walkedHomeWest).toBe(true);
+  });
+
+  it('activation changes no field content and swaps no field object', () => {
+    const { sim } = makeSim(
+      twoFront([
+        { groups: [group()] },
+        { groups: [group({ spawn: 'east' })] },
+      ]),
+      testBalance({ speed: 128 }),
+    );
+    // Dormant east's returning field is built from construction (design D1).
+    expect(sim.returning).toHaveLength(2);
+    expect(sim.returning[1]!.cost.some((c) => c > 0)).toBe(true);
+
+    // Drain wave 1, then snapshot every field right before wave 2 activates east.
+    sim.tick([startWave()]);
+    let guard = 0;
+    while (sim.state.runPhase === 'wave' && guard++ < 500) sim.tick([]);
+    const inboundRef = sim.inbound;
+    const returningRefs = [...sim.returning];
+    const costs = [Array.from(sim.inbound.cost), ...sim.returning.map((f) => Array.from(f.cost))];
+
+    sim.tick([startWave()]); // east activates here
+
+    expect(sim.inbound).toBe(inboundRef);
+    sim.returning.forEach((f, i) => expect(f).toBe(returningRefs[i]));
+    expect([Array.from(sim.inbound.cost), ...sim.returning.map((f) => Array.from(f.cost))]).toEqual(
+      costs,
+    );
   });
 });
 

@@ -31,9 +31,10 @@ and deduct the structure's cost (defined in balance data) from the treasury in t
 Before confirming a placement on navigable terrain the system SHALL verify, in simulation state
 at the applying tick: the footprint is in bounds, every footprint tile is walkable and unoccupied
 by a structure, no enemy's current tile is inside the footprint, **every spawn declared by the
-level — active or dormant — retains a finite-cost path to the treasury**, and every live enemy's
-current tile retains finite cost in the field matching its state (inbound or returning). Failing
-any check SHALL reject the placement.
+level — active or dormant — retains a finite-cost path to the treasury**, every live inbound
+enemy's current tile retains finite cost in the inbound field, and every live returning enemy's
+current tile retains finite cost in **its origin spawn's** returning field. Failing any check
+SHALL reject the placement.
 
 #### Scenario: Sealing placement is rejected
 
@@ -50,6 +51,12 @@ any check SHALL reject the placement.
 
 - **WHEN** a placement would leave every spawn connected but trap one live enemy in a pocket with
   no path to its current goal
+- **THEN** the placement is rejected
+
+#### Scenario: Cutting a carrier off from its own spawn is rejected
+
+- **WHEN** a placement would leave a returning enemy with no path to its origin spawn, even
+  though another active spawn remains reachable from the enemy's tile
 - **THEN** the placement is rejected
 
 #### Scenario: Enemy inside the footprint blocks placement

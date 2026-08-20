@@ -52,10 +52,11 @@ export const MAX_TOWER_LEVEL = 3;
 export interface PlacementRoutes {
   verdict: PlacementVerdict;
   /**
-   * Projected lanes in the same order as `currentLanes` — one per active
-   * spawn, then the return lane. `null` when the verdict was reached before
-   * any post-placement routing existed; an individual lane is `[]` when its
-   * start tile would have no route at all.
+   * Projected lanes in the same order as `currentLanes` — one inbound lane
+   * per active spawn, then one return lane per active spawn (the styling
+   * split is the index threshold at the active-spawn count). `null` when the
+   * verdict was reached before any post-placement routing existed; an
+   * individual lane is `[]` when its start tile would have no route at all.
    */
   lanes: TileXY[][] | null;
   /** Walkable tiles the projected routing cuts off. Non-null on 'seals-spawn' only. */
@@ -75,9 +76,10 @@ export class Sim {
   readonly state: SimState;
   readonly grid: Grid;
   readonly data: GameData;
-  /** Both fields are always built and displayable (spec: flowfield-pathfinding). */
+  /** All fields are always built and displayable (spec: flowfield-pathfinding). */
   inbound: FlowField;
-  returning: FlowField;
+  /** One returning field per DECLARED spawn — dormant included (design D1). */
+  returning: FlowField[];
   /**
    * Render-only event queue (design D8): appended during ticks, drained by
    * the renderer, never read back, excluded from the hash.
@@ -86,14 +88,14 @@ export class Sim {
 
   private readonly rng: Rng;
   private readonly treasury: { x: number; y: number };
-  /** Every declared spawn — the no-sealing validation set (design D4). */
+  /** Every declared spawn — field keying, no-transit set, no-sealing set. */
   private readonly allSpawns: { x: number; y: number }[];
-  /** Spawns active at the current waveIndex — field sources and escape targets. */
-  private activeSpawns: { x: number; y: number }[];
+  /** Declared-spawn indices active at the current waveIndex — lane and debug-spawn gating. */
+  private activeSpawnIds: number[];
   /** Authored waves resolved to sim terms once at construction. */
   private readonly waves: ResolvedGroup[][];
-  /** Spare field pair for validation rebuilds; swapped live on accept (D1). */
-  private readonly scratch: { inbound: FlowField; returning: FlowField };
+  /** Spare field set for validation rebuilds; swapped live on accept (D1). */
+  private readonly scratch: { inbound: FlowField; returning: FlowField[] };
   private readonly carryMgByType: number[];
   private readonly bountyMgByType: number[];
   /** Set by any step-2 placement commit; step 3 runs the sweep on it. */
@@ -110,18 +112,23 @@ export class Sim {
     this.grid = data.grid;
     this.treasury = { x: data.level.treasury.x, y: data.level.treasury.y };
     this.allSpawns = data.level.spawns.map((s) => ({ x: s.x, y: s.y }));
-    this.activeSpawns = data.level.spawns
-      .filter((s) => s.activeFromWave === 1)
-      .map((s) => ({ x: s.x, y: s.y }));
+    this.activeSpawnIds = data.level.spawns
+      .map((s, i) => (s.activeFromWave === 1 ? i : -1))
+      .filter((i) => i >= 0);
     this.waves = resolveWaves(data);
     this.carryMgByType = data.enemyTypes.map((t) => t.carryMg);
     this.bountyMgByType = data.enemyTypes.map((t) => t.bountyMg);
 
+    // 1 + N live fields and a scratch set of the same shape — every declared
+    // spawn's returning field is built now, dormant ones included, so spawn
+    // activation is a pure source-set event with no field work at all (D1).
     this.inbound = allocField(this.grid);
-    this.returning = allocField(this.grid);
-    buildFieldInto(this.grid, [this.treasury], this.inbound);
-    buildFieldInto(this.grid, this.activeSpawns, this.returning);
-    this.scratch = { inbound: allocField(this.grid), returning: allocField(this.grid) };
+    this.returning = this.allSpawns.map(() => allocField(this.grid));
+    this.scratch = {
+      inbound: allocField(this.grid),
+      returning: this.allSpawns.map(() => allocField(this.grid)),
+    };
+    this.buildFields({ inbound: this.inbound, returning: this.returning });
 
     this.state = {
       tick: 0,
@@ -146,6 +153,24 @@ export class Sim {
   /** Total authored wave count, for the HUD's counter and preview. */
   get totalWaves(): number {
     return this.waves.length;
+  }
+
+  /** Declared-spawn indices active right now — read-only, for the F3 overlay. */
+  get activeSpawnIndices(): readonly number[] {
+    return this.activeSpawnIds;
+  }
+
+  /**
+   * Rebuild every field in `target` from the current mask: the inbound field
+   * plus one returning field per declared spawn, all with the declared spawn
+   * set as no-transit tiles (design D1/D2). The one field-build routine the
+   * constructor, the removal rebuild and placement validation share.
+   */
+  private buildFields(target: { inbound: FlowField; returning: FlowField[] }): void {
+    buildFieldInto(this.grid, [this.treasury], target.inbound, this.allSpawns);
+    this.allSpawns.forEach((s, i) => {
+      buildFieldInto(this.grid, [s], target.returning[i]!, this.allSpawns);
+    });
   }
 
   /**
@@ -184,8 +209,7 @@ export class Sim {
     // 3. Rebuild the fields once for this tick's removals; sweep stale
     //    commitments after any mask change
     if (this.removalUnblocked) {
-      buildFieldInto(this.grid, [this.treasury], this.inbound);
-      buildFieldInto(this.grid, this.activeSpawns, this.returning);
+      this.buildFields({ inbound: this.inbound, returning: this.returning });
       this.removalUnblocked = false;
       this.maskChanged = true;
     }
@@ -223,7 +247,7 @@ export class Sim {
     // 5. Enemy movement and waypoint re-evaluation
     stepEnemies(s, this.grid, fields, this.data.slowSpeedPer100);
     // 6. Arrival: treasury grab-and-flip, sack pickup, spawn escape
-    resolveArrivals(s, this.treasury, this.activeSpawns, this.carryMgByType, this.events);
+    resolveArrivals(s, this.treasury, this.allSpawns, this.carryMgByType, this.events);
     // 7. Tower targeting and firing (damage applies this tick)
     fireTowers(s, this.grid, fields, this.data, this.events);
     // 8. Deaths: bounties, carrier sack drops, tombstones
@@ -287,7 +311,6 @@ export class Sim {
       this.state.structures,
       this.state.enemies,
       this.allSpawns,
-      this.activeSpawns,
       this.treasury,
       footprintFor(tx, ty),
       this.scratch,
@@ -312,7 +335,6 @@ export class Sim {
       this.state.structures,
       this.state.enemies,
       this.allSpawns,
-      this.activeSpawns,
       this.treasury,
       this.scratch,
     );
@@ -320,8 +342,9 @@ export class Sim {
 
   /**
    * The routes traffic takes right now (path-preview spec): one lane per
-   * active spawn through the inbound field, then one from the treasury
-   * through the returning field. Read-only and freshly allocated.
+   * active spawn through the inbound field, then one return lane per active
+   * spawn from the treasury through that spawn's own returning field.
+   * Read-only and freshly allocated.
    */
   currentLanes(): TileXY[][] {
     return this.traceLanes(this.inbound, this.returning);
@@ -348,7 +371,6 @@ export class Sim {
       this.state.structures,
       this.state.enemies,
       this.allSpawns,
-      this.activeSpawns,
       this.treasury,
       footprint,
       this.scratch,
@@ -388,7 +410,6 @@ export class Sim {
       this.state.structures,
       this.state.enemies,
       this.allSpawns,
-      this.activeSpawns,
       this.treasury,
       this.scratch,
     );
@@ -417,10 +438,16 @@ export class Sim {
     };
   }
 
-  /** One inbound lane per active spawn, then the treasury's return lane. */
-  private traceLanes(inbound: FlowField, returning: FlowField): TileXY[][] {
-    const lanes = this.activeSpawns.map((s) => laneFrom(inbound, this.grid, s));
-    lanes.push(laneFrom(returning, this.grid, this.treasury));
+  /**
+   * One inbound lane per active spawn, then one return lane per active spawn
+   * — inbound lanes first (design D6), so a consumer splitting styles does it
+   * at the index threshold `activeSpawnIds.length`.
+   */
+  private traceLanes(inbound: FlowField, returning: readonly FlowField[]): TileXY[][] {
+    const lanes = this.activeSpawnIds.map((i) => laneFrom(inbound, this.grid, this.allSpawns[i]!));
+    for (const i of this.activeSpawnIds) {
+      lanes.push(laneFrom(returning[i]!, this.grid, this.treasury));
+    }
     return lanes;
   }
 
@@ -457,7 +484,13 @@ export class Sim {
    */
   currentTarget(t: Structure): Enemy | null {
     if (t.kind !== 'tower') return null;
-    return selectTarget(t, this.state, this.grid, { inbound: this.inbound, returning: this.returning }, this.data);
+    return selectTarget(
+      t,
+      this.state,
+      this.grid,
+      { inbound: this.inbound, returning: this.returning },
+      this.data,
+    );
   }
 
   private apply(command: Command): void {
@@ -490,10 +523,10 @@ export class Sim {
 
   /**
    * startWave (design D7): valid only in the build phase with balance ≥ 0
-   * and waves remaining — the solvency gate. Activation is atomic with the
-   * apply: activeSpawns update and the returning field rebuilds here, with
-   * no commitment invalidation (no tile changed walkability; enemies re-read
-   * at their next waypoint).
+   * and waves remaining — the solvency gate. Spawn activation is a pure
+   * source-set event (return-to-origin-spawn design D1): every declared
+   * spawn's field was built at construction, so waking one updates only the
+   * active id list — no field changes, no waypoint re-read.
    */
   private applyStartWave(): void {
     const s = this.state;
@@ -502,13 +535,9 @@ export class Sim {
     s.runPhase = 'wave';
     s.waveStartTick = s.tick;
     s.groupCursors = this.waves[s.waveIndex - 1]!.map(() => 0);
-    const active = this.data.level.spawns
-      .filter((sp) => sp.activeFromWave <= s.waveIndex)
-      .map((sp) => ({ x: sp.x, y: sp.y }));
-    if (active.length !== this.activeSpawns.length) {
-      this.activeSpawns = active;
-      buildFieldInto(this.grid, this.activeSpawns, this.returning);
-    }
+    this.activeSpawnIds = this.data.level.spawns
+      .map((sp, i) => (sp.activeFromWave <= s.waveIndex ? i : -1))
+      .filter((i) => i >= 0);
   }
 
   /** concede (run-lifecycle spec): any live phase → lost, immediately. */
@@ -518,13 +547,16 @@ export class Sim {
     this.state.runPhase = 'lost';
   }
 
-  /** Typed spawn (enemy-variety spec): ordinary command, ordinary queue. */
+  /**
+   * Typed spawn (enemy-variety spec): ordinary command, ordinary queue.
+   * `spawnIndex` is a DECLARED-spawn index (design D3) — stable across
+   * activations; a dormant or out-of-range index is rejected silently.
+   */
   private applySpawn(type: string, spawnIndex: number): void {
     const typeId = this.data.enemyTypes.findIndex((t) => t.key === type);
-    const spawn = this.activeSpawns[spawnIndex];
-    if (typeId < 0 || !spawn) return; // unknown type or spawn: reject silently
+    if (typeId < 0 || !this.activeSpawnIds.includes(spawnIndex)) return;
     const stats = this.data.enemyTypes[typeId]!;
-    spawnEnemy(this.state, spawn, typeId, stats.speed, stats.hp);
+    spawnEnemy(this.state, this.allSpawns[spawnIndex]!, spawnIndex, typeId, stats.speed, stats.hp);
   }
 
   private applyPlace(kind: StructureKind, archetype: TowerArchetype, tx: number, ty: number): void {
@@ -541,7 +573,6 @@ export class Sim {
           s.structures,
           s.enemies,
           this.allSpawns,
-          this.activeSpawns,
           this.treasury,
           footprint,
           this.scratch,
@@ -601,7 +632,6 @@ export class Sim {
           s.structures,
           s.enemies,
           this.allSpawns,
-          this.activeSpawns,
           this.treasury,
           this.scratch,
         )
@@ -668,6 +698,7 @@ export class Sim {
     t.level++;
   }
 
+  /** Swap the live and scratch field sets wholesale — arrays included (D4). */
   private swapScratchFields(): void {
     const { inbound, returning } = this;
     this.inbound = this.scratch.inbound;

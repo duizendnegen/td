@@ -271,8 +271,10 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
   });
 
   // Reachability: every declared spawn must reach the treasury on starting
-  // terrain. The flow-field builder doubles as the graph check (D8).
-  const inbound = buildField(grid, [level.treasury]);
+  // terrain — under the in-game routing rule that spawn tiles are endpoints,
+  // not corridors (return-to-origin-spawn spec). The flow-field builder
+  // doubles as the graph check (D8).
+  const inbound = buildField(grid, [level.treasury], level.spawns);
   for (const s of level.spawns) {
     if (inbound.cost[grid.idx(s.x, s.y)]! < 0) {
       throw new Error(

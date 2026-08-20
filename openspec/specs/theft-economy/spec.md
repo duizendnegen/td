@@ -55,15 +55,22 @@ when returning.
 
 ### Requirement: Escape through a spawn removes the enemy and its gold permanently
 
-A returning enemy SHALL path toward the nearest active spawn, and on reaching one SHALL be removed
-from the simulation together with any carried gold. Escaped gold SHALL NOT return by any later
-mechanism.
+A returning enemy SHALL path toward its origin spawn — the spawn it entered play from — and on
+reaching it SHALL be removed from the simulation together with any carried gold. Escaped gold
+SHALL NOT return by any later mechanism. Because no route ever passes through a spawn tile that
+is not its own, an enemy can only ever escape at its origin.
 
 #### Scenario: Gold escapes
 
-- **WHEN** a carrier holding 50 reaches an active spawn tile
+- **WHEN** a carrier holding 50 reaches its origin spawn tile
 - **THEN** the enemy despawns and the 50 is gone from play — the treasury is not credited then or
   later
+
+#### Scenario: A nearer foreign exit is ignored
+
+- **WHEN** two spawns are active and a carrier's origin spawn is the farther of the two
+- **THEN** the carrier walks the longer route and escapes at its origin, never at the nearer
+  spawn
 
 ### Requirement: Gold sacks drop, persist, and are picked up in deterministic order
 
@@ -87,7 +94,7 @@ picks up any gold SHALL immediately flip to returning without visiting the treas
 #### Scenario: Pickup converts an inbound enemy
 
 - **WHEN** an inbound enemy walks over a sack and picks up any amount
-- **THEN** it flips to returning that tick and paths toward the nearest active spawn
+- **THEN** it flips to returning that tick and paths toward its origin spawn
 
 ### Requirement: Spending is gated at zero, not at cost
 
