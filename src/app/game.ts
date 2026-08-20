@@ -164,14 +164,21 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   treasuryMarker.position.set(treasuryWorld.x, GROUND_TOP_Y, treasuryWorld.z);
   renderer.scene.add(treasuryMarker);
 
-  const enemies = new EnemyRenderer(renderer.scene, assets, data.enemyTypes.map((t) => t.key));
+  const camera = new IsometricCamera(renderer.aspect, data.level.grid);
+  renderer.onResize((aspect) => camera.frame(aspect));
+  const enemies = new EnemyRenderer(
+    renderer.scene,
+    assets,
+    data.enemyTypes.map((t) => t.key),
+    // Max hp per type (enemy-health-bar design D1): the type's hp stat.
+    data.enemyTypes.map((t) => t.hp),
+    camera.camera,
+  );
   const structures = new StructureRenderer(renderer.scene, assets);
   const sacks = new SackRenderer(renderer.scene);
   const fx = new FxRenderer(renderer.scene);
   const ghost = new GhostPreview(renderer.scene);
   const ribbon = new LaneRibbon(renderer.scene);
-  const camera = new IsometricCamera(renderer.aspect, data.level.grid);
-  renderer.onResize((aspect) => camera.frame(aspect));
 
   // UI: reads sim state, emits commands — never mutates state directly.
   // Components mount into the index.html slot skeleton (design D2).
