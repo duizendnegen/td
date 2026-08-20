@@ -93,8 +93,9 @@ export class InputCore {
    * tower's for a tower ghost, the wall's for a wall ghost — both for a
    * tower tool over bare dirt, where one click lays the wall and mounts the
    * tower on it (build-over-walls design D6). Null whenever no build ghost
-   * shows; refreshed by every per-frame ghost path. The ghost badges read
-   * it to price each box where it stands.
+   * shows and whenever the ghost reads invalid — a price only on what can
+   * be bought; refreshed by every per-frame ghost path. The ghost badges
+   * read it to price each box where it stands.
    */
   ghostCosts: { tile: Tile; towerMg: number | null; wallMg: number | null } | null = null;
 
@@ -402,10 +403,12 @@ export class InputCore {
       return;
     }
     const extraMg = withWall ? this.sim.data.wallCostMg : 0;
-    this.ghostCosts =
-      structure.kind === 'wall'
-        ? { tile, towerMg: null, wallMg: this.palette.costOf(tool!) }
-        : { tile, towerMg: this.palette.costOf(tool!), wallMg: withWall ? extraMg : null };
+    if (this.lastVerdictOk) {
+      this.ghostCosts =
+        structure.kind === 'wall'
+          ? { tile, towerMg: null, wallMg: this.palette.costOf(tool!) }
+          : { tile, towerMg: this.palette.costOf(tool!), wallMg: withWall ? extraMg : null };
+    }
     this.ghost.show(
       structure.kind,
       tile.tx,

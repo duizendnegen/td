@@ -9,9 +9,9 @@ placement — tinted valid or debt by the same authoritative validation as any p
 archetype's range ring — and a click there SHALL issue one tower placement. The ghost over a wall
 that already carries a tower SHALL read invalid.
 
-Every build ghost SHALL carry the price of each structure it previews as a badge on that
-structure's box: a tower ghost its tower's cost at the box's mid-height, a wall ghost its wall's
-cost low on the box.
+Every build ghost that reads as a legal placement SHALL carry the price of each structure it
+previews as a badge on that structure's box: a tower ghost its tower's cost at the box's
+mid-height, a wall ghost its wall's cost low on the box. An invalid ghost SHALL carry no price.
 
 Over a dirt tile with no wall, the tool SHALL place the wall and the tower together: a click
 SHALL issue exactly one tower placement that lays its wall, and the ghost SHALL preview it as two
@@ -43,7 +43,8 @@ control on a mounted tower SHALL remove the tower alone, leaving the wall standi
 
 - **WHEN** the player hovers a dirt tile with no wall where a wall would seal a spawn, with a
   tower tool armed
-- **THEN** the ghost with its wall reads invalid, the ribbon shows the orphaned region as for a wall,
+- **THEN** the ghost with its wall reads invalid with no price badges, the ribbon shows the
+  orphaned region as for a wall,
   and clicking there gives the ordinary reject feedback with no command issued
 
 #### Scenario: Both costs tint the ghost

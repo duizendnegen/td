@@ -140,7 +140,8 @@ drawn inside its base as well — the two boxes intersect, and the overlap simpl
 (both ghost materials skip depth writes, the wall box renders first). Every box the build ghost
 draws carries a small price badge at its mid-height — the tower's mid-way up the part above the
 wall box, the wall's low on the wall box — so a tower over a foundation shows one price, a wall
-one, and the compound two, each on the thing it buys. The tint counts both costs and the ribbon
+one, and the compound two, each on the thing it buys; an invalid ghost shows none, since nothing
+is for sale there. The tint counts both costs and the ribbon
 projects the wall's routing, since the compound changes the mask.
 
 *Alternative rejected:* a seam — drawing the tower ghost only above the wall ghost — with one

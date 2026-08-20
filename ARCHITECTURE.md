@@ -656,7 +656,7 @@ so Tailwind's scanner sees every class verbatim.
 - **Placement ghost** — a translucent box on the hovered tile, tinted by the real validation.
   Always on the ground plane: under the fixed dimetric camera a raised box reads as a box a tile
   or two further back, so height is never used to say anything. Each box carries a small price
-  badge at its mid-height. A tower tool over bare dirt draws the wall ghost inside the tower
+  badge at its mid-height while the placement reads valid. A tower tool over bare dirt draws the wall ghost inside the tower
   ghost — two boxes, two badges, the overlap denser — because that click lays the wall and mounts
   the tower in one command.
 - **Inspector** — selected tower: level, damage, rate, range, a performance block (effective

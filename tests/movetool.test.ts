@@ -381,7 +381,7 @@ describe('tower tool over walls', () => {
     // Placed: the tile is a foundation now, so the ghost there is a plain tower ghost.
     r.frame();
     expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', withWall: false }); // occupied
-    expect(r.core.ghostCosts).toEqual({ tile: { tx: 1, ty: 2 }, towerMg: 0, wallMg: null });
+    expect(r.core.ghostCosts).toBeNull(); // no price on an invalid placement
   });
 
   it('a compound the wall rules refuse flashes and issues nothing', () => {
@@ -393,6 +393,7 @@ describe('tower tool over walls', () => {
     r.pointer('pointermove', 150, 150);
     r.frame();
     expect(r.ghostShown).toMatchObject({ kind: 'tower', tint: 'invalid', withWall: true });
+    expect(r.core.ghostCosts).toBeNull(); // no price on an invalid placement
     r.pointer('pointerdown', 150, 150);
     expect(r.flashes).toBe(1);
     expect(r.drain()).toHaveLength(0);

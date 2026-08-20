@@ -8,7 +8,8 @@
 //     tower — shows two prices on two boxes, and a plain wall or tower ghost
 //     shows its one
 //   - Hidden whenever no build ghost shows (the move ghost is free and
-//     carries none); re-anchored every frame through the core's projection
+//     carries none) and whenever the ghost reads invalid — nothing is for
+//     sale there; re-anchored every frame through the core's projection
 //   - Read-only view of the input core's per-frame state
 
 import { TOWER_GHOST_HEIGHT, WALL_GHOST_HEIGHT } from '../render/fx';
