@@ -42,8 +42,8 @@
 
 ## 7. Disclosure controller
 
-- [ ] 7.1 `src/ui/disclosure.ts` per design D8: register `(control, panel)` pairs; `role`, `tabindex`, `aria-expanded`, `aria-controls`; toggle on click and Enter/Space; one open at a time; Escape closes only while something is open; a capture-phase document `pointerdown` outside control+panel closes without cancelling the event; panel hidden/shown by class swap, `z-50`, `pointer-events-auto`
-- [ ] 7.2 `src/ui/hud.ts` and `src/ui/powerhud.ts`: expose the slot element as the control; keep their existing rendering untouched
+- [x] 7.1 `src/ui/disclosure.ts` per design D8: register `(control, panel)` pairs; `role`, `tabindex`, `aria-expanded`, `aria-controls`; toggle on click and Enter/Space; one open at a time; Escape closes only while something is open; a capture-phase document `pointerdown` outside control+panel closes without cancelling the event; panel hidden/shown by class swap, `z-50`, `pointer-events-auto`
+- [x] 7.2 `src/ui/hud.ts` and `src/ui/powerhud.ts`: expose the slot element as the control; keep their existing rendering untouched
 
 ## 8. The two panels
 

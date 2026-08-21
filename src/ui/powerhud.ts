@@ -14,6 +14,9 @@
 //     touch (no tooltip) reads it too
 //   - Recessed top-bar slot like the treasury; mobile compacts to the figures
 //   - Reads state per frame, emits the one command, never mutates the sim
+//   - Exposes the slot as a disclosure control and an anchor beneath it for
+//     the energy balance dropdown (wave-ledger build-ui delta); the
+//     rendering here is unchanged by either
 
 import type { GameData } from '../data/schema';
 import type { CommandQueue } from '../sim/commands';
@@ -52,6 +55,10 @@ const UPG_BLOCKED =
 const UPG_MAXED = UPG_BASE + 'cursor-default border-outline-variant bg-surface-container text-on-surface-variant opacity-60';
 
 export class PowerHud {
+  /** The meter itself — the disclosure control for the energy balance. */
+  readonly control: HTMLDivElement;
+  /** A positioned wrapper around the meter; the dropdown anchors under it. */
+  readonly anchor: HTMLDivElement;
   private readonly panel: HTMLDivElement;
   private readonly icon: HTMLSpanElement;
   private readonly figure: HTMLSpanElement;
@@ -65,7 +72,10 @@ export class PowerHud {
   constructor(slot: HTMLElement, sim: Sim, data: GameData, commands: CommandQueue) {
     this.sim = sim;
     this.data = data;
+    this.anchor = document.createElement('div');
+    this.anchor.className = 'relative';
     this.panel = document.createElement('div');
+    this.control = this.panel;
     this.panel.className = PANEL_OK;
     this.icon = document.createElement('span');
     this.icon.className = ICON_OK;
@@ -90,7 +100,8 @@ export class PowerHud {
       if (!this.upgrade.disabled) commands.issue({ kind: 'upgradeGrid' });
     });
     this.panel.append(this.icon, column, this.upgrade);
-    slot.appendChild(this.panel);
+    this.anchor.appendChild(this.panel);
+    slot.appendChild(this.anchor);
   }
 
   /** Per-frame refresh from live sim state — read-only. */
