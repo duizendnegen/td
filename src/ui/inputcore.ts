@@ -404,8 +404,11 @@ export class InputCore {
     }
     const extraMg = withWall ? this.sim.data.wallCostMg : 0;
     if (this.lastVerdictOk) {
+      // A ground tool — wall, panel or battery — ghosts as the wall box and
+      // badges its price low on it; a tower badges high, with its wall's
+      // price low when it brings one (build-over-walls design D6).
       this.ghostCosts =
-        structure.kind === 'wall'
+        structure.kind !== 'tower'
           ? { tile, towerMg: null, wallMg: this.palette.costOf(tool!) }
           : { tile, towerMg: this.palette.costOf(tool!), wallMg: withWall ? extraMg : null };
     }

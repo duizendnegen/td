@@ -114,3 +114,57 @@ describe('power meter derivation', () => {
     expect(meterState(inputs({ gridTier: 1 })).tier).toBe(2);
   });
 });
+
+// The stored-energy line (add-battery build-ui delta): present whenever a
+// battery stands, in both phases; absent otherwise; the live split carries
+// the store's share.
+describe('the store on the meter (add-battery)', () => {
+  it('no battery, no store readout — in either phase', () => {
+    expect(meterState(inputs()).store).toBeNull();
+    expect(meterState(inputs({ runPhase: 'build', power: idle })).store).toBeNull();
+    expect(meterState(inputs()).batteryMp).toBe(0);
+  });
+
+  it('planning between waves: the reserve reads against capacity while the other figures are idle', () => {
+    const m = meterState(
+      inputs({
+        runPhase: 'build',
+        power: readout({ storedMpTick: 120_000, storageCapacityMpTick: 200_000 }),
+      }),
+    );
+    expect(m.mode).toBe('planning');
+    expect(m.store).toEqual({ storedMpTick: 120_000, capacityMpTick: 200_000 });
+    expect(m.batteryMp).toBe(0);
+    expect(m.gridMp).toBe(0);
+    expect(m.billMgPerTick).toBe(0);
+    expect(m.warning).toBe(false);
+  });
+
+  it('live: the split includes the store\'s share and the stored figure is the tick\'s', () => {
+    const m = meterState(
+      inputs({
+        power: readout({
+          drawMp: 3200,
+          engagedMp: 3000,
+          solarMp: 2000,
+          batterySupplyMp: 800,
+          gridSupplyMp: 400,
+          coverage: COVERAGE_SCALE,
+          billMg: 5,
+          storedMpTick: 41_200,
+          storageCapacityMpTick: 200_000,
+        }),
+      }),
+    );
+    expect(m.mode).toBe('live');
+    expect(m.batteryMp).toBe(800);
+    expect(m.gridMp).toBe(400);
+    expect(m.store).toEqual({ storedMpTick: 41_200, capacityMpTick: 200_000 });
+    expect(m.warning).toBe(false);
+  });
+
+  it('an empty store with a battery standing still shows: 0 of capacity', () => {
+    const m = meterState(inputs({ power: readout({ storageCapacityMpTick: 200_000 }) }));
+    expect(m.store).toEqual({ storedMpTick: 0, capacityMpTick: 200_000 });
+  });
+});

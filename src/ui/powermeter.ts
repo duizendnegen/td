@@ -5,9 +5,14 @@
 // Responsibilities:
 //   - Turn the sim's derived power readout, the standing towers' rated total,
 //     the connection tier table and the treasury into the meter's state:
-//     live mode during a wave (draw vs the ceiling, solar/grid split, gold per
-//     second, warning while coverage < 1), planning mode between waves (rated
-//     total vs the ceiling, so a peak's headroom is visible before START)
+//     live mode during a wave (draw vs the ceiling, solar/store/grid split,
+//     gold per second, warning while coverage < 1), planning mode between
+//     waves (rated total vs the ceiling, so a peak's headroom is visible
+//     before START)
+//   - The stored-energy line (add-battery build-ui delta): the pool's level
+//     against its capacity whenever a battery stands, in both phases — the
+//     reserve a wave starts with is a planning read — and nothing at all
+//     when none does
 //   - The connection-upgrade control's states, palette-consistent:
 //     affordable / debt-warned / blocked below 0 / maxed at the last tier
 //   - Unit formatting: mp → kW for the HUD (presentation only, design D8)
@@ -58,6 +63,8 @@ export interface MeterState {
   solarMp: number;
   /** capacity + solar: the most that could be supplied on any tick. */
   ceilingMp: number;
+  /** Live: the store's discharge this tick. Planning: 0. */
+  batteryMp: number;
   /** Live: the tick's grid supply. Planning: 0. */
   gridMp: number;
   /** Live: the tick's bill, per tick. Planning: 0. */
@@ -72,6 +79,12 @@ export interface MeterState {
   tier: number;
   tierCount: number;
   upgrade: UpgradeControl;
+  /**
+   * The pooled store against its capacity, in mp·tick, whenever at least one
+   * battery stands — in either mode; null with no battery, so the meter does
+   * not grow for a player who has not bought one.
+   */
+  store: { storedMpTick: number; capacityMpTick: number } | null;
 }
 
 export function meterState(input: MeterInputs): MeterState {
@@ -97,6 +110,7 @@ export function meterState(input: MeterInputs): MeterState {
     capacityMp,
     solarMp: input.solarMp,
     ceilingMp,
+    batteryMp: live ? input.power.batterySupplyMp : 0,
     gridMp: live ? input.power.gridSupplyMp : 0,
     billMgPerTick: live ? input.power.billMg : 0,
     coverage,
@@ -105,5 +119,12 @@ export function meterState(input: MeterInputs): MeterState {
     tier: input.gridTier + 1,
     tierCount: input.tiers.length,
     upgrade,
+    store:
+      input.power.storageCapacityMpTick > 0
+        ? {
+            storedMpTick: input.power.storedMpTick,
+            capacityMpTick: input.power.storageCapacityMpTick,
+          }
+        : null,
   };
 }

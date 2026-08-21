@@ -8,9 +8,9 @@
 //     (`WAVE n` / `PREPARING WAVE n`), Opening, the signed rows, a rule,
 //     Closing or Balance — the last block's balance IS the readout's figure
 //   - The energy balance under the power meter: `WAVE n · 0.24 g/kWh`, then
-//     USAGE (engaged, standby, wasted) against SOURCES (solar, grid marked
-//     billed, unmet), each column closing on the same total; "No wave has
-//     run yet" before wave 1
+//     USAGE (engaged, standby, charging, wasted) against SOURCES (solar,
+//     battery, grid marked billed, unmet), each column closing on the same
+//     total; "No wave has run yet" before wave 1
 //   - Every figure comes from the pure module (ledger.ts): which period,
 //     the reconciled rounding, kWh and the tariff
 //   - Per frame: derive, build a content key, write the DOM only when the

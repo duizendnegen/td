@@ -291,6 +291,29 @@ describe('move tool, pointer driver', () => {
     expect(r.sim.state.structures[2]).toMatchObject({ kind: 'panel', tx: 1, ty: 2 });
   });
 
+  it('a battery lifts and drops like a wall, with a battery ghost, no range ring, and the store untouched', () => {
+    const r = rig();
+    r.sim.tick([place('battery', 2, 2)]); // id 2
+    r.sim.state.storedMpTick = 120_000;
+    r.pointer('pointermove', 250, 250);
+    r.pointer('pointerdown', 250, 250); // press on the battery lifts it
+    expect(r.core.lifted).toEqual({ id: 2, tx: 2, ty: 2 });
+    expect(r.core.liftedIds).toEqual([2]);
+    r.pointer('pointermove', 150, 250);
+    r.frame();
+    expect(r.ghostShown).toMatchObject({ kind: 'battery', tint: 'valid', rangeUnits: 0 });
+    r.pointer('pointerup', 150, 250);
+    const drained = r.drain();
+    expect(drained).toHaveLength(1);
+    expect(drained[0]).toMatchObject({ kind: 'move', tx: 2, ty: 2, toTx: 1, toTy: 2 });
+    r.sim.tick(drained);
+    r.frame();
+    expect(r.core.lifted).toBeNull();
+    expect(at(r, 2)).toEqual([1, 2]);
+    expect(r.sim.state.structures[2]).toMatchObject({ kind: 'battery', tx: 1, ty: 2 });
+    expect(r.sim.state.storedMpTick).toBe(120_000);
+  });
+
   it('Esc (tool deselect) cancels the lift with no command', () => {
     const r = rig();
     r.pointer('pointermove', 350, 50);

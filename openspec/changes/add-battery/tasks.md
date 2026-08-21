@@ -86,27 +86,27 @@
 
 ## 5. Render & UI
 
-- [ ] 5.1 `src/render/towers.ts`: placeholder battery mesh from primitives beside the panel's
+- [x] 5.1 `src/render/towers.ts`: placeholder battery mesh from primitives beside the panel's
       (shared geometry/materials, translucent ghost variant) with a front gauge whose fill
       scales with `storedMpTick ÷ storageCapacityMpTick` from the snapshot each frame; not
       dimmed by brownout; provisional marking as any structure; the kind-to-mesh switch covers
       `'battery'`
-- [ ] 5.2 `src/ui/palette.ts`: `Tool` gains `'battery'`; card after Solar — label, icon, cost,
+- [x] 5.2 `src/ui/palette.ts`: `Tool` gains `'battery'`; card after Solar — label, icon, cost,
       tag `formatKwh(capacity)`; hotkey 7, Remove 8, Move 9; `toolStructure` / `costOf` learn
       it; the ground-tool branch (ghost tint, price badge, remove rules) covers it — no new
       branch. `src/ui/input.ts` / `inputcore.ts` / `keyhint.ts`: hotkey table and hint line
       follow the palette; touch driver needs no change beyond the tool
-- [ ] 5.3 `src/ui/powermeter.ts` / `powerhud.ts`: stored-energy line `a / b kWh` whenever a
+- [x] 5.3 `src/ui/powermeter.ts` / `powerhud.ts`: stored-energy line `a / b kWh` whenever a
       battery stands, in both phases; the live split includes the battery's share during a
       wave; no line when no battery stands; mobile compaction per the existing form-factor
       rule. `hud.css` as needed
-- [ ] 5.4 `src/ui/ledger.ts` / `ledgerhud.ts`: `energyBalance` adds `Charging` to the usage raw
+- [x] 5.4 `src/ui/ledger.ts` / `ledgerhud.ts`: `energyBalance` adds `Charging` to the usage raw
       array (after Standby, before Wasted) and `Battery` to the sources (after Solar, before
       Grid); both columns still reconcile to `max`-side totals; the header comment's column
       list updated
-- [ ] 5.5 `src/render/debug.ts`: F4 supply line gains `battery` (discharge) and `charge`; a
+- [x] 5.5 `src/render/debug.ts`: F4 supply line gains `battery` (discharge) and `charge`; a
       `stored a / b kWh` line whenever a battery stands, in any phase
-- [ ] 5.6 UI tests: `tests/panelui.test.ts` (battery card, tag, placement via the command path,
+- [x] 5.6 UI tests: `tests/panelui.test.ts` (battery card, tag, placement via the command path,
       removal under the wall's rules, hotkeys 7/8/9); `tests/powermeter.test.ts` (stored line
       present/absent, both phases, split includes battery); `tests/ledger-ui.test.ts` (the two
       rows, order, neither billed, columns total the same — the 43.0 scenario with 2.0

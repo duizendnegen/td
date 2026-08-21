@@ -10,10 +10,11 @@
 //     largest-remainder rounding so the displayed rows sum exactly to the
 //     displayed delta (D6); the opening, closing and balance lines are the
 //     readout's own floor arithmetic and are never adjusted
-//   - The energy columns: usage against sources, each reconciled to the same
-//     displayed total, in kWh to one decimal under the convention that one
-//     real second of wave time is one game hour (D7) — so the authored tariff
-//     reads unchanged as gold per kWh in the header
+//   - The energy columns: usage (engaged, standby, charging, wasted) against
+//     sources in merit order (solar, battery, grid, unmet), each reconciled
+//     to the same displayed total, in kWh to one decimal under the
+//     convention that one real second of wave time is one game hour (D7) —
+//     so the authored tariff reads unchanged as gold per kWh in the header
 //   - Unit formatting only; nothing here is sim state, nothing is stored
 
 import { GOLD, POWER, TICK_HZ } from '../sim/fixed';
@@ -234,14 +235,22 @@ export interface EnergyBalance {
  * The shown period's energy, usage against sources in merit order, both
  * reconciled to the same rounded total — equal by the tick identity, so one
  * figure closes both columns. The solar source row is the panels' whole
- * output, used and wasted: what was wasted sits on the usage side, and the
- * two columns balance because of it.
+ * output — used, stored and wasted: what was stored sits on the usage side
+ * as charging and what was wasted as wasted, and the two columns balance
+ * because of it. The store's discharge is a source between solar and the
+ * grid (add-battery design D6); neither new row is billed, and the store
+ * itself is no row — a period's charging and battery need not net to zero.
  */
 export function energyBalance(period: WaveLedger, tariffMgPer1000: number): EnergyBalance {
-  const total = period.engagedMp + period.standbyMp + period.solarWastedMp;
+  const total = period.engagedMp + period.standbyMp + period.chargedMp + period.solarWastedMp;
   const totalTenths = kwhTenths(total);
-  const usageRaw = [period.engagedMp, period.standbyMp, period.solarWastedMp];
-  const sourceRaw = [period.solarUsedMp + period.solarWastedMp, period.gridMp, period.unmetMp];
+  const usageRaw = [period.engagedMp, period.standbyMp, period.chargedMp, period.solarWastedMp];
+  const sourceRaw = [
+    period.solarUsedMp + period.chargedMp + period.solarWastedMp,
+    period.batteryMp,
+    period.gridMp,
+    period.unmetMp,
+  ];
   const u = reconcile(usageRaw, totalTenths, MP_TICK_PER_TENTH);
   const src = reconcile(sourceRaw, totalTenths, MP_TICK_PER_TENTH);
   return {
@@ -252,7 +261,8 @@ export function energyBalance(period: WaveLedger, tariffMgPer1000: number): Ener
       rows: [
         { label: 'Engaged', tenths: u[0]! },
         { label: 'Standby', tenths: u[1]! },
-        { label: 'Wasted', tenths: u[2]! },
+        { label: 'Charging', tenths: u[2]! },
+        { label: 'Wasted', tenths: u[3]! },
       ],
       totalTenths,
     },
@@ -260,8 +270,9 @@ export function energyBalance(period: WaveLedger, tariffMgPer1000: number): Ener
       title: 'SOURCES',
       rows: [
         { label: 'Solar', tenths: src[0]! },
-        { label: 'Grid', tenths: src[1]!, billed: true },
-        { label: 'Unmet', tenths: src[2]! },
+        { label: 'Battery', tenths: src[1]! },
+        { label: 'Grid', tenths: src[2]!, billed: true },
+        { label: 'Unmet', tenths: src[3]! },
       ],
       totalTenths,
     },

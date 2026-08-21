@@ -217,6 +217,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
       slow: data.towers[3]!.levels[0]!.costMg,
     },
     panelMg: data.panelCostMg,
+    batteryMg: data.batteryCostMg,
     towerRatedMp: {
       rapid: data.towers[0]!.levels[0]!.ratedPowerMp,
       sniper: data.towers[1]!.levels[0]!.ratedPowerMp,
@@ -224,6 +225,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
       slow: data.towers[3]!.levels[0]!.ratedPowerMp,
     },
     panelOutputMp: data.panelOutputMp,
+    batteryCapacityMpTick: data.batteryCapacityMpTick,
   });
   const inspector = new InspectorUI(slot('inspector'), data, commands);
   const inputCore = new InputCore(
@@ -396,6 +398,8 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     // Brownout: every tower reads dimmed while the tick's coverage is below
     // full, and normal again the frame it is back (build-ui delta).
     structures.setBrownout(sim.power.coverage < COVERAGE_SCALE);
+    // Every battery's gauge reads the pool's level (add-battery design D8).
+    structures.setStoreLevel(sim.power.storedMpTick, sim.power.storageCapacityMpTick);
     structures.sync(sim.state.structures, (s) => sim.currentTarget(s), nowMs);
     sacks.sync(sim.state.sacks, nowMs);
     fx.drain(sim.events, nowMs);

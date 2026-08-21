@@ -20,7 +20,7 @@
 
 import { SLOP_PX } from './gestures';
 import type { InputCore, Tile } from './inputcore';
-import { toolStructure } from './palette';
+import { TOOL_KEYS, toolStructure } from './palette';
 
 interface MovePress {
   startX: number;
@@ -134,8 +134,10 @@ export function buildHintLine(hud: HTMLElement): void {
     'pointer-events-none absolute bottom-4 left-4 hidden max-w-[240px] rounded border ' +
     'border-outline/20 bg-surface-container/80 px-3 py-2 font-mono text-label-xs ' +
     'leading-relaxed text-on-surface-variant desktop:block';
+  const k = TOOL_KEYS;
   el.innerHTML =
-    '1 wall · 2-5 towers · 6 solar · 7 remove<br>8 move · towers go on walls<br>' +
+    `${k.wall} wall · ${k.rapid}-${k.slow} towers · ${k.panel} solar · ${k.battery} battery<br>` +
+    `${k.remove} remove · ${k.move} move · towers go on walls<br>` +
     'click tower to inspect · Esc cancels<br>Space start wave / pause<br>hold F to fast-forward<br>' +
     'F2 waypoints · F3 ranges<br>F4 readout · F8 probe';
   hud.appendChild(el);

@@ -26,6 +26,12 @@
 //     provisional tower on the same tile shows one (design D7)
 //   - The solar panel is a placeholder built from primitives (no kit asset
 //     reads as one): a low plinth and a tilted cell face, 1×1 like everything
+//   - The battery is a placeholder too (add-battery design D8): a cabinet on
+//     the panel's plinth with a front gauge whose fill scales with the pooled
+//     store's level — the same level on every battery, since the store is
+//     one pool — set once per frame from the readout (setStoreLevel), never
+//     from per-structure state; distinct from the provisional tell, and
+//     untouched by the brownout tint
 //   - Brownout (energy-infrastructure design D9): while the sim's coverage is
 //     below full every TOWER swaps to a darkened atlas variant — a state
 //     distinct from the provisional ground tell and from the lift's
@@ -65,6 +71,13 @@ const PANEL_CELL_COLOR = 0x1a3a8a;
 const PANEL_FRAME_COLOR = 0x9aa3b5;
 /** Cell tilt in radians, toward +z (the camera's near side) so the face reads. */
 const PANEL_TILT = Math.PI / 7;
+/** Placeholder battery palette: a graphite cabinet, a dark gauge well, a charged-green fill. */
+const BATTERY_BODY_COLOR = 0x2e3340;
+const BATTERY_WELL_COLOR = 0x11141c;
+const BATTERY_FILL_COLOR = 0x65f2b5;
+/** The cabinet's height and the gauge's full travel inside it, in tile units. */
+const BATTERY_HEIGHT = 0.62;
+const GAUGE_HEIGHT = 0.46;
 /**
  * The brownout tint: the atlas material multiplied down to a cold grey-blue,
  * opaque — dimmer than normal, but solid where the lift is see-through and
@@ -117,6 +130,22 @@ export class StructureRenderer {
   private readonly panelPlinthMaterial = new THREE.MeshLambertMaterial({ color: PANEL_PLINTH_COLOR });
   private readonly panelCellMaterial = new THREE.MeshLambertMaterial({ color: PANEL_CELL_COLOR });
   private readonly panelFrameMaterial = new THREE.MeshLambertMaterial({ color: PANEL_FRAME_COLOR });
+  /** Shared battery geometry and materials — one set for every battery; the plinth is the panel's. */
+  private readonly batteryBody = new THREE.BoxGeometry(0.62, BATTERY_HEIGHT, 0.5);
+  private readonly batteryWell = new THREE.BoxGeometry(0.2, GAUGE_HEIGHT, 0.04);
+  // Unit-height fill, origin at its base, so a y-scale is the level.
+  private readonly batteryFill = new THREE.BoxGeometry(0.14, 1, 0.04).translate(0, 0.5, 0);
+  private readonly batteryBodyMaterial = new THREE.MeshLambertMaterial({ color: BATTERY_BODY_COLOR });
+  private readonly batteryWellMaterial = new THREE.MeshLambertMaterial({ color: BATTERY_WELL_COLOR });
+  private readonly batteryFillMaterial = new THREE.MeshLambertMaterial({
+    color: BATTERY_FILL_COLOR,
+    emissive: BATTERY_FILL_COLOR,
+    emissiveIntensity: 0.35,
+  });
+  /** The gauge fill per battery, scaled every frame to the pool's level. */
+  private readonly gauges = new Map<number, THREE.Mesh>();
+  /** The pool's level in [0, 1], as last set by the frame loop. */
+  private storeLevel = 0;
   /** Shared by every tell: one geometry pair, one material pair, one pulse. */
   private readonly markOutline = StructureRenderer.squareGeometry(0.98);
   private readonly markFill = new THREE.PlaneGeometry(0.98, 0.98).rotateX(-Math.PI / 2);
@@ -208,12 +237,38 @@ export class StructureRenderer {
     return group;
   }
 
+  /**
+   * The placeholder battery: the panel's plinth, a cabinet on it, and a
+   * recessed gauge on the camera-facing side whose fill rises with the pool.
+   * The fill mesh is registered per structure so sync can scale it.
+   */
+  private buildBattery(id: number): THREE.Object3D {
+    const group = new THREE.Group();
+    const plinth = new THREE.Mesh(this.panelPlinth, this.panelPlinthMaterial);
+    plinth.position.y = 0.08;
+    const body = new THREE.Mesh(this.batteryBody, this.batteryBodyMaterial);
+    body.position.y = 0.16 + BATTERY_HEIGHT / 2;
+    // The gauge sits proud of the front face (+z, toward the camera), its
+    // well a touch wider than the fill so the fill reads as a level inside it.
+    const front = 0.25 + 0.02;
+    const well = new THREE.Mesh(this.batteryWell, this.batteryWellMaterial);
+    well.position.set(0, 0.16 + BATTERY_HEIGHT / 2, front);
+    const fill = new THREE.Mesh(this.batteryFill, this.batteryFillMaterial);
+    fill.position.set(0, 0.16 + (BATTERY_HEIGHT - GAUGE_HEIGHT) / 2, front + 0.01);
+    fill.scale.y = Math.max(this.storeLevel * GAUGE_HEIGHT, 0.001);
+    this.gauges.set(id, fill);
+    group.add(plinth, body, well, fill);
+    return group;
+  }
+
   private build(s: Structure): THREE.Group {
     const group = new THREE.Group();
     if (s.kind === 'wall') {
       stack(group, [this.assets.instance(WALL_MODEL)]);
     } else if (s.kind === 'panel') {
       group.add(this.buildPanel());
+    } else if (s.kind === 'battery') {
+      group.add(this.buildBattery(s.id));
     } else {
       // One middle segment per level above 1: level legibility is height. On
       // dirt the wall beneath is the base segment (design D7): the tower
@@ -249,7 +304,23 @@ export class StructureRenderer {
     if (mesh) this.scene.remove(mesh);
     this.meshes.delete(id);
     this.heads.delete(id);
+    this.gauges.delete(id);
     this.builtKeys.delete(id);
+  }
+
+  /**
+   * The pooled store's level — `storedMpTick ÷ storageCapacityMpTick`, in
+   * [0, 1] — for every battery's gauge (build-ui delta: batteries fill
+   * together). Read off the derived readout by the frame loop; with no
+   * capacity the gauges read empty. A scale, not a rebuild: the fill's
+   * geometry has its origin at its base.
+   */
+  setStoreLevel(storedMpTick: number, capacityMpTick: number): void {
+    const level = capacityMpTick > 0 ? Math.min(1, Math.max(0, storedMpTick / capacityMpTick)) : 0;
+    if (level === this.storeLevel) return;
+    this.storeLevel = level;
+    const scaleY = Math.max(level * GAUGE_HEIGHT, 0.001);
+    for (const fill of this.gauges.values()) fill.scale.y = scaleY;
   }
 
   /**
@@ -312,9 +383,9 @@ export class StructureRenderer {
 
   /**
    * Board-wide brownout tint (build-ui delta): on while the sim's coverage is
-   * below full, off the frame it is back. Applies to towers only — walls and
-   * panels draw nothing and are not "running" — and never overrides the lift's
-   * translucency on a carried mesh.
+   * below full, off the frame it is back. Applies to towers only — walls,
+   * panels and batteries draw nothing and are not "running" — and never
+   * overrides the lift's translucency on a carried mesh.
    */
   setBrownout(active: boolean): void {
     if (active === this.brownout) return;

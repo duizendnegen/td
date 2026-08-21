@@ -4,10 +4,14 @@
 //
 // Responsibilities:
 //   - Live during a wave: the tick's draw against the ceiling (connection
-//     capacity + solar), the solar/grid split, the grid cost per second, the
-//     tier; reads as a warning the frame coverage drops below 1
+//     capacity + solar), the solar/battery/grid split, the grid cost per
+//     second, the tier; reads as a warning the frame coverage drops below 1
 //   - Planning between waves: the standing towers' rated total against the
 //     same ceiling, cost reading zero — how close a peak would come
+//   - The stored-energy line (add-battery build-ui delta): `stored a / b kWh`
+//     whenever a battery stands, in both phases, absent otherwise; it stays
+//     on mobile, where the split detail does not, since it is one short
+//     figure and the reserve is what a mobile player would miss most
 //   - The connection-upgrade control: next tier's capacity and cost, the
 //     palette's affordable / debt / blocked states, maxed at the last tier,
 //     and the wording that the upgrade is final — in the visible label, so
@@ -23,6 +27,7 @@ import type { CommandQueue } from '../sim/commands';
 import { GOLD } from '../sim/fixed';
 import { COVERAGE_SCALE, ratedTotalMp, solarOf } from '../sim/power';
 import type { Sim } from '../sim/sim';
+import { formatKwh } from './ledger';
 import { formatGoldPerSecond, formatKw, meterState, type MeterState } from './powermeter';
 
 // ── Class variants (design D1: literal strings only, whole-variant swaps) ──
@@ -46,6 +51,7 @@ const FILL_OVER = 'absolute inset-y-0 left-0 bg-secondary';
 const FILL_WARN = 'absolute inset-y-0 left-0 bg-error';
 
 const DETAIL = 'font-mono text-label-xs uppercase leading-tight text-on-surface-variant mobile:hidden';
+const STORE = 'font-mono text-label-xs uppercase leading-tight text-tertiary-fixed-dim';
 
 const UPG_BASE = 'btn-mech ml-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-label-xs uppercase ';
 const UPG_AFFORDABLE = UPG_BASE + 'border-secondary-fixed-dim bg-secondary-container text-on-secondary-container';
@@ -64,6 +70,7 @@ export class PowerHud {
   private readonly figure: HTMLSpanElement;
   private readonly fill: HTMLDivElement;
   private readonly detail: HTMLSpanElement;
+  private readonly store: HTMLSpanElement;
   private readonly upgrade: HTMLButtonElement;
   private readonly sim: Sim;
   private readonly data: GameData;
@@ -92,7 +99,10 @@ export class PowerHud {
     bar.appendChild(this.fill);
     this.detail = document.createElement('span');
     this.detail.className = DETAIL;
-    column.append(this.figure, bar, this.detail);
+    this.store = document.createElement('span');
+    this.store.className = STORE;
+    this.store.hidden = true;
+    column.append(this.figure, bar, this.detail, this.store);
     this.upgrade = document.createElement('button');
     this.upgrade.className = UPG_AFFORDABLE;
     this.upgrade.addEventListener('click', () => {
@@ -121,11 +131,14 @@ export class PowerHud {
       state.loadMp,
       state.ceilingMp,
       state.solarMp,
+      state.batteryMp,
       state.gridMp,
       state.billMgPerTick,
       state.coverage,
       state.tier,
       state.upgrade.kind,
+      state.store?.storedMpTick ?? -1,
+      state.store?.capacityMpTick ?? -1,
     ].join(':');
     if (key === this.lastKey) return;
     this.lastKey = key;
@@ -149,10 +162,18 @@ export class PowerHud {
     const pct = m.ceilingMp > 0 ? Math.min(100, (m.loadMp * 100) / m.ceilingMp) : 0;
     this.fill.style.width = `${pct.toFixed(1)}%`;
     this.fill.className = m.warning ? FILL_WARN : m.over ? FILL_OVER : FILL_OK;
-    // Split, cost, tier — the connection's grid share is a ceiling in planning.
+    // Split, cost, tier — the connection's grid share is a ceiling in
+    // planning; the store's share appears in the live split while a battery
+    // stands (add-battery build-ui delta).
     const grid = m.mode === 'live' ? formatKw(m.gridMp) : `≤${formatKw(m.capacityMp)}`;
+    const battery = m.mode === 'live' && m.store ? ` · battery ${formatKw(m.batteryMp)}` : '';
     this.detail.textContent =
-      `T${m.tier}/${m.tierCount} · solar ${formatKw(m.solarMp)} · grid ${grid} · ${formatGoldPerSecond(m.billMgPerTick)}`;
+      `T${m.tier}/${m.tierCount} · solar ${formatKw(m.solarMp)}${battery} · grid ${grid} · ${formatGoldPerSecond(m.billMgPerTick)}`;
+    // The reserve, in both phases, only while a battery stands.
+    this.store.hidden = m.store === null;
+    if (m.store) {
+      this.store.textContent = `stored ${formatKwh(m.store.storedMpTick)} / ${formatKwh(m.store.capacityMpTick)} kWh`;
+    }
 
     const u = m.upgrade;
     if (u.kind === 'maxed') {

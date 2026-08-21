@@ -193,16 +193,21 @@ describe('kWh and the tariff (design D7)', () => {
 });
 
 describe('energy columns (design D9)', () => {
-  it('the spec\'s wave 4: both columns total 43.0 and the grid row is marked billed', () => {
+  it('the spec\'s wave 4: both columns total 43.0, the grid row is marked billed, the battery rows are plain', () => {
     // One displayed tenth is 2000 mp·tick. The solar source row is the
-    // panels' output — 30.5 = 26.8 used + 3.7 wasted.
+    // panels' output — 30.5 = 26.8 used + 2.0 charging + 1.7 wasted; the
+    // store's 1.5 discharge is a source between solar and the grid
+    // (add-battery build-ui delta). 31.2 + 8.1 + 2.0 + 1.7 = 43.0 =
+    // 30.5 + 1.5 + 11.0 + 0.
     const wave4 = period({
       waveNo: 4,
       engagedMp: 312 * 2000,
       standbyMp: 81 * 2000,
-      solarWastedMp: 37 * 2000,
+      chargedMp: 20 * 2000,
+      solarWastedMp: 17 * 2000,
       solarUsedMp: 268 * 2000,
-      gridMp: 125 * 2000,
+      batteryMp: 15 * 2000,
+      gridMp: 110 * 2000,
       unmetMp: 0,
     });
     const b = energyBalance(wave4, 12);
@@ -213,13 +218,34 @@ describe('energy columns (design D9)', () => {
     expect(b.usage.rows.map((r) => [r.label, formatTenths(r.tenths)])).toEqual([
       ['Engaged', '31.2'],
       ['Standby', '8.1'],
-      ['Wasted', '3.7'],
+      ['Charging', '2.0'],
+      ['Wasted', '1.7'],
     ]);
     expect(b.sources.rows.map((r) => [r.label, formatTenths(r.tenths), r.billed ?? false])).toEqual([
       ['Solar', '30.5', false],
-      ['Grid', '12.5', true],
+      ['Battery', '1.5', false],
+      ['Grid', '11.0', true],
       ['Unmet', '0.0', false],
     ]);
+  });
+
+  it('without a battery the two rows read 0.0 in their places and nothing else moves', () => {
+    const wave = period({
+      waveNo: 2,
+      engagedMp: 312 * 2000,
+      standbyMp: 81 * 2000,
+      solarWastedMp: 37 * 2000,
+      solarUsedMp: 268 * 2000,
+      gridMp: 125 * 2000,
+      unmetMp: 0,
+    });
+    const b = energyBalance(wave, 12);
+    expect(b.usage.totalTenths).toBe(430);
+    expect(b.usage.rows.map((r) => r.label)).toEqual(['Engaged', 'Standby', 'Charging', 'Wasted']);
+    expect(b.sources.rows.map((r) => r.label)).toEqual(['Solar', 'Battery', 'Grid', 'Unmet']);
+    expect(b.usage.rows[2]!.tenths).toBe(0);
+    expect(b.sources.rows[1]!.tenths).toBe(0);
+    expect(b.sources.rows.filter((r) => r.billed).map((r) => r.label)).toEqual(['Grid']);
   });
 
   it('rows that do not fall on tenths still sum to the displayed total in each column', () => {
@@ -229,17 +255,19 @@ describe('energy columns (design D9)', () => {
       waveNo: 2,
       engagedMp: 123_456,
       standbyMp: 45_678,
+      chargedMp: 7_777,
       solarWastedMp: 9_012,
       solarUsedMp: 100_000,
-      gridMp: 61_000,
+      batteryMp: 5_555,
+      gridMp: 55_445,
       unmetMp: 8_134,
     });
-    expect(l.engagedMp + l.standbyMp).toBe(l.solarUsedMp + l.gridMp + l.unmetMp);
+    expect(l.engagedMp + l.standbyMp).toBe(l.solarUsedMp + l.batteryMp + l.gridMp + l.unmetMp);
     const b = energyBalance(l, 12);
     const sum = (rows: { tenths: number }[]) => rows.reduce((a, r) => a + r.tenths, 0);
     expect(sum(b.usage.rows)).toBe(b.usage.totalTenths);
     expect(sum(b.sources.rows)).toBe(b.sources.totalTenths);
-    expect(b.usage.totalTenths).toBe(kwhTenths(178_146));
-    expect(b.usage.totalTenths).toBe(89); // 8.9073 kWh
+    expect(b.usage.totalTenths).toBe(kwhTenths(185_923));
+    expect(b.usage.totalTenths).toBe(93); // 9.296 kWh
   });
 });
