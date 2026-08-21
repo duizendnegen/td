@@ -4,6 +4,7 @@ import balanceJson from '../src/data/balance.json';
 import level01Json from '../src/data/levels/level_01.json';
 import level02Json from '../src/data/levels/level_02.json';
 import { loadGameData } from '../src/data/schema';
+import { POWER, TICK_HZ } from '../src/sim/fixed';
 import { TERRAIN } from '../src/sim/grid';
 
 /** A minimal valid level to mutate per test. */
@@ -228,7 +229,11 @@ describe('level and balance schemas', () => {
 describe('power data', () => {
   type MutableBalance = {
     towers: Record<string, { levels: Record<string, unknown>[] }>;
-    power: { standbyFraction: number; panel: { cost: number; output: number } };
+    power: {
+      standbyFraction: number;
+      panel: { cost: number; output: number };
+      battery: { cost: number; capacity: number };
+    };
   };
   const cloneBalance = (): MutableBalance =>
     JSON.parse(JSON.stringify(balanceJson)) as MutableBalance;
@@ -297,6 +302,36 @@ describe('power data', () => {
     expect(() => loadGameData(baseLevel(), missing)).toThrow(/power/);
   });
 
+  it('rejects a missing battery block and a zero or negative capacity, naming the field', () => {
+    const missing = cloneBalance();
+    delete (missing.power as { battery?: unknown }).battery;
+    expect(() => loadGameData(baseLevel(), missing)).toThrow(/battery/);
+    const zero = cloneBalance();
+    zero.power.battery.capacity = 0;
+    expect(() => loadGameData(baseLevel(), zero)).toThrow(/capacity/);
+    const negative = cloneBalance();
+    negative.power.battery.capacity = -5;
+    expect(() => loadGameData(baseLevel(), negative)).toThrow(/capacity/);
+    const negCost = cloneBalance();
+    negCost.power.battery.cost = -1;
+    expect(() => loadGameData(baseLevel(), negCost)).toThrow(/cost/);
+  });
+
+  it('converts the battery capacity under the kWh convention: 10 kWh is 10 × POWER × TICK_HZ', () => {
+    const ten = cloneBalance();
+    ten.power.battery.capacity = 10;
+    const data = loadGameData(baseLevel(), ten);
+    // One kWh is one power unit for one second of wave time: POWER mp for TICK_HZ ticks.
+    expect(data.batteryCapacityMpTick).toBe(10 * POWER * TICK_HZ);
+    expect(data.batteryCapacityMpTick).toBe(200_000);
+    // A float capacity still crosses the boundary as an integer.
+    const fractional = cloneBalance();
+    fractional.power.battery.capacity = 7.3;
+    const fd = loadGameData(baseLevel(), fractional);
+    expect(Number.isInteger(fd.batteryCapacityMpTick)).toBe(true);
+    expect(fd.batteryCapacityMpTick).toBe(Math.round(7.3 * POWER * TICK_HZ));
+  });
+
   it('converts every power value to an integer exactly once at load', () => {
     const data = loadGameData(baseLevel(), balanceJson);
     // 0.12 gold per unit per second → 6 mg per 1000 mp per tick at 20 Hz.
@@ -304,6 +339,8 @@ describe('power data', () => {
     expect(data.standbyPer1000).toBe(200);
     expect(data.panelCostMg).toBe(90_000);
     expect(data.panelOutputMp).toBe(2000);
+    expect(data.batteryCostMg).toBe(60_000);
+    expect(data.batteryCapacityMpTick).toBe(12 * POWER * TICK_HZ);
     expect(data.gridTiers).toEqual([
       { capacityMp: 4000, costMg: 0 },
       { capacityMp: 7000, costMg: 60_000 },
@@ -319,7 +356,14 @@ describe('power data', () => {
       expect(c).toBeGreaterThan(b);
       expect(c - b).toBeLessThanOrEqual(b - a);
     }
-    for (const v of [data.tariffMgPer1000, data.standbyPer1000, data.panelCostMg, data.panelOutputMp]) {
+    for (const v of [
+      data.tariffMgPer1000,
+      data.standbyPer1000,
+      data.panelCostMg,
+      data.panelOutputMp,
+      data.batteryCostMg,
+      data.batteryCapacityMpTick,
+    ]) {
       expect(Number.isInteger(v)).toBe(true);
     }
     for (const t of data.gridTiers) {

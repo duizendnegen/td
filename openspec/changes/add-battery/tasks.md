@@ -8,13 +8,13 @@
 
 ## 1. Data & Schema
 
-- [ ] 1.1 `src/data/schema.ts`: balance `power.battery { cost, capacity }` — capacity a positive
+- [x] 1.1 `src/data/schema.ts`: balance `power.battery { cost, capacity }` — capacity a positive
       number in kWh; convert once at load into `GameData.batteryCostMg` and
       `batteryCapacityMpTick = round(capacity × POWER × TICK_HZ)` (design D7), beside
       `panelCostMg` / `panelOutputMp`; header comment lists the battery block
-- [ ] 1.2 `src/data/balance.json`: `power.battery` placeholder (`cost: 60, capacity: 12`) and a
+- [x] 1.2 `src/data/balance.json`: `power.battery` placeholder (`cost: 60, capacity: 12`) and a
       sentence in the `power.$note` on the sizing rule (one panel never fills it, two do)
-- [ ] 1.3 `tests/level.test.ts`: missing battery block / zero or negative capacity rejected
+- [x] 1.3 `tests/level.test.ts`: missing battery block / zero or negative capacity rejected
       naming the field; a float capacity converts to an integer; 10 kWh converts to
       `10 × POWER × TICK_HZ`
 

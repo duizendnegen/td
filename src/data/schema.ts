@@ -10,8 +10,9 @@
 //   - Per-archetype level tables: exactly three hand-authored rows, with each
 //     archetype's non-axis stats identical across rows (phase-3 design D2)
 //   - Power data (energy-infrastructure): a rated power per tower level, the
-//     standby fraction and the panel block in balance; a non-empty, strictly
-//     ascending connection-tier table and a flat tariff per level
+//     standby fraction, the panel block and the battery block (cost and a
+//     capacity in kWh — add-battery design D7) in balance; a non-empty,
+//     strictly ascending connection-tier table and a flat tariff per level
 //   - Float rates from JSON converted to integers once, here, at load
 
 import { z } from 'zod';
@@ -143,6 +144,16 @@ export const BalanceSchema = z.object({
       cost: z.int().nonnegative(),
       output: z.number().nonnegative(),
     }),
+    /**
+     * The battery (add-battery design D7): gold cost and the capacity one
+     * battery adds to the pooled store, in kWh — under the ledger's
+     * convention that one second of wave time is one hour, so one kWh is one
+     * authored power unit sustained for one second.
+     */
+    battery: z.object({
+      cost: z.int().nonnegative(),
+      capacity: z.number().positive(),
+    }),
   }),
   enemies: z.record(z.string(), EnemyStatsSchema),
 });
@@ -221,6 +232,14 @@ export interface GameData {
   panelCostMg: number;
   /** Constant per-tick output of one panel while a wave runs. */
   panelOutputMp: number;
+  batteryCostMg: number;
+  /**
+   * Capacity one battery adds to the pooled store, in mp·tick (energy
+   * units: power units × ticks, the product the ledger's rows sum) —
+   * `round(capacity × POWER × TICK_HZ)`, one kWh being POWER mp for TICK_HZ
+   * ticks (add-battery design D7).
+   */
+  batteryCapacityMpTick: number;
   /** The level's connection tiers, in order; SimState.gridTier indexes this. */
   gridTiers: GridTier[];
   /**
@@ -401,6 +420,9 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
     standbyPer1000: Math.round(balance.power.standbyFraction * 1000),
     panelCostMg: balance.power.panel.cost * GOLD,
     panelOutputMp: Math.round(balance.power.panel.output * POWER),
+    batteryCostMg: balance.power.battery.cost * GOLD,
+    // One kWh is one power unit (POWER mp) for one second (TICK_HZ ticks).
+    batteryCapacityMpTick: Math.round(balance.power.battery.capacity * POWER * TICK_HZ),
     gridTiers: level.power.tiers.map((t, i) => ({
       capacityMp: Math.round(t.capacity * POWER),
       // The first tier is the starting connection: never bought, never charged.

@@ -55,9 +55,10 @@
     }
   },
   "power": {
-    "$note": "Energy-infrastructure placeholders (design intent in the change proposal, tuning is balance authoring): standby is a small non-zero share so a wave is never free and a battery has a baseline to charge against; the panel is a deliberate investment — several walls' worth of gold, roughly two level-1 towers of output — so a few move the meter visibly and one competes with the next connection tier at a similar price. Rated power per level sits on the tower rows and grows slower than damage, so upgrading is power-efficient.",
+    "$note": "Energy-infrastructure placeholders (design intent in the change proposal, tuning is balance authoring): standby is a small non-zero share so a wave is never free and a battery has a baseline to charge against; the panel is a deliberate investment — several walls' worth of gold, roughly two level-1 towers of output — so a few move the meter visibly and one competes with the next connection tier at a similar price. Rated power per level sits on the tower rows and grows slower than damage, so upgrading is power-efficient. The battery (capacity in kWh, one second of wave time being one hour) is sized so that one panel's quiet-tick surplus never fills it within a wave while two panels' does, and priced below the panel — it is the second purchase of a solar line, never the first.",
     "standbyFraction": 0.2,
-    "panel": { "cost": 90, "output": 2.0 }
+    "panel": { "cost": 90, "output": 2.0 },
+    "battery": { "cost": 60, "capacity": 12 }
   },
   "enemies": {
     "swarm": { "punishes": "no AoE", "hp": 50, "speed": 110, "carryCapacity": 8, "bounty": 2, "slowImmune": false },

@@ -80,18 +80,28 @@ export interface RunnerOverrides {
   bounty?: number;
 }
 
-/** The balance power block: standby share and the panel. */
+/** The balance power block: standby share, the panel and the battery. */
 export interface BalancePower {
   standbyFraction: number;
   panel: { cost: number; output: number };
+  battery: { cost: number; capacity: number };
 }
 
 /**
- * Test-balance power defaults: a 10% standby, and a 40g panel putting out 2
- * units (2000 mp) — two level-1 rapids' worth. Ratings sit on the tower rows
- * (rapid 1/1.3/1.6, sniper 1.5/1.9/2.3, area 1.2/1.5/1.8, slow 0.8/1/1.2).
+ * Test-balance power defaults: a 10% standby, a 40g panel putting out 2
+ * units (2000 mp) — two level-1 rapids' worth — and a 30g battery of 10 kWh
+ * (10 × POWER × TICK_HZ = 200 000 mp·tick: a 1-unit surplus fills it in ten
+ * seconds, i.e. 200 ticks). Ratings sit on the tower rows (rapid 1/1.3/1.6,
+ * sniper 1.5/1.9/2.3, area 1.2/1.5/1.8, slow 0.8/1/1.2).
  */
-export const TEST_POWER: BalancePower = { standbyFraction: 0.1, panel: { cost: 40, output: 2 } };
+export const TEST_POWER: BalancePower = {
+  standbyFraction: 0.1,
+  panel: { cost: 40, output: 2 },
+  battery: { cost: 30, capacity: 10 },
+};
+
+/** One test battery's capacity in mp·tick, for fixtures that reason about the store. */
+export const TEST_BATTERY_MP_TICK = 200_000;
 
 /**
  * Balance with all four archetypes and a 'runner' type (typeId 0 while it is
