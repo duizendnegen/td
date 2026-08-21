@@ -251,5 +251,114 @@ describe('periods — settlement to settlement (design D2)', () => {
   });
 });
 
-// energyRows is used by the energy-row tests below.
-void energyRows;
+describe('energy rows — the tick\'s buckets after resolvePower (design D4)', () => {
+  const ZERO_ENERGY = energyRows(openLedger(0));
+
+  it('surplus solar splits into used and wasted; the grid and unmet stay 0', () => {
+    const { sim } = makeSim(board(100, 0.12));
+    sim.tick([...mount(3, 0), place('panel', 6, 0)]); // 1 unit engaged vs 2 units of solar
+    injectEnemy(sim, 5, 2, { hp: 100_000 });
+    sim.tick([startWave()]);
+    expect(sim.power).toMatchObject({ drawMp: 1000, engagedMp: 1000, solarMp: 2000, gridSupplyMp: 0 });
+    expect(energyRows(sim.state.ledger)).toEqual({
+      engagedMp: 1000,
+      standbyMp: 0,
+      solarUsedMp: 1000,
+      solarWastedMp: 1000,
+      gridMp: 0,
+      unmetMp: 0,
+    });
+  });
+
+  it('a tier-capped tick puts the shortfall in unmet', () => {
+    // Two rapids engaged draw 2000 on a 1-unit connection: the grid gives 1000.
+    const { sim } = makeSim(board(1, 0.12));
+    sim.tick([...mount(3, 0), ...mount(6, 0)]);
+    injectEnemy(sim, 5, 2, { hp: 100_000 });
+    sim.tick([startWave()]);
+    expect(energyRows(sim.state.ledger)).toEqual({
+      engagedMp: 2000,
+      standbyMp: 0,
+      solarUsedMp: 0,
+      solarWastedMp: 0,
+      gridMp: 1000,
+      unmetMp: 1000,
+    });
+  });
+
+  it('a broke tick puts the whole deficit in unmet', () => {
+    const { sim } = makeSim(board(100, 0.12));
+    sim.tick([...mount(3, 0)]);
+    injectEnemy(sim, 5, 2, { hp: 100_000 });
+    sim.state.treasuryMg = 0;
+    sim.state.ledger.openingMg = 0; // keep the fixture's books straight
+    sim.tick([startWave()]);
+    expect(sim.power.coverage).toBe(0);
+    expect(energyRows(sim.state.ledger)).toEqual({
+      engagedMp: 1000,
+      standbyMp: 0,
+      solarUsedMp: 0,
+      solarWastedMp: 0,
+      gridMp: 0,
+      unmetMp: 1000,
+    });
+  });
+
+  it('build-phase ticks with towers standing and engaged change no energy row', () => {
+    const { sim } = makeSim(board(100, 0.12));
+    sim.tick([...mount(3, 0), place('panel', 6, 0)]);
+    const e = injectEnemy(sim, 5, 2, { hp: 100_000 });
+    for (let t = 0; t < 10; t++) sim.tick([]);
+    expect(e.hp).toBeLessThan(100_000); // it fired: engaged, at full coverage
+    expect(energyRows(sim.state.ledger)).toEqual(ZERO_ENERGY);
+  });
+
+  it('the settlement tick\'s draw is in the energy rows while the bill row did not move that tick', () => {
+    const { sim } = makeSim(board(100, 0.12, { waves: [trivialWave(), trivialWave()] }));
+    sim.tick([...mount(3, 0)]);
+    const victim = injectEnemy(sim, 5, 2, { hp: 100_000 });
+    sim.tick([startWave()]); // the runner spawns parked at (0,2), out of range
+    // Engaged: 1000 mp from the grid, 6 mg a tick — up to the tick the next shot is due.
+    const tower = sim.state.structures.find((x) => x.kind === 'tower')!;
+    while (sim.state.tick < tower.nextFireTick) sim.tick([]);
+    const before = { ...sim.state.ledger };
+    expect(before.billMg).toBe(6 * (sim.state.tick - 1)); // every wave tick so far
+    // The killing shot lands this tick; the parked runner dies too: drained, settled.
+    victim.hp = 4;
+    sim.state.enemies.find((e) => e !== victim)!.hp = 0;
+    sim.tick([]);
+    expect(sim.state.runPhase).toBe('build');
+    const closed = sim.state.lastLedger;
+    expect(closed.engagedMp).toBe(before.engagedMp + 1000);
+    expect(closed.gridMp).toBe(before.gridMp + 1000);
+    expect(closed.billMg).toBe(before.billMg); // nothing billed on the settlement tick
+    expect(goldSum(closed)).toBe(sim.state.treasuryMg);
+  });
+
+  it('engaged + standby is the sum of the readout\'s draw over a wave', () => {
+    const { sim } = makeSim(board(2, 0.12));
+    sim.tick([...mount(1, 0), ...mount(4, 0), ...mount(7, 0)]);
+    sim.tick([startWave()]);
+    let draw = sim.power.drawMp;
+    injectEnemy(sim, 4, 2, { hp: 40 }); // in the middle tower's range only
+    for (let t = 0; t < 30; t++) {
+      sim.tick([]);
+      draw += sim.power.drawMp;
+    }
+    const l = sim.state.ledger;
+    expect(l.engagedMp).toBeGreaterThan(0);
+    expect(l.standbyMp).toBeGreaterThan(0);
+    expect(l.engagedMp + l.standbyMp).toBe(draw);
+  });
+
+  it('engaged is rated power × engaged ticks for one tower with a known engagement window', () => {
+    const { sim } = makeSim(board(100, 0.12));
+    sim.tick([...mount(3, 0)]); // rapid: rated 1000, standby 100
+    sim.tick([startWave()]);
+    for (let t = 0; t < 7; t++) sim.tick([]); // 8 standby ticks so far, the start tick included
+    injectEnemy(sim, 5, 2, { hp: 100_000 });
+    for (let t = 0; t < 12; t++) sim.tick([]); // 12 engaged ticks
+    expect(sim.state.ledger.engagedMp).toBe(12 * 1000);
+    expect(sim.state.ledger.standbyMp).toBe(8 * 100);
+  });
+});

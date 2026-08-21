@@ -13,7 +13,7 @@ const TIERS = [
   { capacityMp: 11_000, costMg: 120_000 },
 ];
 
-const idle: PowerReadout = { drawMp: 0, solarMp: 0, gridSupplyMp: 0, coverage: COVERAGE_SCALE, billMg: 0 };
+const idle: PowerReadout = { drawMp: 0, engagedMp: 0, solarMp: 0, gridSupplyMp: 0, coverage: COVERAGE_SCALE, billMg: 0 };
 
 const inputs = (over: Partial<MeterInputs> = {}): MeterInputs => ({
   runPhase: 'wave',
@@ -22,7 +22,7 @@ const inputs = (over: Partial<MeterInputs> = {}): MeterInputs => ({
   tiers: TIERS,
   ratedTotalMp: 4500,
   solarMp: 2000,
-  power: { drawMp: 3200, solarMp: 2000, gridSupplyMp: 1200, coverage: COVERAGE_SCALE, billMg: 14 },
+  power: { drawMp: 3200, engagedMp: 3000, solarMp: 2000, gridSupplyMp: 1200, coverage: COVERAGE_SCALE, billMg: 14 },
   ...over,
 });
 
@@ -53,14 +53,14 @@ describe('power meter derivation', () => {
 
   it('reads as a warning the frame coverage is below 1, and not otherwise', () => {
     const brown = meterState(
-      inputs({ power: { drawMp: 8000, solarMp: 2000, gridSupplyMp: 4000, coverage: 768, billMg: 48 } }),
+      inputs({ power: { drawMp: 8000, engagedMp: 7700, solarMp: 2000, gridSupplyMp: 4000, coverage: 768, billMg: 48 } }),
     );
     expect(brown.warning).toBe(true);
     expect(brown.over).toBe(true);
     expect(brown.coverage).toBe(768);
     // Coverage 1 with the load exactly at the ceiling: no warning.
     const full = meterState(
-      inputs({ power: { drawMp: 6000, solarMp: 2000, gridSupplyMp: 4000, coverage: COVERAGE_SCALE, billMg: 48 } }),
+      inputs({ power: { drawMp: 6000, engagedMp: 5800, solarMp: 2000, gridSupplyMp: 4000, coverage: COVERAGE_SCALE, billMg: 48 } }),
     );
     expect(full.warning).toBe(false);
     expect(full.over).toBe(false);

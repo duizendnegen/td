@@ -59,6 +59,8 @@ export const MAX_TOWER_LEVEL = 3;
  */
 export interface PowerReadout {
   drawMp: number;
+  /** The engaged share of `drawMp` (wave-ledger design D4); standby is `drawMp − engagedMp`. */
+  engagedMp: number;
   solarMp: number;
   gridSupplyMp: number;
   /** In COVERAGE_SCALE; below full is a brownout. */
@@ -69,6 +71,7 @@ export interface PowerReadout {
 
 const IDLE_POWER: Readonly<PowerReadout> = {
   drawMp: 0,
+  engagedMp: 0,
   solarMp: 0,
   gridSupplyMp: 0,
   coverage: COVERAGE_SCALE,
@@ -308,12 +311,29 @@ export class Sim {
       );
       this.power = {
         drawMp: pre.drawMp,
+        engagedMp: pre.engagedMp,
         solarMp,
         gridSupplyMp: r.gridSupplyMp,
         coverage: r.coverage,
         billMg: r.billMg,
       };
+      // The tick's energy buckets (wave-ledger design D4), from the figures
+      // the merit order just resolved: solar covers first, the grid as
+      // bounded, and whatever is left uncovered is the brownout in energy
+      // units. Surplus solar is wasted, never sourced. Per tick
+      // engaged + standby + wasted = solarUsed + grid + unmet, by construction.
+      // The settlement tick accumulates here too — towers drew on it — while
+      // step 9 bills nothing for it; documented, not corrected.
+      const solarUsed = Math.min(solarMp, pre.drawMp);
+      const l = s.ledger;
+      l.engagedMp += pre.engagedMp;
+      l.standbyMp += pre.drawMp - pre.engagedMp;
+      l.solarUsedMp += solarUsed;
+      l.solarWastedMp += solarMp - solarUsed;
+      l.gridMp += r.gridSupplyMp;
+      l.unmetMp += pre.drawMp - solarUsed - r.gridSupplyMp;
     } else {
+      // Outside a wave nothing draws and the energy rows do not move.
       this.power = IDLE_POWER;
     }
     fireTowers(s, this.grid, fields, this.data, this.events, this.power.coverage, pre);

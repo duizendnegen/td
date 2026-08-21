@@ -109,6 +109,11 @@ export interface TargetPass {
   targets: (Enemy | null)[];
   /** The tick's total draw in mp: rated while engaged, standby otherwise. */
   drawMp: number;
+  /**
+   * The engaged share of `drawMp` — the rated draw of every tower that found
+   * a target (wave-ledger design D4); standby is the remainder.
+   */
+  engagedMp: number;
 }
 
 /**
@@ -133,6 +138,7 @@ function hit(t: Structure, victim: Enemy, damage: number): void {
 export function preTargetTowers(state: SimState, grid: Grid, fields: Fields, data: GameData): TargetPass {
   const targets: (Enemy | null)[] = [];
   let drawMp = 0;
+  let engagedMp = 0;
   for (const t of state.structures) {
     if (t.kind !== 'tower') {
       targets.push(null);
@@ -140,9 +146,11 @@ export function preTargetTowers(state: SimState, grid: Grid, fields: Fields, dat
     }
     const target = selectTarget(t, state, grid, fields, data);
     targets.push(target);
-    drawMp += drawOf(t, target !== null, data);
+    const draw = drawOf(t, target !== null, data);
+    drawMp += draw;
+    if (target !== null) engagedMp += draw;
   }
-  return { targets, drawMp };
+  return { targets, drawMp, engagedMp };
 }
 
 /**

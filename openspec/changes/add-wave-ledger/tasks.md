@@ -19,10 +19,10 @@
 
 ## 3. Energy split and writers
 
-- [ ] 3.1 `src/sim/tower.ts`: `preTargetTowers` sums `engagedMp` alongside `drawMp` and returns both on `TargetPass`; `src/sim/sim.ts`: `PowerReadout` and `IDLE_POWER` gain `engagedMp` (derived, unhashed) (design D4)
-- [ ] 3.2 In step 7, immediately after `resolvePower` inside the `runPhase === 'wave'` branch: compute `solarUsed`, `wasted`, `unmet` per design D4 and add the six energy rows to `s.ledger`; the `else` branch adds nothing
-- [ ] 3.3 Tests in `tests/ledger.test.ts`: surplus solar splits into used/wasted with grid and unmet 0; a tier-capped tick puts the shortfall in unmet; a broke tick puts the whole deficit in unmet; build-phase ticks with towers standing change no energy row; the settlement tick's draw is in the energy rows while the bill row did not move that tick (design D4 note)
-- [ ] 3.4 Tests: `engagedMp + standbyMp === Σ drawMp` over a wave, and `engagedMp` is rated power × engaged ticks for a single tower with a known engagement window
+- [x] 3.1 `src/sim/tower.ts`: `preTargetTowers` sums `engagedMp` alongside `drawMp` and returns both on `TargetPass`; `src/sim/sim.ts`: `PowerReadout` and `IDLE_POWER` gain `engagedMp` (derived, unhashed) (design D4)
+- [x] 3.2 In step 7, immediately after `resolvePower` inside the `runPhase === 'wave'` branch: compute `solarUsed`, `wasted`, `unmet` per design D4 and add the six energy rows to `s.ledger`; the `else` branch adds nothing
+- [x] 3.3 Tests in `tests/ledger.test.ts`: surplus solar splits into used/wasted with grid and unmet 0; a tier-capped tick puts the shortfall in unmet; a broke tick puts the whole deficit in unmet; build-phase ticks with towers standing change no energy row; the settlement tick's draw is in the energy rows while the bill row did not move that tick (design D4 note)
+- [x] 3.4 Tests: `engagedMp + standbyMp === Σ drawMp` over a wave, and `engagedMp` is rated power × engaged ticks for a single tower with a known engagement window
 
 ## 4. The identities, every tick
 
