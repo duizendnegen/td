@@ -9,13 +9,13 @@
 
 ## 2. Gold writers
 
-- [ ] 2.1 `src/sim/economy.ts`: `bountiesMg +=` beside the bounty credit in `resolveDeaths`; `interestMg +=` the floored amount in `accrueInterest`; `stolenMg +=` beside the grab in `resolveArrivals`; `recoveredMg +=` per sack in `returnSacks` (design D3)
-- [ ] 2.2 `src/sim/sim.ts`: `billMg += this.power.billMg` beside the step-9 debit; `bonusMg +=` beside the settlement bonus credit; `constructionMg +=` in `pushStructure`, `applyUpgrade` and `applyUpgradeGrid`
-- [ ] 2.3 `src/sim/placement.ts`: `constructionMg −=` the refund in `removeStructure`
-- [ ] 2.4 `applyStartWave`: `s.ledger.waveNo = s.waveIndex` beside the `waveDamage` reset (design D2)
-- [ ] 2.5 Settlement branch of `stepProgression`, after the progression judgement: `s.lastLedger = { ...s.ledger }; s.ledger = openLedger(s.treasuryMg)` (design D2, run-lifecycle delta)
-- [ ] 2.6 Tests in a new `tests/ledger.test.ts`: place 100 then remove while provisional nets construction to 0; a connection upgrade adds its cost to construction and nothing else; the bill row equals the sum of debits over a wave; interest row equals the sum of credits; a theft adds to stolen and the settlement's sack return to recovered; the bonus lands in the period that is then closed
-- [ ] 2.7 Tests: the period opens at run start with the starting treasury and `waveNo 0`, `lastLedger.waveNo` is 0 before the first settlement; build-phase spending then `startWave` gives `ledger.waveNo` = that wave with construction carried; settlement copies to `lastLedger` (a copy — mutating `ledger` afterwards leaves it alone) and opens a fresh period whose `openingMg` equals the settled balance
+- [x] 2.1 `src/sim/economy.ts`: `bountiesMg +=` beside the bounty credit in `resolveDeaths`; `interestMg +=` the floored amount in `accrueInterest`; `stolenMg +=` beside the grab in `resolveArrivals`; `recoveredMg +=` per sack in `returnSacks` (design D3)
+- [x] 2.2 `src/sim/sim.ts`: `billMg += this.power.billMg` beside the step-9 debit; `bonusMg +=` beside the settlement bonus credit; `constructionMg +=` in `pushStructure`, `applyUpgrade` and `applyUpgradeGrid`
+- [x] 2.3 `src/sim/placement.ts`: `constructionMg −=` the refund in `removeStructure`
+- [x] 2.4 `applyStartWave`: `s.ledger.waveNo = s.waveIndex` beside the `waveDamage` reset (design D2)
+- [x] 2.5 Settlement branch of `stepProgression`, after the progression judgement: `s.lastLedger = { ...s.ledger }; s.ledger = openLedger(s.treasuryMg)` (design D2, run-lifecycle delta)
+- [x] 2.6 Tests in a new `tests/ledger.test.ts`: place 100 then remove while provisional nets construction to 0; a connection upgrade adds its cost to construction and nothing else; the bill row equals the sum of debits over a wave; interest row equals the sum of credits; a theft adds to stolen and the settlement's sack return to recovered; the bonus lands in the period that is then closed
+- [x] 2.7 Tests: the period opens at run start with the starting treasury and `waveNo 0`, `lastLedger.waveNo` is 0 before the first settlement; build-phase spending then `startWave` gives `ledger.waveNo` = that wave with construction carried; settlement copies to `lastLedger` (a copy — mutating `ledger` afterwards leaves it alone) and opens a fresh period whose `openingMg` equals the settled balance
 
 ## 3. Energy split and writers
 

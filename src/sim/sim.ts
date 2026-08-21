@@ -344,13 +344,15 @@ export class Sim {
         cursorsExhausted(s, this.waves[s.waveIndex - 1]!) && !s.enemies.some((e) => e.alive);
       if (!drained) {
         s.treasuryMg -= this.power.billMg;
+        s.ledger.billMg += this.power.billMg;
         accrueInterest(s, this.data.interestRatePpm);
         return;
       }
       // Settlement: no bill (the readout reads idle from here, since the
       // build phase that follows charges nothing), sack return, then the
       // speed bonus, then the progression judgement on the post-return,
-      // post-bonus balance (run-lifecycle spec).
+      // post-bonus balance, then the ledger period closes (run-lifecycle
+      // spec).
       this.power = IDLE_POWER;
       returnSacks(s);
       s.lastWaveBonusMg = waveBonusMg(
@@ -359,6 +361,7 @@ export class Sim {
         this.data.waveBonus,
       );
       s.treasuryMg += s.lastWaveBonusMg;
+      s.ledger.bonusMg += s.lastWaveBonusMg;
       s.waveStartTick = -1;
       s.groupCursors = [];
       if (s.waveIndex >= this.waves.length) {
@@ -366,6 +369,12 @@ export class Sim {
       } else {
         s.runPhase = 'build';
       }
+      // The period boundary is the last thing settlement does (wave-ledger
+      // design D2): the sack return and the bonus are booked to the wave
+      // that earned them, and the next period opens on exactly the balance
+      // the judgement saw. A copy into the closed slot, never an alias.
+      s.lastLedger = { ...s.ledger };
+      s.ledger = openLedger(s.treasuryMg);
     } else if (s.runPhase === 'settled-locked' && s.treasuryMg >= 0) {
       // A step-3 refund brought the balance home: the win fires this tick.
       s.runPhase = 'won';
@@ -640,6 +649,8 @@ export class Sim {
     // The wave damage counter's only reset point (tower-damage-stats design
     // D3): from here until the next start it is this wave's figure.
     for (const structure of s.structures) structure.waveDamage = 0;
+    // The only place the open ledger period learns it has a wave (design D2).
+    s.ledger.waveNo = s.waveIndex;
     this.activeSpawnIds = this.data.level.spawns
       .map((sp, i) => (sp.activeFromWave <= s.waveIndex ? i : -1))
       .filter((i) => i >= 0);
@@ -730,6 +741,7 @@ export class Sim {
       totalDamage: 0,
     });
     s.treasuryMg -= costMg;
+    s.ledger.constructionMg += costMg;
   }
 
   /**
@@ -832,6 +844,7 @@ export class Sim {
     // levels[] is 0-based: the next level's row is levels[t.level].
     const costMg = this.data.towers[t.archetypeId]!.levels[t.level]!.costMg;
     s.treasuryMg -= costMg;
+    s.ledger.constructionMg += costMg;
     t.paidMg += costMg;
     t.level++;
   }
@@ -851,6 +864,8 @@ export class Sim {
     const next = this.data.gridTiers[s.gridTier + 1];
     if (!next || !canSpend(s.treasuryMg)) return;
     s.treasuryMg -= next.costMg;
+    // A connection tier is construction, like a panel (wave-ledger design D3).
+    s.ledger.constructionMg += next.costMg;
     s.gridTier++;
   }
 

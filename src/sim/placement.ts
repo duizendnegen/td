@@ -406,7 +406,10 @@ export function removeStructure(
     grid.setBlocked(s.tx, s.ty, false);
     changed = true;
   }
-  state.treasuryMg += refundMg(s, refundPer1000);
+  const refund = refundMg(s, refundPer1000);
+  state.treasuryMg += refund;
+  // The refund nets against the period's construction (wave-ledger design D3).
+  state.ledger.constructionMg -= refund;
   state.structures = state.structures.filter((x) => x !== s);
   return changed;
 }
