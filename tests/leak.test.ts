@@ -7,9 +7,9 @@ import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import { expandPreset } from '../src/app/presets';
 import { loadGameData } from '../src/data/schema';
-import type { Command, CommandBody } from '../src/sim/commands';
+import type { Command } from '../src/sim/commands';
 import { Sim } from '../src/sim/sim';
-import { corridorLevel, SCENARIOS, type LayoutItem } from './leakData';
+import { corridorLevel, fourWaveBuild, openingBuild, SCENARIOS, type LayoutItem } from './leakData';
 
 /** Ticks after the last scheduled spawn before a run is called unresolved. */
 const DRAIN_TICKS = 1500;
@@ -102,8 +102,8 @@ describe('leak-rate harness (counter-matrix contract)', () => {
 // per-wave table prints with POWER_LOG=1 (`POWER_LOG=1 npx vitest run
 // tests/leak.test.ts`) and stays quiet otherwise.
 
-import levelJson from '../src/data/levels/level_01.json';
 import { COVERAGE_SCALE } from '../src/sim/power';
+import { powerRun as scriptedRun } from './helpers';
 
 /** POWER_LOG=1 prints the per-wave table; the test files carry no node types, hence the cast. */
 const POWER_LOG =
@@ -128,35 +128,17 @@ interface WavePower {
 }
 
 /**
- * Run `commandsAt` against level_01 for `waves` waves, starting each wave the
- * tick after the previous one settles (plus a build pause for placements),
- * and summarise the power figures per wave.
+ * Run the script against level_01 for `waves` waves through the shared
+ * driver (helpers.ts powerRun: each wave starts 50 ticks after the previous
+ * settlement, the first at tick 100) and summarise the power figures per wave.
  */
 function powerRun(
   build: ReadonlyMap<number, Command[]>,
   waves: number,
 ): { table: WavePower[]; capacityMp: number } {
-  const data = loadGameData(levelJson, balanceJson);
-  const sim = new Sim(data, 0xc0ffee);
-  let seq = 1000;
   const table: WavePower[] = [];
   let current: WavePower | null = null;
-  let treasuryBefore = 0;
-  const startWave: Command = { kind: 'startWave', seq: seq++ };
-  let settledAt = -1;
-  const startedWaves = new Set<number>();
-  for (let guard = 0; guard < 20_000 && (table.length < waves || current); guard++) {
-    const t = sim.state.tick;
-    const commands: Command[] = [...(build.get(t) ?? [])];
-    // Start the next wave 50 ticks after the last settlement (or at tick 100).
-    const nextWave = sim.state.waveIndex + 1;
-    const startAt = settledAt < 0 ? 100 : settledAt + 50;
-    if (sim.state.runPhase === 'build' && t >= startAt && !startedWaves.has(nextWave) && nextWave <= waves) {
-      commands.push({ ...startWave, seq: seq++ });
-      startedWaves.add(nextWave);
-    }
-    treasuryBefore = sim.state.treasuryMg;
-    sim.tick(commands);
+  const { data } = scriptedRun(build, waves, ({ sim, commands, treasuryBefore }) => {
     const s = sim.state;
     if (s.runPhase === 'wave') {
       if (!current || current.wave !== s.waveIndex) {
@@ -194,38 +176,21 @@ function powerRun(
       if (s.runPhase !== 'wave') {
         // Settled this tick: the readout is idle, the bonus has landed.
         current.meanDrawMp = Math.floor(current.meanDrawMp / current.ticks);
-        settledAt = t;
         current = null;
       }
     }
-  }
+  });
   return { table, capacityMp: data.gridTiers[0]!.capacityMp };
 }
 
 describe('power-aware run (energy-infrastructure balance harness)', () => {
-  // The replay's opening on the build-over-walls board: a mounted rapid and
-  // area holding wall B's north-gap exit (2.2 kW rated), then the (8,6)
-  // socket sniper before wave 3 (3.7 kW) — under the 4 kW tier-1 connection
-  // — then a slow mounted beside the pair before wave 4 (4.5 kW rated: over
-  // it at a full peak).
-  const opening = (): ReadonlyMap<number, Command[]> => {
-    let seq = 0;
-    const cmd = (body: CommandBody): Command => ({ ...body, seq: seq++ });
-    return new Map<number, Command[]>([
-      [
-        50,
-        [
-          cmd({ kind: 'place', structure: 'wall', tx: 10, ty: 1 }),
-          cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 10, ty: 1 }),
-          cmd({ kind: 'place', structure: 'wall', tx: 9, ty: 2 }),
-          cmd({ kind: 'place', structure: 'tower', archetype: 'area', tx: 9, ty: 2 }),
-        ],
-      ],
-    ]);
-  };
-
+  // The scripts (leakData.ts): the replay's opening pair — a mounted rapid
+  // and area holding wall B's north-gap exit (2.2 kW rated) — then the (8,6)
+  // socket sniper before wave 3 (3.7 kW) under the 4 kW tier-1 connection,
+  // then a slow mounted beside the pair before wave 4 (4.5 kW rated: over it
+  // at a full peak).
   it('opening waves: gold binds, not power — the opening never browns out and the wave has a load curve', () => {
-    const { table, capacityMp } = powerRun(opening(), 2);
+    const { table, capacityMp } = powerRun(openingBuild(), 2);
     if (POWER_LOG) console.log(JSON.stringify({ capacityMp, table }, null, 1));
     expect(table).toHaveLength(2);
     for (const w of table) {
@@ -243,19 +208,7 @@ describe('power-aware run (energy-infrastructure balance harness)', () => {
   });
 
   it('once income exists the ceiling bites at peaks only, and only while the peak lasts', () => {
-    const build = new Map(opening());
-    // The socket sniper before wave 3 (wave 2 settles at 698, wave 3 starts at
-    // 748) stays under the tier; the slow mounted beside the pair before wave
-    // 4 (wave 3 settles at 1225, wave 4 starts at 1275) lifts the rated total
-    // to 4.5 kW on a 4 kW tier — by then three waves of bounties have paid for
-    // both with a buffer to spare — and the cluster engages as one, so the
-    // ceiling bites exactly while the pack passes it.
-    build.set(730, [{ kind: 'place', structure: 'tower', archetype: 'sniper', tx: 8, ty: 6, seq: 99 }]);
-    build.set(1250, [
-      { kind: 'place', structure: 'wall', tx: 10, ty: 2, seq: 100 },
-      { kind: 'place', structure: 'tower', archetype: 'slow', tx: 10, ty: 2, seq: 101 },
-    ]);
-    const { table, capacityMp } = powerRun(build, 4);
+    const { table, capacityMp } = powerRun(fourWaveBuild(), 4);
     if (POWER_LOG) console.log(JSON.stringify({ capacityMp, table }, null, 1));
     const w3 = table[3]!;
     expect(w3.peakDrawMp).toBeGreaterThan(capacityMp);

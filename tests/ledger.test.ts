@@ -7,6 +7,7 @@
 // the tariff authored per test) and the theft tests' 7×3 corridor, where a
 // parked enemy on the treasury tile grabs on the next tick.
 import { describe, expect, it } from 'vitest';
+import type { Command, CommandBody } from '../src/sim/commands';
 import { openLedger, type WaveLedger } from '../src/sim/types';
 import {
   injectEnemy,
@@ -14,13 +15,16 @@ import {
   mount,
   openLevel,
   place,
+  powerRun,
   remove,
   startWave,
   testBalance,
   trivialWave,
+  upgrade,
   upgradeGrid,
   type LevelPower,
 } from './helpers';
+import { fourWaveBuild, openingBuild } from './leakData';
 
 const GOLD_ROWS = [
   'openingMg',
@@ -48,6 +52,10 @@ const energyRows = (l: WaveLedger) => Object.fromEntries(ENERGY_ROWS.map((k) => 
 /** The gold identity's left-hand side (design D1). */
 const goldSum = (l: WaveLedger): number =>
   l.openingMg + l.bountiesMg + l.bonusMg + l.interestMg - l.constructionMg - l.billMg - l.stolenMg + l.recoveredMg;
+
+/** The energy identity's two sides (design D4). */
+const usageSum = (l: WaveLedger): number => l.engagedMp + l.standbyMp + l.solarWastedMp;
+const sourceSum = (l: WaveLedger): number => l.solarUsedMp + l.gridMp + l.unmetMp;
 
 const group = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   spawn: 'main',
@@ -108,6 +116,14 @@ describe('gold rows — one writer beside each treasury mutation (design D3)', (
     sim.state.runPhase = 'build'; // back to a phase that allows removal
     sim.tick([remove(3, 0)]); // 50% of 4000
     expect(sim.state.ledger.constructionMg).toBe(4000 - 2000);
+    expect(goldSum(sim.state.ledger)).toBe(sim.state.treasuryMg);
+  });
+
+  it('a tower upgrade is construction', () => {
+    const { sim } = makeSim(board(100, 0));
+    sim.tick([...mount(3, 0)]);
+    sim.tick([upgrade(3, 0)]); // rapid level 2: 85g
+    expect(sim.state.ledger.constructionMg).toBe(54_000 + 85_000);
     expect(goldSum(sim.state.ledger)).toBe(sim.state.treasuryMg);
   });
 
@@ -361,4 +377,79 @@ describe('energy rows — the tick\'s buckets after resolvePower (design D4)', (
     expect(sim.state.ledger.engagedMp).toBe(12 * 1000);
     expect(sim.state.ledger.standbyMp).toBe(8 * 100);
   });
+});
+
+describe('the identities hold on every tick of the harness runs (design D10)', () => {
+  /**
+   * The four-wave harness script plus the sites it does not reach: a wall
+   * placed after wave 1 and sold committed after wave 2 (a floored refund),
+   * another placed and sold provisional in the same build phase (a full
+   * refund), the rapid upgraded and the connection bought during wave 4 —
+   * which runs the balance into debt mid-wave, so the grid cuts off and the
+   * towers run on nothing (unmet) until bounties return — and a concede
+   * while wave 4 still runs. The base script already has thefts in waves 3
+   * and 4 and their sacks returning at settlement.
+   */
+  const extendedBuild = (): ReadonlyMap<number, Command[]> => {
+    const build = fourWaveBuild();
+    let seq = 500;
+    const at = (t: number, ...bodies: CommandBody[]): void => {
+      build.set(t, [...(build.get(t) ?? []), ...bodies.map((b): Command => ({ ...b, seq: seq++ }))]);
+    };
+    at(350, { kind: 'place', structure: 'wall', tx: 18, ty: 0 });
+    at(705, { kind: 'place', structure: 'wall', tx: 18, ty: 1 });
+    at(706, { kind: 'remove', tx: 18, ty: 1 });
+    at(710, { kind: 'remove', tx: 18, ty: 0 });
+    at(1230, { kind: 'upgrade', tx: 10, ty: 1 }, { kind: 'upgradeGrid' });
+    at(1400, { kind: 'concede' });
+    return build;
+  };
+
+  const scripts: [string, () => ReadonlyMap<number, Command[]>, number][] = [
+    ['the opening (two waves)', openingBuild, 2],
+    ['the four-wave build', fourWaveBuild, 4],
+    ['the four-wave build extended with refunds, upgrades, debt and a concede', extendedBuild, 4],
+  ];
+
+  for (const [name, build, waves] of scripts) {
+    it(name, () => {
+      let closedWave = 0;
+      let settlements = 0;
+      let ticks = 0;
+      let sawDebt = false;
+      let sawUnmet = false;
+      const { sim } = powerRun(build(), waves, ({ sim }) => {
+        const s = sim.state;
+        ticks++;
+        // The open period, every tick.
+        expect(goldSum(s.ledger)).toBe(s.treasuryMg);
+        expect(usageSum(s.ledger)).toBe(sourceSum(s.ledger));
+        if (s.treasuryMg < 0) sawDebt = true;
+        if (s.ledger.unmetMp > 0) sawUnmet = true;
+        // At each settlement: the closed period reconciles to the new opening.
+        if (s.lastLedger.waveNo !== closedWave) {
+          closedWave = s.lastLedger.waveNo;
+          settlements++;
+          expect(s.runPhase).not.toBe('wave');
+          expect(goldSum(s.lastLedger)).toBe(s.ledger.openingMg);
+          expect(usageSum(s.lastLedger)).toBe(sourceSum(s.lastLedger));
+          expect(s.ledger.waveNo).toBe(0);
+        }
+      });
+      expect(ticks).toBeGreaterThan(500);
+      expect(sim.state.stolenMg > 0 || waves < 3).toBe(true); // waves 3–4 are where the grabs land
+      if (build === extendedBuild) {
+        expect(settlements).toBe(3); // wave 4 was conceded, not settled
+        expect(sim.state.runPhase).toBe('lost');
+        expect(sim.state.gridTier).toBe(1);
+        expect(sim.state.structures.some((x) => x.level === 2)).toBe(true);
+        expect(sim.state.structures.some((x) => x.tx === 18)).toBe(false); // both walls sold
+        expect(sawDebt).toBe(true);
+        expect(sawUnmet).toBe(true);
+        expect(sim.state.lastLedger.recoveredMg).toBeGreaterThan(0);
+      } else {
+        expect(settlements).toBe(waves);
+      }
+    });
+  }
 });

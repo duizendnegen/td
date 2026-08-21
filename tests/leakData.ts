@@ -8,6 +8,7 @@
 
 import type { TowerArchetype } from '../src/data/schema';
 import type { BurstGroup } from '../src/app/presets';
+import type { Command, CommandBody } from '../src/sim/commands';
 import { INERT_POWER } from './helpers';
 
 export interface LayoutItem {
@@ -139,3 +140,45 @@ export const SCENARIOS: LeakScenario[] = [
     counterMaxLeakMg: 40_000,
   },
 ];
+
+// ── The power-aware scripts (energy-infrastructure), for helpers.ts powerRun ──
+
+/**
+ * The replay's opening on the build-over-walls board: a mounted rapid and
+ * area holding wall B's north-gap exit (2.2 kW rated) under the 4 kW tier-1
+ * connection. Two waves: gold binds, not power.
+ */
+export function openingBuild(): ReadonlyMap<number, Command[]> {
+  let seq = 0;
+  const cmd = (body: CommandBody): Command => ({ ...body, seq: seq++ });
+  return new Map<number, Command[]>([
+    [
+      50,
+      [
+        cmd({ kind: 'place', structure: 'wall', tx: 10, ty: 1 }),
+        cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 10, ty: 1 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 9, ty: 2 }),
+        cmd({ kind: 'place', structure: 'tower', archetype: 'area', tx: 9, ty: 2 }),
+      ],
+    ],
+  ]);
+}
+
+/**
+ * The opening, then the (8,6) socket sniper before wave 3 (wave 2 settles at
+ * 698, wave 3 starts at 748) — 3.7 kW, still under the tier — and a slow
+ * mounted beside the pair before wave 4 (wave 3 settles at 1225, wave 4
+ * starts at 1275), lifting the rated total to 4.5 kW on a 4 kW tier: by
+ * then three waves of bounties have paid for both with a buffer to spare,
+ * and the cluster engages as one, so the ceiling bites exactly while the
+ * pack passes it. Four waves.
+ */
+export function fourWaveBuild(): Map<number, Command[]> {
+  const build = new Map(openingBuild());
+  build.set(730, [{ kind: 'place', structure: 'tower', archetype: 'sniper', tx: 8, ty: 6, seq: 99 }]);
+  build.set(1250, [
+    { kind: 'place', structure: 'wall', tx: 10, ty: 2, seq: 100 },
+    { kind: 'place', structure: 'tower', archetype: 'slow', tx: 10, ty: 2, seq: 101 },
+  ]);
+  return build;
+}

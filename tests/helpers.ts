@@ -1,5 +1,7 @@
 // Shared fixtures for the sim tests: tiny inline levels, a controllable
 // balance file, direct enemy injection, and command shorthands.
+import balanceJson from '../src/data/balance.json';
+import levelJson from '../src/data/levels/level_01.json';
 import { loadGameData, type GameData, type TowerArchetype } from '../src/data/schema';
 import type { Command } from '../src/sim/commands';
 import { tileCentre } from '../src/sim/fixed';
@@ -255,4 +257,60 @@ export function startWave(): Command {
 
 export function concede(): Command {
   return { kind: 'concede', seq: seq++ };
+}
+
+// ── The level_01 scripted driver (energy-infrastructure harness) ─────────
+
+/** What `powerRun` hands its observer after every tick. */
+export interface ScriptedTick {
+  sim: Sim;
+  /** The commands this tick absorbed — the script's plus any auto-issued startWave. */
+  commands: readonly Command[];
+  /** The balance before the tick advanced. */
+  treasuryBefore: number;
+}
+
+/** The seed every level_01 harness and golden run shares. */
+export const HARNESS_SEED = 0xc0ffee;
+
+/**
+ * Drive the shipped level_01 (shipped balance, HARNESS_SEED) for `waves`
+ * waves: the script's commands at their ticks, each wave started 50 ticks
+ * after the previous settlement (the first at tick 100), and `onTick` called
+ * after every advance — the leak harness summarises power per wave from it,
+ * the ledger tests assert the two identities on every tick. Stops once the
+ * last wave has settled, or the run has ended, or at a 20 000-tick guard.
+ */
+export function powerRun(
+  build: ReadonlyMap<number, Command[]>,
+  waves: number,
+  onTick: (step: ScriptedTick) => void = () => {},
+): { sim: Sim; data: GameData } {
+  const data = loadGameData(levelJson, balanceJson);
+  const sim = new Sim(data, HARNESS_SEED);
+  let seq = 1000;
+  let settledAt = -1;
+  let settled = 0;
+  const startedWaves = new Set<number>();
+  for (let guard = 0; guard < 20_000 && settled < waves; guard++) {
+    const s = sim.state;
+    if (s.runPhase === 'won' || s.runPhase === 'lost') break;
+    const t = s.tick;
+    const commands: Command[] = [...(build.get(t) ?? [])];
+    const nextWave = s.waveIndex + 1;
+    const startAt = settledAt < 0 ? 100 : settledAt + 50;
+    if (s.runPhase === 'build' && t >= startAt && !startedWaves.has(nextWave) && nextWave <= waves) {
+      commands.push({ kind: 'startWave', seq: seq++ });
+      startedWaves.add(nextWave);
+    }
+    const treasuryBefore = s.treasuryMg;
+    const inWave = s.runPhase === 'wave' || startedWaves.has(nextWave);
+    sim.tick(commands);
+    if (inWave && s.runPhase !== 'wave') {
+      settledAt = t;
+      settled++;
+    }
+    onTick({ sim, commands, treasuryBefore });
+  }
+  return { sim, data };
 }
