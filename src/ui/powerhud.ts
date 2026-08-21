@@ -9,9 +9,10 @@
 //   - Planning between waves: the standing towers' rated total against the
 //     same ceiling, cost reading zero — how close a peak would come
 //   - The stored-energy line (add-battery build-ui delta): `stored a / b kWh`
-//     whenever a battery stands, in both phases, absent otherwise; it stays
-//     on mobile, where the split detail does not, since it is one short
-//     figure and the reserve is what a mobile player would miss most
+//     whenever a battery stands, in both phases, absent otherwise. It
+//     follows the split detail's form-factor rule — desktop only — because
+//     the compact top bar has no third row to give; on mobile the reserve
+//     reads off the board's gauges and the energy balance
 //   - The connection-upgrade control: next tier's capacity and cost, the
 //     palette's affordable / debt / blocked states, maxed at the last tier,
 //     and the wording that the upgrade is final — in the visible label, so
@@ -51,7 +52,7 @@ const FILL_OVER = 'absolute inset-y-0 left-0 bg-secondary';
 const FILL_WARN = 'absolute inset-y-0 left-0 bg-error';
 
 const DETAIL = 'font-mono text-label-xs uppercase leading-tight text-on-surface-variant mobile:hidden';
-const STORE = 'font-mono text-label-xs uppercase leading-tight text-tertiary-fixed-dim';
+const STORE = 'font-mono text-label-xs uppercase leading-tight text-tertiary-fixed-dim mobile:hidden';
 
 const UPG_BASE = 'btn-mech ml-1 whitespace-nowrap rounded border px-1.5 py-0.5 font-mono text-label-xs uppercase ';
 const UPG_AFFORDABLE = UPG_BASE + 'border-secondary-fixed-dim bg-secondary-container text-on-secondary-container';

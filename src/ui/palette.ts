@@ -83,7 +83,11 @@ const KEY_HINT =
 const CAPTION = 'pointer-events-none font-mono text-[8px] leading-none uppercase tracking-wider opacity-60';
 const TOWER_CAPTION = 'on wall';
 
-/** The power figure on a card: a tower's rated draw, the panel's output, the battery's capacity. */
+/**
+ * The power figure on a card: a tower's rated draw, the panel's output, the
+ * battery's capacity — the last without a trailing `.0`, so it clears the
+ * hotkey on a 64px card.
+ */
 const POWER_TAG =
   'pointer-events-none absolute right-1 top-0.5 font-mono text-label-xs text-tertiary-fixed-dim/80';
 
@@ -172,7 +176,7 @@ export class PaletteUI {
       ['area', 'Area', costs.towerMg.area, formatKw(costs.towerRatedMp.area)],
       ['slow', 'Slow', costs.towerMg.slow, formatKw(costs.towerRatedMp.slow)],
       ['panel', 'Solar', costs.panelMg, `+${formatKw(costs.panelOutputMp)}`],
-      ['battery', 'Battery', costs.batteryMg, `${formatKwh(costs.batteryCapacityMpTick)} kWh`],
+      ['battery', 'Battery', costs.batteryMg, `${formatKwh(costs.batteryCapacityMpTick).replace(/\.0$/, '')} kWh`],
       ['remove', 'Remove', 0, ''],
       ['move', 'Move', 0, ''],
     ];

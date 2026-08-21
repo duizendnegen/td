@@ -111,7 +111,7 @@
       present/absent, both phases, split includes battery); `tests/ledger-ui.test.ts` (the two
       rows, order, neither billed, columns total the same — the 43.0 scenario with 2.0
       charging and 1.5 battery)
-- [ ] 5.7 Browser check with the Playwright plugin: place panel + battery, run a wave, watch
+- [x] 5.7 Browser check with the Playwright plugin: place panel + battery, run a wave, watch
       the gauge and the meter line rise and fall; sell a battery between waves and see the
       clamp; the energy balance shows the two rows
 
