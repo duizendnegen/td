@@ -32,8 +32,8 @@
 
 ## 5. Determinism
 
-- [ ] 5.1 Re-mint **both** goldens in `tests/replay.test.ts` once, deliberately, with a dated header note in the style of the earlier notes: thirty unconditional fields joined the walk, so `GOLDEN_IDLE_HASH` moves this time and that is expected; every milestone assertion (balances, kills, phases at their ticks) must hold unchanged before the new values are accepted (wave-ledger spec, "cannot alter a trajectory")
-- [ ] 5.2 `npm test` and `npm run typecheck` green; `tests/scenario.test.ts` and `tests/capture.test.ts` untouched
+- [x] 5.1 Re-mint **both** goldens in `tests/replay.test.ts` once, deliberately, with a dated header note in the style of the earlier notes: thirty unconditional fields joined the walk, so `GOLDEN_IDLE_HASH` moves this time and that is expected; every milestone assertion (balances, kills, phases at their ticks) must hold unchanged before the new values are accepted (wave-ledger spec, "cannot alter a trajectory")
+- [x] 5.2 `npm test` and `npm run typecheck` green; `tests/scenario.test.ts` and `tests/capture.test.ts` untouched
 
 ## 6. Presentation module (pure)
 

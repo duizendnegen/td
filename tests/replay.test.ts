@@ -64,6 +64,17 @@
 // treasury and is ridden out on that one panel — and a second panel with the
 // tier-2 connection before the finale. It therefore also covers the panel and
 // upgradeGrid paths and a brownout, as the milestones below assert.
+// Wave-ledger note (2026-08-21): BOTH goldens re-minted once, deliberately,
+// and the script untouched. `SimState.ledger` and `SimState.lastLedger` — two
+// fifteen-field periods — join the canonical walk unconditionally, so thirty
+// fields joined the walk and even the idle run's hash layout changes (it
+// carries an open period with the starting treasury as its opening). The
+// trajectory did not move: the ledger is written beside the treasury
+// mutations and the step-7 power resolution and read by nothing in the
+// simulation, and every milestone below held unchanged before the new
+// values were accepted — kills at 156, tier 1, two panels, the win at 6749.
+// The per-tick identities over the harness scripts (tests/ledger.test.ts)
+// are the independent check that no writer was missed.
 import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import levelJson from '../src/data/levels/level_01.json';
@@ -79,9 +90,9 @@ const IDLE_TICKS = 5600;
 /** Past the scripted win at tick 6749, at a round checkpoint. */
 const SCRIPT_TICKS = 6800;
 /** Empty-command run: an inert build phase — nothing spawns without a wave. */
-const GOLDEN_IDLE_HASH = 'cc0d9189';
+const GOLDEN_IDLE_HASH = '1c4664c9';
 /** Scripted full-run session (see script below). */
-const GOLDEN_SCRIPT_HASH = '9f56b8fa';
+const GOLDEN_SCRIPT_HASH = '4027e48b';
 
 function makeSim(): Sim {
   return new Sim(loadGameData(levelJson, balanceJson), SEED);
@@ -313,6 +324,9 @@ describe('replay determinism', () => {
     expect(Number.isInteger(s.nextSackId)).toBe(true);
     for (const v of [s.waveIndex, s.waveStartTick, s.stolenMg, s.escapedMg, s.kills, s.gridTier]) {
       expect(Number.isInteger(v)).toBe(true);
+    }
+    for (const l of [s.ledger, s.lastLedger]) {
+      for (const v of Object.values(l)) expect(Number.isInteger(v)).toBe(true);
     }
     for (const c of s.groupCursors) expect(Number.isInteger(c)).toBe(true);
     for (const e of s.enemies) {
