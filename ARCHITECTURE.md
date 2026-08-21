@@ -29,6 +29,7 @@ rather than an accident.
 | D15 | Supply order | **Merit order solar → [storage] → grid**, the grid bounded by tier capacity and by the positive balance at the tariff; surplus solar discarded | The storage slot is reserved so the battery change slots in without reopening the order; the treasury bound is what makes "the bill lands at exactly zero, never below" true |
 | D16 | Brownout shape | **Uniform interval stretch**: every tower's next shot at interval ÷ coverage, integer ceiling; hold at zero | Probabilistic shot-skipping is replay-visible noise that reads as flaky; per-tower priority is a later lever, not this change |
 | D17 | Grid connection | **Hashed integer tier, one-way `upgradeGrid` command**, any live phase, no refund | A mid-wave "we need more power" is a legitimate rescue; the finality is stated in the UI rather than modelled as provisional state |
+| D18 | Wave ledger | **Settlement-bounded period** — one open period and one closed, both hashed; opened at run start and at every settlement, closed at the next — with the HUD flipping to the open period the moment its wave starts | A period reset at wave start (the `waveDamage` pattern) would book build-phase spending to the wave *before* it and show the previous wave's books mutating while the player builds; the settlement boundary needs the second slot, and the flip at wave start is what makes "preparing wave n" and "wave n" the same books |
 
 ### D1 in detail — why 3D
 
@@ -392,16 +393,46 @@ Fixed and documented, because order is part of the determinism contract:
 7. Tower targeting and firing (damage applies this tick): a **target pre-pass** over every
    tower (engaged = has a target this tick; the tick's draw is rated-while-engaged plus
    standby), then — during a wave — **power resolution** (solar → grid up to capacity and
-   the positive balance, yielding the tick's coverage and bill), then the **firing pass** at
-   that coverage: a firing tower schedules its next shot at `interval ÷ coverage`, and at
-   coverage zero every due tower holds without advancing. Outside a wave nothing draws and
+   the positive balance, yielding the tick's coverage and bill) and the tick's **energy
+   buckets** into the open ledger period, then the **firing pass** at that coverage: a firing
+   tower schedules its next shot at `interval ÷ coverage`, and at coverage zero every due
+   tower holds without advancing. Outside a wave nothing draws, nothing accumulates, and
    towers fire at full coverage.
 8. Deaths, bounties, gold-sack drops
 9. Run progression: the **grid bill**, then interest accrual on the post-bill balance while
    the wave is live; end-of-wave settlement (no bill, no interest; sack return, then the won /
-   wave-locked / build judgement) the tick it drains; refund-driven win checks from the
-   post-final-wave locked state
+   wave-locked / build judgement, then the **ledger period closes**) the tick it drains;
+   refund-driven win checks from the post-final-wave locked state
 10. Compact tombstones; increment tick
+
+### The wave ledger
+
+`SimState.ledger` (open) and `SimState.lastLedger` (closed) are two `WaveLedger` periods —
+fifteen integer fields each, hashed unconditionally, read by nothing in the simulation. A
+period opens at run start (on the starting treasury) and at each settlement (on the settled
+balance), and closes at the next settlement as a copy into the closed slot; `waveNo` is set in
+`applyStartWave` and is 0 until a wave starts in the period.
+
+The gold rows are written beside the ten treasury mutations they mirror, same value, one more
+destination: `bountiesMg` (`economy.ts` `resolveDeaths`), `interestMg` (`accrueInterest`, the
+floored credit), `stolenMg` (`resolveArrivals`), `recoveredMg` (`returnSacks`), `billMg`
+(`sim.ts` step 9), `bonusMg` (settlement), `constructionMg` += in `pushStructure`,
+`applyUpgrade` and `applyUpgradeGrid`, −= the refund in `placement.ts` `removeStructure`. The
+energy rows are written once per wave tick in step 7 from the figures `resolvePower` just
+returned: `engagedMp`/`standbyMp` from the pre-pass split, `solarUsedMp = min(solar, draw)`,
+`solarWastedMp = solar − solarUsed`, `gridMp` as supplied, `unmetMp = draw − solarUsed − grid`.
+
+Two identities hold on every tick, and `tests/ledger.test.ts` asserts them on every tick of the
+harness scripts (refunds, upgrades, the connection tier, thefts, sack returns, brownouts, debt,
+wasted solar, a concede):
+
+- gold: `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg = treasuryMg`
+- energy: `engagedMp + standbyMp + solarWastedMp = (solarUsedMp + solarWastedMp) + gridMp + unmetMp`
+  — usage against sources, the source side's solar being the panels' whole output.
+
+One documented asymmetry: the settlement tick's draw is in the energy rows (towers drew; the
+killing shot fires in step 7) while step 9 bills nothing for it, so that tick's grid supply has
+no bill row counterpart. The ledger records what moved, never a recomputation.
 
 ### Entity storage
 
@@ -697,6 +728,27 @@ so Tailwind's scanner sees every class verbatim.
   derivation): live draw against the ceiling (capacity + solar), solar/grid split, gold per
   second and tier during a wave — red while coverage < 1 — the rated total between waves, and
   the one-way connection-upgrade control with the palette's affordable / debt / blocked states.
+- **Disclosure** (`ui/disclosure.ts`) — the expandable-readout pattern: one controller owns the
+  open panel across every registered `(control, panel)` pair. It sets `role="button"`,
+  `tabindex`, `aria-expanded` and `aria-controls` on the control; toggles on click and
+  Enter/Space (Space's propagation stopped, so the focused readout does not also start a
+  wave; clicks and keys from a `<button>` inside the control — the grid upgrade — are not
+  toggles); closes on Escape, bound in the capture phase and acted on only while a panel is
+  open, so the palette's Escape is untouched otherwise; and closes on a capture-phase document
+  `pointerdown` outside control and panel without cancelling it, so the same press still reaches
+  the board. Panels are shown and hidden by whole-class swap — `desktop:absolute` under the
+  control, `mobile:fixed inset-x-0` under the compact bar. The next top-bar panel registers
+  another pair and changes nothing here.
+- **Gold ledger and energy balance** (`ui/ledgerhud.ts` over the pure `ui/ledger.ts`) — the
+  two dropdowns on the treasury and the meter. `ledger.ts` owns every figure: `shown(ledger,
+  lastLedger)` picks the period with the latest wave start (the open one once its wave has
+  started, else the closed one with the open one as the "preparing" block — a pure function of
+  the two slots, no phase cases); `reconcile(parts, total, scale)` is largest-remainder rounding
+  so a block's displayed rows sum exactly to `floor(closing) − floor(opening)` and each energy
+  column to the displayed total; `KWH_PER_MP_TICK`, `formatKwh`, `formatTariff` carry the
+  one-second-is-one-hour convention under which the authored tariff reads as `g/kWh`. The HUD
+  class derives per frame, builds a content key, and writes the DOM only when the key changes
+  and only for the panel that is open. Tests: `tests/ledger-ui.test.ts`.
 - **Palette** — four towers plus wall, solar panel, remove and move, with costs, and the rated
   power on every tower card, greyed out when unaffordable or when `balance < 0` (the README's
   no-spending-while-negative rule); lack of power never greys anything. Tower items carry an

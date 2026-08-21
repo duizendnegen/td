@@ -56,6 +56,6 @@
 
 ## 9. Documentation
 
-- [ ] 9.1 `README.md`: HUD section — the two expandable readouts and what each shows; Power section — one sentence on the kWh convention (a second of wave time is an hour; the authored tariff is the g/kWh shown)
-- [ ] 9.2 `ARCHITECTURE.md` §7: where the ledger is written (the ten sites, step 7 energy, the settlement close) and the two identities; §9: the disclosure pattern and the pure presentation module; §1 decision log: one entry for the settlement-bounded period with the display flip at wave start, and why
-- [ ] 9.3 `ROADMAP.md`: the home-battery entry names the rows it adds (`charging` under usage, `battery` under sources) and the two accumulator fields
+- [x] 9.1 `README.md`: HUD section — the two expandable readouts and what each shows; Power section — one sentence on the kWh convention (a second of wave time is an hour; the authored tariff is the g/kWh shown)
+- [x] 9.2 `ARCHITECTURE.md` §7: where the ledger is written (the ten sites, step 7 energy, the settlement close) and the two identities; §9: the disclosure pattern and the pure presentation module; §1 decision log: one entry for the settlement-bounded period with the display flip at wave start, and why
+- [x] 9.3 `ROADMAP.md`: the home-battery entry names the rows it adds (`charging` under usage, `battery` under sources) and the two accumulator fields

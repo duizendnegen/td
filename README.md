@@ -83,6 +83,7 @@ Towers are appliances. Money buys **power**, power is the ceiling on how much da
 - **Brownout, never a refusal.** Placement is never blocked for lack of power. When the tick's draw exceeds what can be supplied, every tower runs at coverage `supplied ÷ draw`: its next shot is scheduled at `interval ÷ coverage` — uniformly, deterministically, slow towers' reapplication included. Full cadence resumes the tick coverage returns to 1. On the board the towers dim together and the meter turns red.
 - **Broke means cut off.** At a balance ≤ 0 the grid supplies nothing — the bill is a purchase and nothing is bought below zero — so towers run on solar alone, and with no solar they hold fire until a bounty or a refund brings the balance positive again. This compounds the death spiral deliberately (playtest gate; the per-wave stipend lever is the mitigation); solar is what makes it survivable — insurance, not just savings.
 - **One meter** beside the treasury: during a wave, the live draw against the ceiling (connection capacity + solar), the solar/grid split, the grid cost per second and the tier; between waves, the standing towers' rated total against that ceiling, so a peak's headroom is visible before START WAVE. The connection-upgrade control lives in the meter, worded as final. `F4` shows the tick's power figures.
+- **Energy reads in kWh** in the meter's dropdown (the energy balance, below): a second of wave time is presented as an hour, so kilowatt-seconds read as kilowatt-hours and the level's authored tariff — gold per kW per second — is the `g/kWh` the panel shows, unchanged. Presentation only, like the kW label.
 - **Data:** every tower level's `ratedPower`, the balance `power` block (`standbyFraction`, `panel { cost, output }`) and each level's `power` block (`tiers[]`, `tariff`, in gold per unit per second) are validated at load and converted to integers once. The HUD reads a power unit as a kW; the sim holds thousandths ("mp"), like milli-gold. Every quantity is integer and deterministic; the connection tier is hashed state, coverage and the bill are derived per tick and never stored.
 
 ## Enemies
@@ -192,6 +193,26 @@ the layout reference the shipped HUD follows.
 - **Mobile**: compact top bar (same counter, meter and treasury), build palette as a bottom menu,
   inspector as a bottom sheet that swaps with the build menu while a tower is selected,
   START WAVE above the menu. Portrait shows a rotate prompt — the game is landscape-first.
+
+**Expandable readouts.** The treasury readout and the power meter each drop down a panel on
+click, tap, or Enter/Space while focused; opening one closes the other, and Escape or a click
+anywhere else closes it (that click still reaches the board). Neither pauses the game. On desktop
+the panel hangs under its readout; on mobile it spans the width of the compact bar.
+
+- **Gold ledger** (under the treasury): where the gold went, settlement to settlement. A period
+  is a build phase and the wave it prepared; the panel shows the period of the latest wave start —
+  live while that wave runs, frozen once it settles — as `Opening`, then bounties, wave bonus,
+  interest, construction (net of refunds; a connection tier counts as construction), energy (the
+  grid bill), stolen and recovered, each signed, then `Closing`. In the build phase the settled
+  wave's block is followed by a `PREPARING WAVE n` block holding the construction since, whose
+  `Balance` is the readout's figure. Every block's rows add up exactly to its closing line —
+  whole gold, reconciled so a reader summing by hand lands where the panel does.
+- **Energy balance** (under the meter): the same period's energy as two columns that total the
+  same figure — *usage* (engaged, standby, wasted solar) against *sources* in merit order (solar,
+  grid marked *billed*, unmet) — in kWh to one decimal, with the tariff in `g/kWh` in the header.
+  The panel values nothing in gold and never claims a "saving": the grid row is what was billed,
+  and the tariff lets you price solar with one multiplication. Before wave 1 it says so instead of
+  showing zeros.
 
 **Interaction models** split on capability, not user agent (`(hover: hover) and
 (pointer: fine)`):

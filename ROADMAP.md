@@ -365,3 +365,7 @@ Answered by playing, not by argument. Full list in
 supply merit order between solar and grid (charge from surplus solar, discharge against the deficit,
 bounded by rate and charge), giving the wave's load curve something to shave: cheaper bills, and
 towers that keep firing through a broke tick. Nothing in the power model needs reopening for it.
+In the wave ledger it adds two accumulator fields — `chargedMp` (solar that went into the battery
+instead of being wasted) and `batteryMp` (what it discharged) — and two rows in the energy
+balance: `charging` under usage, `battery` under sources, between solar and grid. The identity
+gains a term on each side and nothing else in either panel moves.
