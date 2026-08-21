@@ -81,7 +81,7 @@
       never exceeds capacity, and it is non-zero at some settlement
 - [x] 4.5 `tests/replay.test.ts` milestone assertions still hold before the re-mint (no scripted
       run places a battery, so balances/kills/phases are unchanged — only the hash moves)
-- [ ] 4.6 Re-mint both replay goldens deliberately, in their own commit (ARCHITECTURE.md §12),
+- [x] 4.6 Re-mint both replay goldens deliberately, in their own commit (ARCHITECTURE.md §12),
       after 2.x–3.x land
 
 ## 5. Render & UI

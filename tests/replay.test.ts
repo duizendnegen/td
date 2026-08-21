@@ -75,6 +75,16 @@
 // values were accepted — kills at 156, tier 1, two panels, the win at 6749.
 // The per-tick identities over the harness scripts (tests/ledger.test.ts)
 // are the independent check that no writer was missed.
+// Add-battery note (2026-08-21): BOTH goldens re-minted once, deliberately,
+// and the script untouched. `SimState.storedMpTick` joins the canonical walk
+// after `gridTier`, and each ledger period gains two rows (`chargedMp`,
+// `batteryMp`) — so five fields joined the walk unconditionally and even the
+// idle run's hash layout changes. The trajectory did not move: no scripted
+// run places a battery, so the store stays at zero and the merit order reads
+// exactly as before (resolvePower's no-battery cases are pinned in
+// tests/power.test.ts), and every milestone below held unchanged before the
+// new values were accepted — kills at 156, tier 1, two panels, the win at
+// 6749.
 import { describe, expect, it } from 'vitest';
 import balanceJson from '../src/data/balance.json';
 import levelJson from '../src/data/levels/level_01.json';
@@ -90,9 +100,9 @@ const IDLE_TICKS = 5600;
 /** Past the scripted win at tick 6749, at a round checkpoint. */
 const SCRIPT_TICKS = 6800;
 /** Empty-command run: an inert build phase — nothing spawns without a wave. */
-const GOLDEN_IDLE_HASH = '1c4664c9';
+const GOLDEN_IDLE_HASH = 'abb6c219';
 /** Scripted full-run session (see script below). */
-const GOLDEN_SCRIPT_HASH = '4027e48b';
+const GOLDEN_SCRIPT_HASH = '98f24e1b';
 
 function makeSim(): Sim {
   return new Sim(loadGameData(levelJson, balanceJson), SEED);
