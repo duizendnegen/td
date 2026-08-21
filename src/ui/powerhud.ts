@@ -10,7 +10,8 @@
 //     same ceiling, cost reading zero — how close a peak would come
 //   - The connection-upgrade control: next tier's capacity and cost, the
 //     palette's affordable / debt / blocked states, maxed at the last tier,
-//     and the wording that the upgrade is final
+//     and the wording that the upgrade is final — in the visible label, so
+//     touch (no tooltip) reads it too
 //   - Recessed top-bar slot like the treasury; mobile compacts to the figures
 //   - Reads state per frame, emits the one command, never mutates the sim
 
@@ -150,9 +151,10 @@ export class PowerHud {
       this.upgrade.title = 'The connection is at its last tier — congestion; solar is what scales from here.';
       return;
     }
-    const label = `→ T${m.tier + 1} ${formatKw(u.capacityMp)} · ${u.costMg / GOLD}g`;
+    // The finality is in the label, not only the tooltip: touch has no hover.
+    const label = `→ T${m.tier + 1} ${formatKw(u.capacityMp)} · ${u.costMg / GOLD}g · final`;
     this.upgrade.textContent = label;
-    this.upgrade.title = 'Upgrade the grid connection. Final — no refund.';
+    this.upgrade.title = 'Upgrade the grid connection. Final — no refund, no share of liquidation.';
     this.upgrade.disabled = u.kind === 'blocked';
     this.upgrade.className = u.kind === 'blocked' ? UPG_BLOCKED : u.kind === 'debt' ? UPG_DEBT : UPG_AFFORDABLE;
   }

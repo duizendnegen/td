@@ -218,6 +218,15 @@ of committed structures, `move` — all reuse the wall path unchanged; the panel
 behaviour is contributing `output` in D4. Enemies need no changes: a blocked tile is a blocked
 tile. Panels never appear on sockets.
 
+*Settled in implementation, against build-over-walls (which landed after this proposal):* the
+tile has a **ground layer** — a wall or a panel, at most one, the only thing besides terrain
+that blocks — and a tower layer on top. A panel is ground only: it does not go on a wall (the
+tile is occupied), and it is **not a foundation** — a tower on a panel is `needs-wall`, a move
+onto a panel is `occupied`. Otherwise a panel would strictly dominate a wall (same tile, same
+blocking, plus output, plus a tower on top), and the maze-tile trade-off that makes solar the
+late-game limit would vanish. In code the layer is `groundAt` / `Stack.ground`; `wallAt` stays
+the foundation lookup.
+
 ### D8: Units and conversion
 
 Power is an integer unit (name in code: `mp`, "milli-power", so that per-tick quantities and

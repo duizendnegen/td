@@ -38,8 +38,9 @@ Nothing SHALL draw outside an active wave.
 The game SHALL offer a solar panel as a buildable structure with a 1×1 footprint on dirt
 terrain only, purchased with gold, that blocks enemy pathing like a wall. Panels SHALL follow
 the wall's placement validation, provisional/committed refund rule, and the refusal to sell
-committed structures during a wave. Enemies SHALL NOT be able to damage, drain, or steal from
-panels. Each panel SHALL contribute a constant output, defined in balance data, to every tick of
+committed structures during a wave. A panel is a ground structure only: it SHALL NOT be placed
+on a wall, and it SHALL NOT be a foundation — no tower stands on a panel. Enemies SHALL NOT be
+able to damage, drain, or steal from panels. Each panel SHALL contribute a constant output, defined in balance data, to every tick of
 an active wave and nothing outside one.
 
 #### Scenario: Panel placement is validated like a wall
@@ -52,6 +53,11 @@ an active wave and nothing outside one.
 
 - **WHEN** a panel is placed on a walkable tile
 - **THEN** enemies path around that tile exactly as they would around a wall
+
+#### Scenario: A panel is not a foundation
+
+- **WHEN** a tower placement command targets a tile holding a panel
+- **THEN** the placement is rejected with the `needs-wall` verdict, as on bare dirt
 
 #### Scenario: Panels are not for sockets
 

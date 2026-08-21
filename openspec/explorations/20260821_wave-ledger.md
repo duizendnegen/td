@@ -6,9 +6,10 @@ Prompted by: "After a wave, I want to see how much I spent on energy from the gr
 much I avoided spending from renewables (solar and later battery)."
 
 Explored in the context of `add-energy-infrastructure` (complete, at its playtest gate). This
-entry is a **handover**: Part A is a temporary console hack to land in the
-`add-energy-infrastructure` workspace now so the numbers can inform balance work; Part B is
-the design for the proper change that replaces it.
+entry is the input to a proposal for a separate change; `add-energy-infrastructure` itself is
+unchanged by it. (A throwaway console summary was used during balance authoring and removed
+again; the per-wave harness table — `POWER_LOG=1 npx vitest run tests/leak.test.ts` — is the
+surviving way to read the numbers.)
 
 ### The problem, and why the obvious answers fail
 
@@ -52,23 +53,17 @@ plus the rows equals the treasury now.
   across waves, so the net need not be zero). Source rows read top-to-bottom in merit order.
 - **Scope: `add-energy-infrastructure` stays closed as designed.** The expandable-readout
   pattern is one UI paradigm with two instances and the accumulators are one sim mechanism
-  with two consumers — both belong to a new change. Only the temporary hack (Part A) lands in
-  the energy workspace.
+  with two consumers — both belong to a new change.
 
 ---
 
-## Part A — temporary console summary (hack, lands in `add-energy-infrastructure`)
-
-Purpose: see the per-wave energy balance and the two gold figures while playing, to inform
-balance authoring for energy infrastructure. Console output is fine. Dev-only. Every line of
-it carries the marker `TEMP(wave-ledger)` so the proper change (Part B) can grep and remove it.
-
-### Seams
+## Seams in the current code
 
 - `src/sim/sim.ts` — `PowerReadout` (`sim.power`): per-tick, derived, unhashed, overwritten
   every advance, `IDLE_POWER` outside a wave and on the settlement tick. Has `drawMp`,
   `solarMp`, `gridSupplyMp`, `coverage`, `billMg`.
-- `src/sim/tower.ts` — `preTargetTowers` sums `drawMp` via `drawOf(t, engaged, data)`.
+- `src/sim/tower.ts` — `preTargetTowers` sums `drawMp` via `drawOf(t, engaged, data)`; the
+  engaged/standby split the ledger wants is not kept separately yet.
 - `src/app/game.ts` — `tickOnce` calls `stepOnce` (exactly one `sim.tick`) then
   `releasePauseOnPhaseChange`, which already detects the phase transition out of `wave`.
 - `src/data/schema.ts` — `GameData.tariffMgPer1000` (mg per 1000 mp per tick).
@@ -77,51 +72,24 @@ it carries the marker `TEMP(wave-ledger)` so the proper change (Part B) can grep
 - `tests/leak.test.ts` — `powerRun` already builds a per-wave table from `sim.power`
   (`POWER_LOG=1 npx vitest run tests/leak.test.ts`).
 
-### Tasks
-
-1. **Split the readout's draw** (not temporary — the proper change wants it too): `TargetPass`
-   and `PowerReadout` gain `engagedMp` and `standbyMp` with `drawMp = engagedMp + standbyMp`;
-   `preTargetTowers` sums them separately. `IDLE_POWER` gets zeros. Unhashed, derived — no
-   golden change. Update `tests/power.test.ts` with one case asserting the split.
-2. **App-side per-wave accumulator** in `src/app/game.ts`, guarded by `import.meta.env.DEV`:
-   after `stepOnce`, if `sim.state.runPhase === 'wave'` read `p = sim.power` and add to the
-   current wave's sums:
-   - `engaged += p.engagedMp`, `standby += p.standbyMp`
-   - `solarUsed += min(p.solarMp, p.drawMp)`, `wasted += max(0, p.solarMp − p.drawMp)`
-   - `grid += p.gridSupplyMp`
-   - `unmet += p.drawMp − min(p.solarMp, p.drawMp) − p.gridSupplyMp`
-   - `billMg += p.billMg`
-   - `ticks++`, `brownTicks += coverage < COVERAGE_SCALE ? 1 : 0`
-   Assert (dev-only) the per-tick identity `engaged + standby + wasted === solar + grid + unmet`.
-3. **Flush on leaving the wave phase** (hook into `releasePauseOnPhaseChange`'s transition, or
-   a sibling observer): print one `console.table` with the two columns in mp·tick *and* as a
-   share of the balance total, plus three gold lines:
-   - `grid bill` = `billMg` (exact — what step 9 debited)
-   - `solar at tariff` = `floor(solarUsed × tariffMgPer1000 / 1000)` — labelled as a valuation
-   - `unmet at tariff` = same for `unmet` — what the ceiling denied
-   Also print the wave index, tick count, brown-tick count and the tier at settlement. Reset
-   the accumulator on the transition *into* `wave`.
-4. **Optional, same buckets in the harness:** extend `WavePower` in `tests/leak.test.ts` with
-   the same fields so `POWER_LOG=1` shows the identical balance for the authored scenarios.
-   Keeps the live console and the harness telling one story.
-5. `npm run typecheck && npm test` green; replay golden unchanged (nothing hashed moved).
-   Commit on the workspace branch with a title that says it is temporary, e.g.
-   `chore(temp): per-wave power balance console summary — TEMP(wave-ledger)`.
-
-Non-goals for the hack: any HUD, any sim state, any hashing, any unit work beyond raw mp·tick
-and shares. Presentation units are Part B's problem.
+Per-tick bucket arithmetic, for the accumulators:
+`solarUsed = min(solar, draw)`, `wasted = max(0, solar − draw)`,
+`unmet = draw − solarUsed − grid`; the identity `engaged + standby + wasted = solar + grid + unmet`
+should hold every tick and is worth a dev-only assertion.
 
 ---
 
-## Part B — the proper change (`add-wave-ledger`, name open)
+## The change (`add-wave-ledger`, name open)
 
-Replaces Part A. A proposal has **not** been written; this is the input to one.
+A proposal has **not** been written; this is the input to one.
 
 ### What it builds
 
-- **Sim:** per-wave accumulators on `SimState`, hashed (standing rule: every state field is
-  hashed the commit it lands), reset at `startWave` alongside `waveDamage`
-  (`src/sim/sim.ts`, the structures loop in `startWave`). Integer sums of the per-tick figures:
+- **Sim:** `TargetPass` / `PowerReadout` split `drawMp` into `engagedMp` + `standbyMp`
+  (derived, unhashed — no golden change); per-wave accumulators on `SimState`, hashed (standing
+  rule: every state field is hashed the commit it lands), reset at `startWave` alongside
+  `waveDamage` (`src/sim/sim.ts`, the structures loop in `startWave`). Integer sums of the
+  per-tick figures:
   - energy: `engagedMp`, `standbyMp`, `solarUsedMp`, `solarWastedMp`, `gridMp`, `unmetMp`
     (battery change adds `chargedMp`, `dischargedMp`)
   - gold: `bountiesMg` (step 8), `interestMg` (step 9), `billMg` (step 9), `constructionMg`
@@ -134,8 +102,6 @@ Replaces Part A. A proposal has **not** been written; this is the input to one.
   gold ledger drops down; click the power meter → the energy balance drops down. Mobile: the
   top bar is compact; the expansion is a dropdown in both layouts — design against the
   mockups' language. The energy panel header shows the level's tariff.
-- **Remove the `TEMP(wave-ledger)` hack** from `game.ts` (keep the readout split from Part A
-  task 1; keep the harness columns if Part A task 4 was done).
 - **Docs:** README (HUD section), ARCHITECTURE (§7 where the accumulators are written; decision
   log).
 
@@ -168,8 +134,8 @@ word for the UI and keep it.
 
 ### Relationship to other changes
 
-- `add-energy-infrastructure`: unchanged except Part A. Its design D4 merit order is the order
-  of the source rows.
+- `add-energy-infrastructure`: unchanged. Its design D4 merit order is the order of the source
+  rows.
 - Battery (designed-for follow-up): adds `charging` / `battery` rows and the accumulators
   behind them; nothing else in the ledger moves.
 - `tower-damage-stats`: per-tower damage is the per-structure precedent; the ledger is per-run

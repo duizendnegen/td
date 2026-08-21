@@ -457,6 +457,28 @@ describe('terrain buildability (phase-4)', () => {
     expect(sim.grid.isBlocked(2, 1)).toBe(false);
   });
 
+  it('a panel is ground only: no tower on it, no panel on a wall, no wall on a panel', () => {
+    const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
+    const twin = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 })).sim;
+    for (const s of [sim, twin]) s.tick([place('panel', 2, 0), place('wall', 4, 0)]);
+    expect(sim.state.structures).toHaveLength(2);
+    const before = sim.state.treasuryMg;
+    // Not a foundation: a tower on a panel reads exactly like bare dirt.
+    expect(sim.previewPlacement('tower', 2, 0)).toBe('needs-wall');
+    expect(sim.previewPlacement('tower', 2, 1)).toBe('needs-wall');
+    // One ground structure per tile, whichever kind stands there.
+    expect(sim.previewPlacement('panel', 4, 0)).toBe('occupied');
+    expect(sim.previewPlacement('wall', 2, 0)).toBe('occupied');
+    sim.tick([place('tower', 2, 0), place('panel', 4, 0), place('wall', 2, 0)]);
+    twin.tick([]);
+    expect(sim.state.structures).toHaveLength(2);
+    expect(sim.state.treasuryMg).toBe(before);
+    expect(sim.hash()).toBe(twin.hash());
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(3);
+    // The wall beside it still takes the tower: the rule is the panel's, not the tile's.
+    expect(sim.previewPlacement('tower', 4, 0)).toBe('ok');
+  });
+
   it('a panel cannot be upgraded: it is not a tower', () => {
     const { sim } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
     sim.tick([place('panel', 2, 0)]);
@@ -1098,6 +1120,22 @@ describe('move command', () => {
     const socketed = makeSim(paletteLevel()).sim;
     socketed.tick([place('panel', 2, 0)]);
     expect(socketed.previewMove(2, 0, 3, 0)).toBe('not-buildable');
+  });
+
+  it('nothing lands on a panel: a stack, a bare wall and a socket tower are all occupied there', () => {
+    const { sim } = makeSim(paletteLevel());
+    const twin = makeSim(paletteLevel()).sim;
+    const setup = () => [place('panel', 2, 2), ...mount(4, 2), place('wall', 2, 0), place('tower', 3, 0)];
+    sim.tick(setup());
+    twin.tick(setup());
+    expect(sim.state.structures).toHaveLength(5);
+    expect(sim.previewMove(4, 2, 2, 2)).toBe('occupied'); // wall + tower
+    expect(sim.previewMove(2, 0, 2, 2)).toBe('occupied'); // bare wall
+    expect(sim.previewMove(3, 0, 2, 2)).toBe('occupied'); // socket tower
+    sim.tick([move(4, 2, 2, 2), move(2, 0, 2, 2), move(3, 0, 2, 2)]);
+    twin.tick([]);
+    expect(sim.hash()).toBe(twin.hash());
+    expect(sim.state.structures.filter((s) => s.tx === 2 && s.ty === 2)).toHaveLength(1);
   });
 
   it('a bare wall moves like before: mask, both fields, free, refund basis kept', () => {

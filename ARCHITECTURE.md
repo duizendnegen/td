@@ -252,7 +252,7 @@ authored in whole units and scaled once at load. The tariff is authored as gold 
 mirroring `interestRatePpm`:
 
 ```ts
-tariffMgPer1000 = Math.round(0.12 * GOLD / TICK_HZ);      // 0.12 g/kW/s → 6 mg per kW-tick
+tariffMgPer1000 = Math.round(0.24 * GOLD / TICK_HZ);      // 0.24 g/kW/s → 12 mg per kW-tick
 gridSupplyMp    = Math.min(deficit, tierCapacityMp, affordable);
 billMg          = Math.floor(gridSupplyMp * tariffMgPer1000 / 1000);   // the one floor
 coverage        = Math.min(1024, Math.floor(supplied * 1024 / drawMp)); // full = 1024
@@ -765,7 +765,7 @@ Validation goes beyond shape, and this is the main reason it is worth a dependen
 - The connection-tier table is non-empty and its capacities ascend strictly; every tower level
   carries a rated power; the standby fraction is in [0, 1]; the panel block is present.
 
-Float rates in the file (`interestRatePerTick: 0.0004`, `tariff: 0.12`, `standbyFraction: 0.2`,
+Float rates in the file (`interestRatePerTick: 0.0004`, `tariff: 0.24`, `standbyFraction: 0.2`,
 per-level `ratedPower`) are converted to integers **once**, at load, and the sim only ever sees
 integers. Authoring stays readable; the sim stays deterministic.
 
