@@ -182,3 +182,30 @@ export function fourWaveBuild(): Map<number, Command[]> {
   ]);
   return build;
 }
+
+/**
+ * The solar line (add-battery harness): the four-wave build with the slow's
+ * gold spent on a panel at (13,0) before wave 4 instead (wave 3 settles at
+ * 1176, wave 4 starts at 1226 — 3.7 kW rated against 2 kW of solar, so quiet
+ * ticks run a surplus and engaged ticks a deficit), then — before wave 5
+ * (wave 4 settles at 1733, wave 5 starts at 1783) — either a battery beside
+ * the panel, or three far-corner walls for the same 60 g, so both runs start
+ * wave 5 on the same balance and differ only in the store (the leak
+ * scenarios' spend-parity padding, applied to the power harness). Five waves.
+ */
+export function solarBuild(storage: 'battery' | 'padding'): Map<number, Command[]> {
+  const build = fourWaveBuild();
+  build.delete(1250);
+  build.set(1200, [{ kind: 'place', structure: 'panel', tx: 13, ty: 0, seq: 100 }]);
+  build.set(
+    1745,
+    storage === 'battery'
+      ? [{ kind: 'place', structure: 'battery', tx: 14, ty: 0, seq: 101 }]
+      : [
+          { kind: 'place', structure: 'wall', tx: 16, ty: 0, seq: 101 },
+          { kind: 'place', structure: 'wall', tx: 17, ty: 0, seq: 102 },
+          { kind: 'place', structure: 'wall', tx: 18, ty: 0, seq: 103 },
+        ],
+  );
+  return build;
+}

@@ -41,12 +41,12 @@
 
 ## 3. Sim — The Storage Slot
 
-- [ ] 3.1 `src/sim/power.ts`: `resolvePower` takes `storedMpTick` and `capacityMpTick` and
+- [x] 3.1 `src/sim/power.ts`: `resolvePower` takes `storedMpTick` and `capacityMpTick` and
       returns `batterySupplyMp` and `chargedMp` alongside the existing fields, per design D3
       (`charged = min(surplus, room)`, `battery = min(deficit, stored)`, grid bounds on
       `deficit − battery` unchanged, zero-tariff reading unchanged); rewrite the merit-order doc
       comment — the slot is filled, no rate, no losses, no grid charging, levers in design.md
-- [ ] 3.2 `src/sim/sim.ts` step 7: pass the store and its capacity; apply
+- [x] 3.2 `src/sim/sim.ts` step 7: pass the store and its capacity; apply
       `s.storedMpTick += chargedMp − batterySupplyMp` on every wave tick including settlement
       (design D4); `PowerReadout` / `IDLE_POWER` gain `batterySupplyMp`, `chargedMp`,
       `storedMpTick`, `storageCapacityMpTick` (the last two meaningful in any phase for the
@@ -60,26 +60,26 @@
 
 ## 4. Sim Tests
 
-- [ ] 4.1 `tests/power.test.ts` (`resolvePower`): surplus charges up to room, rest wasted; full
+- [x] 4.1 `tests/power.test.ts` (`resolvePower`): surplus charges up to room, rest wasted; full
       store → all surplus wasted; no batteries → identical results to today for every existing
       case; deficit covered by the store before the grid, nothing billed; emptying store hands
       the rest to the grid under both bounds; broke tick with a charged store → full coverage,
       no bill; broke tick with an empty store and no solar → coverage 0; a tick never both
       charges and discharges
-- [ ] 4.2 Sim-level in `tests/power.test.ts` or `tests/tower.test.ts`: a charged store holds
+- [x] 4.2 Sim-level in `tests/power.test.ts` or `tests/tower.test.ts`: a charged store holds
       coverage at full through an over-capacity peak and drains by the deficit; the store
       persists across settlement and the build phase (no movement outside a wave); a battery
       placed mid-wave enlarges capacity from that tick; the settlement tick moves the store
-- [ ] 4.3 `tests/ledger.test.ts`: the identity test gains the two terms and a scripted run with
+- [x] 4.3 `tests/ledger.test.ts`: the identity test gains the two terms and a scripted run with
       a panel and a battery (charging and discharging ticks, a broke tick); the worked
       scenarios from the wave-ledger delta (30/40 with room 6; 50/20 with store 20 and grid
       10); a clamp on removal moves no row; build phase moves no row
-- [ ] 4.4 `tests/leak.test.ts` power-aware block: a run with one panel and one battery beside the
+- [x] 4.4 `tests/leak.test.ts` power-aware block: a run with one panel and one battery beside the
       existing panel-less runs — per-wave `chargedMp`, `batteryMp`, `solarWastedMp`, `billMg`,
       and the store at settlement join the `POWER_LOG` table; assert directionally that with
       the battery the bill and wasted both fall versus the same layout without it, the store
       never exceeds capacity, and it is non-zero at some settlement
-- [ ] 4.5 `tests/replay.test.ts` milestone assertions still hold before the re-mint (no scripted
+- [x] 4.5 `tests/replay.test.ts` milestone assertions still hold before the re-mint (no scripted
       run places a battery, so balances/kills/phases are unchanged — only the hash moves)
 - [ ] 4.6 Re-mint both replay goldens deliberately, in their own commit (ARCHITECTURE.md §12),
       after 2.x–3.x land

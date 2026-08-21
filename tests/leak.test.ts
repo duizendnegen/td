@@ -9,7 +9,7 @@ import { expandPreset } from '../src/app/presets';
 import { loadGameData } from '../src/data/schema';
 import type { Command } from '../src/sim/commands';
 import { Sim } from '../src/sim/sim';
-import { corridorLevel, fourWaveBuild, openingBuild, SCENARIOS, type LayoutItem } from './leakData';
+import { corridorLevel, fourWaveBuild, openingBuild, SCENARIOS, solarBuild, type LayoutItem } from './leakData';
 
 /** Ticks after the last scheduled spawn before a run is called unresolved. */
 const DRAIN_TICKS = 1500;
@@ -125,6 +125,14 @@ interface WavePower {
   /** Bounties + settlement bonus credited during the wave. */
   incomeMg: number;
   minTreasuryMg: number;
+  /** Surplus solar the store took over the wave (add-battery), in mp·tick. */
+  chargedMp: number;
+  /** The store's discharge over the wave, in mp·tick. */
+  batteryMp: number;
+  /** Surplus solar beyond the store's room, in mp·tick. */
+  solarWastedMp: number;
+  /** The store as the wave settled, in mp·tick. */
+  storedAtSettlementMpTick: number;
 }
 
 /**
@@ -135,11 +143,23 @@ interface WavePower {
 function powerRun(
   build: ReadonlyMap<number, Command[]>,
   waves: number,
-): { table: WavePower[]; capacityMp: number } {
+): {
+  table: WavePower[];
+  capacityMp: number;
+  batteryCapacityMpTick: number;
+  /** The highest the store stood on any tick. */
+  maxStoredMpTick: number;
+  /** Ticks on which the store exceeded its capacity — always 0. */
+  overCapacityTicks: number;
+} {
   const table: WavePower[] = [];
   let current: WavePower | null = null;
+  let maxStoredMpTick = 0;
+  let overCapacityTicks = 0;
   const { data } = scriptedRun(build, waves, ({ sim, commands, treasuryBefore }) => {
     const s = sim.state;
+    maxStoredMpTick = Math.max(maxStoredMpTick, s.storedMpTick);
+    if (s.storedMpTick > sim.power.storageCapacityMpTick) overCapacityTicks++;
     if (s.runPhase === 'wave') {
       if (!current || current.wave !== s.waveIndex) {
         current = {
@@ -154,6 +174,10 @@ function powerRun(
           billMg: 0,
           incomeMg: 0,
           minTreasuryMg: s.treasuryMg,
+          chargedMp: 0,
+          batteryMp: 0,
+          solarWastedMp: 0,
+          storedAtSettlementMpTick: 0,
         };
         table.push(current);
       }
@@ -169,6 +193,9 @@ function powerRun(
       current.minCoverage = Math.min(current.minCoverage, p.coverage);
       current.billMg += p.billMg;
       current.minTreasuryMg = Math.min(current.minTreasuryMg, s.treasuryMg);
+      current.chargedMp += p.chargedMp;
+      current.batteryMp += p.batterySupplyMp;
+      current.solarWastedMp += Math.max(0, p.solarMp - p.drawMp) - p.chargedMp;
       // Income is what the tick added net of the bill and of anything spent
       // through commands (placements/upgrades are issued in build ticks only).
       const delta = s.treasuryMg - treasuryBefore + p.billMg;
@@ -176,11 +203,18 @@ function powerRun(
       if (s.runPhase !== 'wave') {
         // Settled this tick: the readout is idle, the bonus has landed.
         current.meanDrawMp = Math.floor(current.meanDrawMp / current.ticks);
+        current.storedAtSettlementMpTick = s.storedMpTick;
         current = null;
       }
     }
   });
-  return { table, capacityMp: data.gridTiers[0]!.capacityMp };
+  return {
+    table,
+    capacityMp: data.gridTiers[0]!.capacityMp,
+    batteryCapacityMpTick: data.batteryCapacityMpTick,
+    maxStoredMpTick,
+    overCapacityTicks,
+  };
 }
 
 describe('power-aware run (energy-infrastructure balance harness)', () => {
@@ -221,5 +255,41 @@ describe('power-aware run (energy-infrastructure balance harness)', () => {
     expect(w3.minTreasuryMg).toBeGreaterThan(0);
     // The brownout is shallow: capacity ÷ rated total, not a collapse.
     expect(w3.minCoverage).toBeGreaterThan(COVERAGE_SCALE / 2);
+  });
+
+  // The storage slot (add-battery design D9): one panel and one battery
+  // beside the panel-less runs, against the same layout spending the
+  // battery's gold on padding walls, so wave 5 starts on the same balance.
+  it('a battery beside a panel: at equal spend the bill and the wasted solar both fall, the store never exceeds capacity and is non-empty at settlement', () => {
+    const withBattery = powerRun(solarBuild('battery'), 5);
+    const without = powerRun(solarBuild('padding'), 5);
+    if (POWER_LOG) console.log(JSON.stringify({ withBattery, without }, null, 1));
+    expect(withBattery.table).toHaveLength(5);
+    expect(without.table).toHaveLength(5);
+    // Waves 1–4 are the same run: no battery stands yet.
+    for (let i = 0; i < 4; i++) {
+      expect(withBattery.table[i]!.billMg).toBe(without.table[i]!.billMg);
+      expect(withBattery.table[i]!.solarWastedMp).toBe(without.table[i]!.solarWastedMp);
+      expect(withBattery.table[i]!.chargedMp).toBe(0);
+    }
+    // The panel's surplus is wasted without a store (wave 4 onwards)…
+    expect(without.table[3]!.solarWastedMp).toBeGreaterThan(0);
+    expect(without.table[4]!.solarWastedMp).toBeGreaterThan(0);
+    // …and with one, wave 5 stores what it would have wasted and spends it
+    // against the deficit: the bill and the wasted solar both fall.
+    const b5 = withBattery.table[4]!;
+    const p5 = without.table[4]!;
+    expect(b5.chargedMp).toBeGreaterThan(0);
+    expect(b5.batteryMp).toBeGreaterThan(0);
+    expect(b5.billMg).toBeLessThan(p5.billMg);
+    expect(b5.solarWastedMp).toBeLessThan(p5.solarWastedMp);
+    // The store is a reserve: never above capacity, and carried into the
+    // next build phase non-empty.
+    expect(withBattery.overCapacityTicks).toBe(0);
+    expect(b5.storedAtSettlementMpTick).toBeGreaterThan(0);
+    expect(b5.storedAtSettlementMpTick).toBeLessThanOrEqual(withBattery.batteryCapacityMpTick);
+    // Sizing rule (design D9): one panel's surplus never fills the battery.
+    expect(withBattery.maxStoredMpTick).toBeLessThan(withBattery.batteryCapacityMpTick);
+    expect(withBattery.maxStoredMpTick).toBeGreaterThan(withBattery.batteryCapacityMpTick / 4);
   });
 });

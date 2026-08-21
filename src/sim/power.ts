@@ -6,12 +6,16 @@
 //   - Draw per structure (D1): a tower draws its rating while it has a target
 //     this tick, a standby share of it otherwise; walls and panels draw nothing
 //   - Solar: the constant output of every standing panel
-//   - resolvePower (D4): the per-tick merit order — solar first, [the storage
-//     slot the battery change fills], then the grid up to the connection
-//     tier's capacity and up to what the positive treasury can pay at the
-//     tariff — yielding the grid share, coverage in SCALE, and the bill
-//   - Everything here is pure integer arithmetic on hashed inputs; nothing
-//     is stored, so nothing is hashed (D2)
+//   - Storage capacity: the pooled store's ceiling, count(battery) × one
+//     battery's capacity (add-battery design D2)
+//   - resolvePower (D4, add-battery D3): the per-tick merit order — solar
+//     first, then the store (charging from surplus, discharging against the
+//     deficit), then the grid up to the connection tier's capacity and up to
+//     what the positive treasury can pay at the tariff — yielding the
+//     store's movement, the grid share, coverage in SCALE, and the bill
+//   - Everything here is pure integer arithmetic on hashed inputs; the one
+//     thing that persists — the store's delta — is applied by the sim in
+//     step 7, not here (D2)
 
 import type { GameData } from '../data/schema';
 import type { Structure } from './types';
@@ -26,6 +30,10 @@ export const COVERAGE_SCALE = 1024;
 
 /** The tick's supply resolution, derived once per wave tick. */
 export interface PowerResolution {
+  /** What the store discharged toward the deficit this tick, in mp (add-battery design D3). */
+  batterySupplyMp: number;
+  /** Surplus solar the store took this tick, in mp; the rest of the surplus is wasted. */
+  chargedMp: number;
   /** What the grid supplied this tick, in mp. */
   gridSupplyMp: number;
   /** supplied ÷ draw in COVERAGE_SCALE, capped at full; full when draw is 0. */
@@ -83,18 +91,31 @@ export function tierCapacityMp(data: GameData, gridTier: number): number {
 }
 
 /**
- * The supply merit order for one wave tick (D4):
+ * The supply merit order for one wave tick (D4, add-battery design D3):
  *
- *   solar → [storage slot: the battery change inserts
- *            min(deficit, dischargeRate, charge) here and charges the battery
- *            from surplus solar before it is discarded] → grid
+ *   solar → store → grid
+ *
+ * Solar covers first. What it leaves over — the surplus — charges the store
+ * up to its room (`capacity − stored`), and only the surplus beyond that is
+ * discarded: not sold, not carried over. What it falls short by — the
+ * deficit — the store supplies up to everything it holds, and only the
+ * remainder is asked of the grid. Surplus and deficit cannot both be
+ * positive, so a tick charges or discharges, never both, without a rule
+ * saying so. With no batteries the room is zero, the store is empty, and
+ * the order reads exactly as it did before storage existed.
+ *
+ * The store has no rate limit (the `min` is against the whole store and the
+ * whole room), no round-trip loss, and never charges from the grid — each a
+ * recorded lever in the add-battery design, not a rule here. The store's
+ * delta `chargedMp − batterySupplyMp` is returned for the sim to apply in
+ * step 7; this function stays pure.
  *
  * The grid is bounded twice: by the tier's capacity, and by what the POSITIVE
  * balance can pay at the tariff — so the bill can bring the balance to
  * exactly zero and never below it, and at ≤ 0 the grid supplies nothing
  * (broke means cut off; a bounty that brings the balance positive restores
- * supply the tick it lands). Surplus solar is discarded: not stored, not
- * sold, not carried over.
+ * supply the tick it lands). The store is unaffected by the balance: a
+ * charged store carries a broke tick.
  *
  * A zero tariff is a free grid: nothing is bought, so the treasury bound
  * does not apply and the connection never cuts off. (This is the edge the
@@ -107,27 +128,33 @@ export function tierCapacityMp(data: GameData, gridTier: number): number {
 export function resolvePower(
   drawMp: number,
   solarMp: number,
+  storedMpTick: number,
+  capacityMpTick: number,
   tierCapacityMp: number,
   treasuryMg: number,
   tariffMgPer1000: number,
 ): PowerResolution {
+  const surplus = Math.max(0, solarMp - drawMp);
+  const chargedMp = Math.min(surplus, Math.max(0, capacityMpTick - storedMpTick));
   const deficit = Math.max(0, drawMp - solarMp);
+  const batterySupplyMp = Math.min(deficit, storedMpTick);
+  const remaining = deficit - batterySupplyMp;
   let affordable: number;
   if (tariffMgPer1000 === 0) {
-    affordable = deficit;
+    affordable = remaining;
   } else if (treasuryMg > 0) {
     affordable = Math.floor((treasuryMg * 1000) / tariffMgPer1000);
   } else {
     affordable = 0;
   }
-  const gridSupplyMp = Math.min(deficit, tierCapacityMp, affordable);
-  const supplied = Math.min(drawMp, solarMp) + gridSupplyMp;
+  const gridSupplyMp = Math.min(remaining, tierCapacityMp, affordable);
+  const supplied = Math.min(drawMp, solarMp) + batterySupplyMp + gridSupplyMp;
   const coverage =
     drawMp === 0
       ? COVERAGE_SCALE
       : Math.min(COVERAGE_SCALE, Math.floor((supplied * COVERAGE_SCALE) / drawMp));
   const billMg = Math.floor((gridSupplyMp * tariffMgPer1000) / 1000);
-  return { gridSupplyMp, coverage, billMg };
+  return { batterySupplyMp, chargedMp, gridSupplyMp, coverage, billMg };
 }
 
 /**

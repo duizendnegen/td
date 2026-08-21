@@ -5,9 +5,10 @@
 //   - Owns all state, the RNG, and the tick counter
 //   - Fixed 10-step tick order (see ARCHITECTURE.md §7)
 //   - The run state machine: waves in step 4, progression in step 9 (D2)
-//   - The power step inside step 7 (energy-infrastructure design D2/D4/D5):
-//     target pre-pass → draw → supply resolution → coverage → firing; the
-//     bill computed there is debited in step 9 before interest
+//   - The power step inside step 7 (energy-infrastructure design D2/D4/D5,
+//     add-battery design D3/D4): target pre-pass → draw → supply resolution
+//     (solar → store → grid) → the store's delta applied → coverage →
+//     firing; the bill computed there is debited in step 9 before interest
 //   - Exposes render-only events, which are outside the state hash, and the
 //     tick's derived power figures, likewise unhashed
 
@@ -42,7 +43,7 @@ import {
   validateMove,
   validatePlacement,
 } from './placement';
-import { COVERAGE_SCALE, resolvePower, solarOf, tierCapacityMp } from './power';
+import { COVERAGE_SCALE, resolvePower, solarOf, storageCapacityOf, tierCapacityMp } from './power';
 import { fireTowers, preTargetTowers, selectTarget } from './tower';
 import { Rng } from './rng';
 import { cursorsExhausted, lastSpawnOffset, resolveWaves, stepWaveSpawns, type ResolvedGroup } from './waves';
@@ -53,30 +54,44 @@ export const MAX_TOWER_LEVEL = 3;
 
 /**
  * The tick's power figures (energy-infrastructure design D2/D9): DERIVED once
- * per wave tick from hashed state — structures, gridTier, treasury — and
- * exposed for the frame (meter, tower tint, F4). Never stored across ticks,
- * never hashed, never written by anything but the sim. Idle outside a wave:
- * nothing draws, coverage reads full, nothing is billed.
+ * per wave tick from hashed state — structures, gridTier, treasury, the
+ * store — and exposed for the frame (meter, tower tint, F4). Never stored
+ * across ticks, never hashed, never written by anything but the sim. Idle
+ * outside a wave: nothing draws, coverage reads full, nothing is billed —
+ * but the store and its capacity are read in every phase, so the meter can
+ * show the reserve a wave would start with (add-battery design D8).
  */
 export interface PowerReadout {
   drawMp: number;
   /** The engaged share of `drawMp` (wave-ledger design D4); standby is `drawMp − engagedMp`. */
   engagedMp: number;
   solarMp: number;
+  /** The store's discharge this tick (add-battery design D3); 0 outside a wave. */
+  batterySupplyMp: number;
+  /** Surplus solar the store took this tick; 0 outside a wave. */
+  chargedMp: number;
   gridSupplyMp: number;
   /** In COVERAGE_SCALE; below full is a brownout. */
   coverage: number;
   /** The bill step 9 debits this tick (0 on the settlement tick and outside waves). */
   billMg: number;
+  /** The store after this tick's movement, in mp·tick — meaningful in any phase. */
+  storedMpTick: number;
+  /** count(battery) × one battery's capacity, in mp·tick — meaningful in any phase. */
+  storageCapacityMpTick: number;
 }
 
 const IDLE_POWER: Readonly<PowerReadout> = {
   drawMp: 0,
   engagedMp: 0,
   solarMp: 0,
+  batterySupplyMp: 0,
+  chargedMp: 0,
   gridSupplyMp: 0,
   coverage: COVERAGE_SCALE,
   billMg: 0,
+  storedMpTick: 0,
+  storageCapacityMpTick: 0,
 };
 
 /**
@@ -124,7 +139,10 @@ export class Sim {
   /**
    * The most recent tick's power resolution — read-only for render and
    * tests. Overwritten every advance; the step-9 debit reads `billMg` from
-   * here within the same tick, which is the only sim read of it.
+   * here within the same tick, which is the only sim read of it. Outside a
+   * wave it reads idle except for the store and its capacity, which are
+   * refreshed every tick (and after settlement) so the meter's reserve line
+   * is never stale.
    */
   power: Readonly<PowerReadout> = IDLE_POWER;
 
@@ -298,47 +316,68 @@ export class Sim {
     // 6. Arrival: treasury grab-and-flip, sack pickup, spawn escape
     resolveArrivals(s, this.treasury, this.allSpawns, this.carryMgByType, this.events);
     // 7. Tower targeting and firing (damage applies this tick): the target
-    //    pre-pass, then — during a wave — the power resolution that yields
-    //    the tick's coverage, then the firing pass at that coverage
-    //    (energy-infrastructure design D2/D4). Nothing draws outside a wave:
-    //    the build phase fires at full coverage and bills nothing.
+    //    pre-pass, then — during a wave — the power resolution (solar →
+    //    store → grid) that yields the tick's coverage, the store's delta
+    //    applied here where energy resolves (add-battery design D3), then
+    //    the firing pass at that coverage (energy-infrastructure design
+    //    D2/D4). Nothing draws outside a wave: the build phase fires at full
+    //    coverage, bills nothing, and leaves the store where it stands.
     const pre = preTargetTowers(s, this.grid, fields, this.data);
+    const storageCapacityMpTick = storageCapacityOf(s.structures, this.data);
     if (s.runPhase === 'wave') {
       const solarMp = solarOf(s.structures, this.data);
       const r = resolvePower(
         pre.drawMp,
         solarMp,
+        s.storedMpTick,
+        storageCapacityMpTick,
         tierCapacityMp(this.data, s.gridTier),
         s.treasuryMg,
         this.data.tariffMgPer1000,
       );
+      // The store moves on every wave tick supply resolves — the settlement
+      // tick included (design D4): towers drew on it and the ledger books
+      // it, so the store's movement and the ledger's rows agree tick for
+      // tick. Only the step-9 bill is exempt there; it is gold, not energy.
+      s.storedMpTick += r.chargedMp - r.batterySupplyMp;
       this.power = {
         drawMp: pre.drawMp,
         engagedMp: pre.engagedMp,
         solarMp,
+        batterySupplyMp: r.batterySupplyMp,
+        chargedMp: r.chargedMp,
         gridSupplyMp: r.gridSupplyMp,
         coverage: r.coverage,
         billMg: r.billMg,
+        storedMpTick: s.storedMpTick,
+        storageCapacityMpTick,
       };
-      // The tick's energy buckets (wave-ledger design D4), from the figures
-      // the merit order just resolved: solar covers first, the grid as
-      // bounded, and whatever is left uncovered is the brownout in energy
-      // units. Surplus solar is wasted, never sourced. Per tick
-      // engaged + standby + wasted = (solarUsed + wasted) + grid + unmet —
-      // solar output on the source side — by construction.
-      // The settlement tick accumulates here too — towers drew on it — while
-      // step 9 bills nothing for it; documented, not corrected.
+      // The tick's energy buckets (wave-ledger design D4, add-battery design
+      // D6), from the figures the merit order just resolved: solar covers
+      // first, the surplus charges the store and the rest is wasted; the
+      // store then the grid cover the deficit, and whatever is left is the
+      // brownout in energy units. Per tick
+      // engaged + standby + charging + wasted
+      //   = (solarUsed + charging + wasted) + battery + grid + unmet
+      // — solar output on the source side — by construction: both sides are
+      // max(draw, solar). The store itself is not a row.
+      // The settlement tick accumulates here too — towers drew on it and
+      // the store moved — while step 9 bills nothing for it; documented,
+      // not corrected.
       const solarUsed = Math.min(solarMp, pre.drawMp);
       const l = s.ledger;
       l.engagedMp += pre.engagedMp;
       l.standbyMp += pre.drawMp - pre.engagedMp;
       l.solarUsedMp += solarUsed;
-      l.solarWastedMp += solarMp - solarUsed;
+      l.chargedMp += r.chargedMp;
+      l.solarWastedMp += solarMp - solarUsed - r.chargedMp;
+      l.batteryMp += r.batterySupplyMp;
       l.gridMp += r.gridSupplyMp;
-      l.unmetMp += pre.drawMp - solarUsed - r.gridSupplyMp;
+      l.unmetMp += pre.drawMp - solarUsed - r.batterySupplyMp - r.gridSupplyMp;
     } else {
-      // Outside a wave nothing draws and the energy rows do not move.
-      this.power = IDLE_POWER;
+      // Outside a wave nothing draws, the energy rows do not move and the
+      // store holds; only the reserve readout is refreshed.
+      this.power = this.idlePower(storageCapacityMpTick);
     }
     fireTowers(s, this.grid, fields, this.data, this.events, this.power.coverage, pre);
     // 8. Deaths: bounties, carrier sack drops, tombstones
@@ -373,11 +412,11 @@ export class Sim {
         return;
       }
       // Settlement: no bill (the readout reads idle from here, since the
-      // build phase that follows charges nothing), sack return, then the
-      // speed bonus, then the progression judgement on the post-return,
-      // post-bonus balance, then the ledger period closes (run-lifecycle
-      // spec).
-      this.power = IDLE_POWER;
+      // build phase that follows charges nothing — the store, which did move
+      // on this tick, stays readable), sack return, then the speed bonus,
+      // then the progression judgement on the post-return, post-bonus
+      // balance, then the ledger period closes (run-lifecycle spec).
+      this.power = this.idlePower(this.power.storageCapacityMpTick);
       returnSacks(s);
       s.lastWaveBonusMg = waveBonusMg(
         s.tick - s.waveStartTick,
@@ -403,6 +442,19 @@ export class Sim {
       // A step-3 refund brought the balance home: the win fires this tick.
       s.runPhase = 'won';
     }
+  }
+
+  /**
+   * The idle readout with the store and its capacity filled in: nothing
+   * draws, nothing is billed, coverage is full — and the reserve is
+   * readable (add-battery design D8). Returns the shared constant when no
+   * battery stands and the store is empty, so no-battery runs allocate
+   * nothing per tick.
+   */
+  private idlePower(storageCapacityMpTick: number): Readonly<PowerReadout> {
+    const storedMpTick = this.state.storedMpTick;
+    if (storedMpTick === 0 && storageCapacityMpTick === 0) return IDLE_POWER;
+    return { ...IDLE_POWER, storedMpTick, storageCapacityMpTick };
   }
 
   /**

@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import type { Command, CommandBody } from '../src/sim/commands';
 import { openLedger, type WaveLedger } from '../src/sim/types';
 import {
+  TEST_BATTERY_MP_TICK,
   injectEnemy,
   makeSim,
   mount,
@@ -44,6 +45,8 @@ const ENERGY_ROWS = [
   'solarWastedMp',
   'gridMp',
   'unmetMp',
+  'chargedMp',
+  'batteryMp',
 ] as const satisfies readonly (keyof WaveLedger)[];
 
 const goldRows = (l: WaveLedger) => Object.fromEntries(GOLD_ROWS.map((k) => [k, l[k]]));
@@ -54,11 +57,13 @@ const goldSum = (l: WaveLedger): number =>
   l.openingMg + l.bountiesMg + l.bonusMg + l.interestMg - l.constructionMg - l.billMg - l.stolenMg + l.recoveredMg;
 
 /**
- * The energy identity's two sides (design D4): usage against sources, the
- * source side's solar being the panels' whole output — used and wasted.
+ * The energy identity's two sides (design D4, add-battery design D6): usage
+ * against sources, the source side's solar being the panels' whole output —
+ * used, stored and wasted. The store itself is no row.
  */
-const usageSum = (l: WaveLedger): number => l.engagedMp + l.standbyMp + l.solarWastedMp;
-const sourceSum = (l: WaveLedger): number => l.solarUsedMp + l.solarWastedMp + l.gridMp + l.unmetMp;
+const usageSum = (l: WaveLedger): number => l.engagedMp + l.standbyMp + l.chargedMp + l.solarWastedMp;
+const sourceSum = (l: WaveLedger): number =>
+  l.solarUsedMp + l.chargedMp + l.solarWastedMp + l.batteryMp + l.gridMp + l.unmetMp;
 
 const group = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   spawn: 'main',
@@ -286,6 +291,8 @@ describe('energy rows — the tick\'s buckets after resolvePower (design D4)', (
       solarWastedMp: 1000,
       gridMp: 0,
       unmetMp: 0,
+      chargedMp: 0,
+      batteryMp: 0,
     });
     // Wasted solar is on both sides: as usage, and inside the solar output.
     expect(usageSum(sim.state.ledger)).toBe(sourceSum(sim.state.ledger));
@@ -305,6 +312,8 @@ describe('energy rows — the tick\'s buckets after resolvePower (design D4)', (
       solarWastedMp: 0,
       gridMp: 1000,
       unmetMp: 1000,
+      chargedMp: 0,
+      batteryMp: 0,
     });
   });
 
@@ -323,16 +332,89 @@ describe('energy rows — the tick\'s buckets after resolvePower (design D4)', (
       solarWastedMp: 0,
       gridMp: 0,
       unmetMp: 1000,
+      chargedMp: 0,
+      batteryMp: 0,
     });
   });
 
-  it('build-phase ticks with towers standing and engaged change no energy row', () => {
+  it('build-phase ticks with towers and batteries standing and engaged change no energy row', () => {
     const { sim } = makeSim(board(100, 0.12));
-    sim.tick([...mount(3, 0), place('panel', 6, 0)]);
+    sim.tick([...mount(3, 0), place('panel', 6, 0), place('battery', 1, 0)]);
+    sim.state.storedMpTick = 50_000;
     const e = injectEnemy(sim, 5, 2, { hp: 100_000 });
     for (let t = 0; t < 10; t++) sim.tick([]);
     expect(e.hp).toBeLessThan(100_000); // it fired: engaged, at full coverage
     expect(energyRows(sim.state.ledger)).toEqual(ZERO_ENERGY);
+    expect(sim.state.storedMpTick).toBe(50_000);
+  });
+
+  // The storage slot's rows (add-battery design D6, wave-ledger delta). The
+  // spec's worked figures (30/40 with room 6; 50/20 with store 20 and grid
+  // 10) are resolvePower's and are asserted in power.test.ts; here the same
+  // shapes in the sim's units: standby 100 against 2000 of solar, and three
+  // engaged rapids against one panel on a 1-unit connection.
+  it('surplus that is stored is charging, not wasted; the rest of the surplus is', () => {
+    const { sim } = makeSim(board(100, 0.12));
+    sim.tick([...mount(3, 0), place('panel', 6, 0), place('battery', 1, 0)]);
+    sim.state.storedMpTick = TEST_BATTERY_MP_TICK - 600; // room for 600
+    sim.tick([startWave()]); // standby 100 vs solar 2000: surplus 1900
+    expect(energyRows(sim.state.ledger)).toEqual({
+      engagedMp: 0,
+      standbyMp: 100,
+      solarUsedMp: 100,
+      solarWastedMp: 1300,
+      gridMp: 0,
+      unmetMp: 0,
+      chargedMp: 600,
+      batteryMp: 0,
+    });
+    expect(usageSum(sim.state.ledger)).toBe(sourceSum(sim.state.ledger));
+    expect(usageSum(sim.state.ledger)).toBe(2000);
+    expect(sim.state.storedMpTick).toBe(TEST_BATTERY_MP_TICK);
+    // Full now: the next tick's surplus is all wasted.
+    sim.tick([]);
+    expect(sim.state.ledger.chargedMp).toBe(600);
+    expect(sim.state.ledger.solarWastedMp).toBe(1300 + 1900);
+  });
+
+  it('discharge is a source, between solar and the grid; unmet is what none of them covered', () => {
+    // Three rapids engaged (3000) against one panel (2000) on a 1-unit
+    // connection: deficit 1000; the store holds 400.
+    const { sim } = makeSim(board(1, 0.12, { treasury: 300 }));
+    sim.tick([...mount(1, 0), ...mount(4, 0), ...mount(7, 0), place('panel', 2, 4), place('battery', 5, 4)]);
+    sim.tick([startWave()]);
+    const before = { ...sim.state.ledger };
+    sim.state.storedMpTick = 400;
+    injectEnemy(sim, 1, 2, { hp: 100_000 });
+    injectEnemy(sim, 4, 2, { hp: 100_000 });
+    injectEnemy(sim, 7, 2, { hp: 100_000 });
+    sim.tick([]);
+    const tick1 = { ...sim.state.ledger };
+    expect(tick1.engagedMp - before.engagedMp).toBe(3000);
+    expect(tick1.solarUsedMp - before.solarUsedMp).toBe(2000);
+    expect(tick1.batteryMp - before.batteryMp).toBe(400);
+    expect(tick1.gridMp - before.gridMp).toBe(600);
+    expect(tick1.unmetMp - before.unmetMp).toBe(0);
+    expect(tick1.chargedMp - before.chargedMp).toBe(0);
+    expect(sim.state.storedMpTick).toBe(0);
+    // Empty store: the tier caps the grid at 1000 and the rest is unmet.
+    sim.tick([]);
+    const tick2 = sim.state.ledger;
+    expect(tick2.batteryMp).toBe(tick1.batteryMp);
+    expect(tick2.gridMp - tick1.gridMp).toBe(1000);
+    expect(tick2.unmetMp - tick1.unmetMp).toBe(0);
+    expect(usageSum(tick2)).toBe(sourceSum(tick2));
+  });
+
+  it('a clamp on removal moves no energy row', () => {
+    const { sim } = makeSim(board(100, 0.12));
+    sim.tick([place('battery', 1, 0), place('battery', 3, 0)]);
+    sim.state.storedMpTick = TEST_BATTERY_MP_TICK + 120_000; // 16 kWh of 20
+    const before = energyRows(sim.state.ledger);
+    sim.tick([remove(3, 0)]);
+    expect(sim.state.storedMpTick).toBe(TEST_BATTERY_MP_TICK);
+    expect(energyRows(sim.state.ledger)).toEqual(before);
+    expect(goldSum(sim.state.ledger)).toBe(sim.state.treasuryMg);
   });
 
   it('the settlement tick\'s draw is in the energy rows while the bill row did not move that tick', () => {
@@ -416,10 +498,33 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
     return build;
   };
 
+  /**
+   * The battery run (add-battery design D6): the four-wave script with the
+   * slow's gold spent on a panel before wave 4 and a battery beside it
+   * bought mid-wave — a debt purchase, so the grid cuts off at once and the
+   * towers run on the panel and the store for the rest of the wave: quiet
+   * ticks charge, engaged ticks discharge, the surplus beyond a full store
+   * is wasted, and broke ticks are carried by the store. Conceded while
+   * wave 4 runs, like the extended build.
+   */
+  const batteryBuild = (): ReadonlyMap<number, Command[]> => {
+    const build = fourWaveBuild();
+    build.delete(1250);
+    let seq = 500;
+    const at = (t: number, ...bodies: CommandBody[]): void => {
+      build.set(t, [...(build.get(t) ?? []), ...bodies.map((b): Command => ({ ...b, seq: seq++ }))]);
+    };
+    at(1200, { kind: 'place', structure: 'panel', tx: 13, ty: 0 });
+    at(1227, { kind: 'place', structure: 'battery', tx: 14, ty: 0 });
+    at(1400, { kind: 'concede' });
+    return build;
+  };
+
   const scripts: [string, () => ReadonlyMap<number, Command[]>, number][] = [
     ['the opening (two waves)', openingBuild, 2],
     ['the four-wave build', fourWaveBuild, 4],
     ['the four-wave build extended with refunds, upgrades, debt and a concede', extendedBuild, 4],
+    ['the four-wave build with a panel and a battery, charging, discharging and broke', batteryBuild, 4],
   ];
 
   for (const [name, build, waves] of scripts) {
@@ -430,6 +535,9 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
       let sawDebt = false;
       let sawUnmet = false;
       let sawWasted = false;
+      let sawCharging = false;
+      let sawDischarge = false;
+      let sawBrokeDischarge = false;
       const { sim } = powerRun(build(), waves, ({ sim }) => {
         const s = sim.state;
         ticks++;
@@ -439,6 +547,11 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
         if (s.treasuryMg < 0) sawDebt = true;
         if (s.ledger.unmetMp > 0) sawUnmet = true;
         if (s.ledger.solarWastedMp > 0) sawWasted = true;
+        if (sim.power.chargedMp > 0) sawCharging = true;
+        if (sim.power.batterySupplyMp > 0) sawDischarge = true;
+        if (sim.power.batterySupplyMp > 0 && s.treasuryMg <= 0) sawBrokeDischarge = true;
+        // The store never exceeds its capacity.
+        expect(s.storedMpTick).toBeLessThanOrEqual(sim.power.storageCapacityMpTick);
         // At each settlement: the closed period reconciles to the new opening.
         if (s.lastLedger.waveNo !== closedWave) {
           closedWave = s.lastLedger.waveNo;
@@ -461,6 +574,20 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
         expect(sawUnmet).toBe(true);
         expect(sawWasted).toBe(true);
         expect(sim.state.lastLedger.recoveredMg).toBeGreaterThan(0);
+      } else if (build === batteryBuild) {
+        expect(settlements).toBe(3); // conceded mid-wave 4
+        expect(sim.state.runPhase).toBe('lost');
+        expect(sim.state.structures.some((x) => x.kind === 'panel')).toBe(true);
+        expect(sim.state.structures.some((x) => x.kind === 'battery')).toBe(true);
+        expect(sawDebt).toBe(true);
+        expect(sawCharging).toBe(true);
+        expect(sawDischarge).toBe(true);
+        expect(sawBrokeDischarge).toBe(true);
+        expect(sawWasted).toBe(true);
+        // The two rows are in the open period's books, and the store ended non-empty.
+        expect(sim.state.ledger.chargedMp).toBeGreaterThan(0);
+        expect(sim.state.ledger.batteryMp).toBeGreaterThan(0);
+        expect(sim.state.storedMpTick).toBeGreaterThan(0);
       } else {
         expect(settlements).toBe(waves);
       }
