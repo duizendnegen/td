@@ -53,7 +53,7 @@
       meter); ledger books `chargedMp`, `batteryMp`, `solarWastedMp = surplus − charged`,
       `unmetMp = draw − solarUsed − battery − grid`; update the identity comment and the
       settlement-tick note to cover the store
-- [ ] 3.3 ARCHITECTURE.md: §5 units — energy as mp·tick and the kWh convention for the store; §7
+- [x] 3.3 ARCHITECTURE.md: §5 units — energy as mp·tick and the kWh convention for the store; §7
       step 7 "…power resolution (solar → store → grid), the store's delta applied here…";
       decision log D19 (pooled hashed store, capacity derived, eager clamp, settlement tick
       moves the store); D15's row notes the slot is now filled

@@ -26,10 +26,11 @@ rather than an accident.
 | D12 | Debug tooling | **First-class overlay in Phase 1** | Flow fields and fixed-point state cannot be verified by watching |
 | D13 | Power model | **Engagement-based draw**: a tower draws its rating while it has a target, a standby share otherwise; walls draw nothing; nothing draws outside a wave | Constant draw makes the load curve flat and leaves the follow-up battery nothing to shave; per-shot draw is a tax on damage and needs a rolling HUD |
 | D14 | Power ceiling | **Per-tick soft ceiling via brownout**: coverage = supplied ÷ draw, capped at 1, computed once per tick from an engaged pre-count | A hard cap (refuse placement) contradicts inform-don't-block; a soft cap unifies "over capacity" and "broke" under one mechanism |
-| D15 | Supply order | **Merit order solar → [storage] → grid**, the grid bounded by tier capacity and by the positive balance at the tariff; surplus solar discarded | The storage slot is reserved so the battery change slots in without reopening the order; the treasury bound is what makes "the bill lands at exactly zero, never below" true |
+| D15 | Supply order | **Merit order solar → storage → grid**, the grid bounded by tier capacity and by the positive balance at the tariff; surplus solar beyond the store's room discarded | The storage slot was reserved from the start and is now filled (D19) without the order around it moving; the treasury bound is what makes "the bill lands at exactly zero, never below" true |
 | D16 | Brownout shape | **Uniform interval stretch**: every tower's next shot at interval ÷ coverage, integer ceiling; hold at zero | Probabilistic shot-skipping is replay-visible noise that reads as flaky; per-tower priority is a later lever, not this change |
 | D17 | Grid connection | **Hashed integer tier, one-way `upgradeGrid` command**, any live phase, no refund | A mid-wave "we need more power" is a legitimate rescue; the finality is stated in the UI rather than modelled as provisional state |
 | D18 | Wave ledger | **Settlement-bounded period** — one open period and one closed, both hashed; opened at run start and at every settlement, closed at the next — with the HUD flipping to the open period the moment its wave starts | A period reset at wave start (the `waveDamage` pattern) would book build-phase spending to the wave *before* it and show the previous wave's books mutating while the player builds; the settlement boundary needs the second slot, and the flip at wave start is what makes "preparing wave n" and "wave n" the same books |
+| D19 | Battery store | **One pooled, hashed `storedMpTick`**; capacity derived as `count(battery) × capacity`, never stored; charges from surplus and discharges against the deficit in step 7 on every wave tick, the settlement tick included; clamped eagerly in `removeStructure` when a battery leaves | Per-battery charge needs a fill order, a drain order and per-structure state for no rule that could tell the difference; the store is energy, so it moves where energy resolves, not where gold does; a lazy clamp would let hashed state exceed capacity through a whole build phase |
 
 ### D1 in detail — why 3D
 
@@ -263,8 +264,27 @@ coverage        = Math.min(1024, Math.floor(supplied * 1024 / drawMp)); // full 
 or below zero — so the bill can bring the balance to exactly zero and never below it, and a
 broke treasury buys no grid power (a zero tariff is a free grid and skips the bound). Coverage
 is a fixed-point ratio in 1/1024, like positions; the stretched fire interval is
-`ceil(interval × 1024 / coverage)`. Coverage and the bill are derived per tick and never
-stored; only the connection tier is state (`SimState.gridTier`, hashed).
+`ceil(interval × 1024 / coverage)`. Coverage, the bill and the store's capacity are derived
+per tick and never stored; the connection tier (`SimState.gridTier`) and the stored energy
+(`SimState.storedMpTick`) are state, both hashed.
+
+**Energy** is power summed over ticks — **mp·tick** — the unit of every ledger energy row and
+of the battery store. The HUD's convention is that one real second of wave time is one game
+hour, so one kWh is one power unit for one second: `POWER × TICK_HZ = 20 000` mp·tick.
+Battery capacity is authored in kWh and converted once at load:
+
+```ts
+batteryCapacityMpTick = Math.round(12 * POWER * TICK_HZ);   // 12 kWh → 240 000 mp·tick
+room     = capacity − stored;                               // capacity = count(battery) × that
+charged  = Math.min(Math.max(0, solar − draw), room);       // surplus into the store…
+battery  = Math.min(Math.max(0, draw − solar), stored);     // …or the store into the deficit
+stored  += charged − battery;                               // applied in step 7, the same tick
+```
+
+Surplus and deficit cannot both be positive, so a tick charges or discharges, never both; the
+grid is asked for `deficit − battery` under the same two bounds as before. A 12 kWh store
+therefore fills in twelve seconds of a 1 kW surplus and empties in twelve seconds of a 1 kW
+deficit — the scale the harness's load curves are read in.
 
 **HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `nextFireTick`) are
 absolute tick numbers, never countdowns, so they need no per-tick decrement and survive
@@ -392,12 +412,14 @@ Fixed and documented, because order is part of the determinism contract:
    pickup
 7. Tower targeting and firing (damage applies this tick): a **target pre-pass** over every
    tower (engaged = has a target this tick; the tick's draw is rated-while-engaged plus
-   standby), then — during a wave — **power resolution** (solar → grid up to capacity and
-   the positive balance, yielding the tick's coverage and bill) and the tick's **energy
-   buckets** into the open ledger period, then the **firing pass** at that coverage: a firing
-   tower schedules its next shot at `interval ÷ coverage`, and at coverage zero every due
-   tower holds without advancing. Outside a wave nothing draws, nothing accumulates, and
-   towers fire at full coverage.
+   standby), then — during a wave — **power resolution** (solar → store → grid up to
+   capacity and the positive balance, yielding the tick's coverage and bill), **the store's
+   delta applied here** (`storedMpTick += charged − discharged`, on every wave tick the
+   settlement tick included) and the tick's **energy buckets** into the open ledger period,
+   then the **firing pass** at that coverage: a firing tower schedules its next shot at
+   `interval ÷ coverage`, and at coverage zero every due tower holds without advancing.
+   Outside a wave nothing draws, nothing accumulates, the store holds, and towers fire at
+   full coverage.
 8. Deaths, bounties, gold-sack drops
 9. Run progression: the **grid bill**, then interest accrual on the post-bill balance while
    the wave is live; end-of-wave settlement (no bill, no interest; sack return, then the won /
@@ -408,7 +430,7 @@ Fixed and documented, because order is part of the determinism contract:
 ### The wave ledger
 
 `SimState.ledger` (open) and `SimState.lastLedger` (closed) are two `WaveLedger` periods —
-fifteen integer fields each, hashed unconditionally, read by nothing in the simulation. A
+seventeen integer fields each, hashed unconditionally, read by nothing in the simulation. A
 period opens at run start (on the starting treasury) and at each settlement (on the settled
 balance), and closes at the next settlement as a copy into the closed slot; `waveNo` is set in
 `applyStartWave` and is 0 until a wave starts in the period.
@@ -420,19 +442,24 @@ floored credit), `stolenMg` (`resolveArrivals`), `recoveredMg` (`returnSacks`), 
 `applyUpgrade` and `applyUpgradeGrid`, −= the refund in `placement.ts` `removeStructure`. The
 energy rows are written once per wave tick in step 7 from the figures `resolvePower` just
 returned: `engagedMp`/`standbyMp` from the pre-pass split, `solarUsedMp = min(solar, draw)`,
-`solarWastedMp = solar − solarUsed`, `gridMp` as supplied, `unmetMp = draw − solarUsed − grid`.
+`chargedMp` as the store took, `solarWastedMp = solar − solarUsed − charged`, `batteryMp` as
+the store supplied, `gridMp` as supplied, `unmetMp = draw − solarUsed − battery − grid`. The
+store itself is no row: a period's charging and discharge need not net to zero, since the
+store persists across periods, and the energy a removal's clamp sinks is no tick's usage.
 
 Two identities hold on every tick, and `tests/ledger.test.ts` asserts them on every tick of the
 harness scripts (refunds, upgrades, the connection tier, thefts, sack returns, brownouts, debt,
 wasted solar, a concede):
 
 - gold: `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg = treasuryMg`
-- energy: `engagedMp + standbyMp + solarWastedMp = (solarUsedMp + solarWastedMp) + gridMp + unmetMp`
-  — usage against sources, the source side's solar being the panels' whole output.
+- energy: `engagedMp + standbyMp + chargedMp + solarWastedMp = (solarUsedMp + chargedMp + solarWastedMp) + batteryMp + gridMp + unmetMp`
+  — usage against sources, the source side's solar being the panels' whole output, used,
+  stored and wasted; both sides equal `max(draw, solar)` per tick.
 
 One documented asymmetry: the settlement tick's draw is in the energy rows (towers drew; the
-killing shot fires in step 7) while step 9 bills nothing for it, so that tick's grid supply has
-no bill row counterpart. The ledger records what moved, never a recomputation.
+killing shot fires in step 7) and the store moves on it, while step 9 bills nothing for it, so
+that tick's grid supply has no bill row counterpart. The ledger records what moved, never a
+recomputation.
 
 ### Entity storage
 
