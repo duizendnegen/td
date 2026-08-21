@@ -12,8 +12,9 @@ solvent-to-win, and the run summary.
 
 When a wave's last enemy dies or escapes, the system SHALL run settlement in one deterministic
 order within that tick: unclaimed gold sacks return to the treasury, the wave speed bonus is
-credited, interest accrual stops, and run progression is then judged on the post-return,
-post-bonus balance (win check after the final wave, solvency gate otherwise).
+credited, grid billing and interest accrual stop (neither runs on the settlement tick), and run
+progression is then judged on the post-return, post-bonus balance (win check after the final
+wave, solvency gate otherwise).
 
 #### Scenario: Sack return precedes the solvency judgement
 
@@ -25,6 +26,12 @@ post-bonus balance (win check after the final wave, solvency gate otherwise).
 - **WHEN** a wave ends with the treasury at −10 after sack return and the wave's speed bonus is
   15
 - **THEN** the bonus is credited before the judgement and the run continues unlocked at +5
+
+#### Scenario: No bill on the settlement tick
+
+- **WHEN** the last enemy of a wave dies on a tick
+- **THEN** that tick charges no grid bill and no interest, and the build phase that follows
+  charges nothing
 
 ### Requirement: Wave speed bonus rewards finishing quickly
 
