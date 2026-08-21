@@ -117,13 +117,13 @@
 
 ## 6. Docs
 
-- [ ] 6.1 README.md: Power section — a battery bullet (pooled store, charges from surplus,
+- [x] 6.1 README.md: Power section — a battery bullet (pooled store, charges from surplus,
       discharges before the grid, persists, clamps on sale, no rate/losses/grid charging), the
       merit-order bullet's parenthetical replaced, the meter bullet mentions the stored line,
       the Data bullet lists the battery block; Build Rules — "Solar panels and batteries build
       like walls…"; the energy-balance description lists the two rows
-- [ ] 6.2 ROADMAP.md: the battery leaves "Next up"; record the levers from design.md (rate limit
+- [x] 6.2 ROADMAP.md: the battery leaves "Next up"; record the levers from design.md (rate limit
       as "shaving peaks is a capacity increase", grid charging, per-level tariff, round-trip
       loss) where the energy open questions live
-- [ ] 6.3 ARCHITECTURE.md test table: new/extended test files; §15 open question — does
+- [x] 6.3 ARCHITECTURE.md test table: new/extended test files; §15 open question — does
       "infinite while charged" read wrong in play (the L1 trigger)

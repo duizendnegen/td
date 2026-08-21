@@ -863,7 +863,7 @@ by watching the game:
 |---|---|
 | `F2` | Enemy state: committed waypoint line, inbound/returning, carried gold, slow timer |
 | `F3` | Tower ranges and current target lines; every active spawn's returning field as per-tile direction ticks |
-| `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count — and, during a wave, the tick's draw, solar / grid supply, tier and capacity, coverage and bill |
+| `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count — and, during a wave, the tick's draw, solar / battery / charge / grid supply, tier and capacity, coverage and bill; whenever a battery stands, the stored energy against capacity |
 
 The player-facing **lane ribbon** (§9) remains the answer to "where do they go"; F3's returning
 fields exist because per-origin routing multiplies the fields, and "is spawn 2's field sane" can
@@ -896,12 +896,15 @@ Vitest, `sim/` only. No render or UI tests.
 | File | Asserts |
 |---|---|
 | `flowfield.test.ts` | Reachability; no diagonal between two blocked tiles; costs monotonic toward source; route tracing terminates and follows the field |
-| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal unblocks and refunds in its own tick; mid-wave removal refused with an unchanged hash |
+| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal unblocks and refunds in its own tick; mid-wave removal refused with an unchanged hash; the panel and the battery on the ground path — terrain, occupancy, not a foundation, refund, move; a battery's removal clamps the store |
 | `theft.test.ts` | Full round trip: steal → carry at 80% → killed → sack drops → picked up → flip to returning → escape |
 | `economy.test.ts` | Interest only during waves and only on positive balance; settlement order; the solvency gate lock and refund-driven unlock; solvent-to-win |
 | `fixed.test.ts` | Normalisation exactness; no float leaks; division rounding at negatives |
-| `level.test.ts` | Schema rejects bad spawn refs, unknown enemy types, unreachable treasury, missing or malformed power data |
-| `power.test.ts` | Engaged vs standby draw; merit order and its bounds; the bill lands at zero, never below; cut-off and recovery; bill before interest, none on settlement; coverage stretches cadence, holds at zero, recovers |
+| `level.test.ts` | Schema rejects bad spawn refs, unknown enemy types, unreachable treasury, missing or malformed power data; the battery block and its kWh conversion |
+| `power.test.ts` | Engaged vs standby draw; merit order and its bounds; the storage slot — surplus charges up to room, the store covers the deficit before the grid, a tick never both charges and discharges, no-battery cases unchanged; the bill lands at zero, never below; cut-off and recovery; bill before interest, none on settlement; coverage stretches cadence, holds at zero, recovers; the store in play — persists across settlement, moves on the settlement tick, enlarges mid-wave, hashed |
+| `ledger.test.ts` | Both identities on every tick of the harness scripts, a battery script included; the storage rows; a clamp on removal and the build phase move no energy row |
+| `leak.test.ts` | The counter-matrix contract; the power harness — load curves, the ceiling at peaks, and a battery beside a panel at spend parity: bill and wasted fall, the store never exceeds capacity, non-empty at settlement |
+| `hash.test.ts` | Every field flips the hash — the store and the battery kind included |
 | `replay.test.ts` | Seed + recorded commands → state hash matches golden after N ticks |
 
 `replay.test.ts` is the enforcement mechanism for section 4 and is the one test that must never be
@@ -984,7 +987,10 @@ To be answered by playtesting, not by argument:
      lever, but the battery is the better home for surplus.
    - Does uniform brownout frustrate ("everything slows at once")? A priority / shedding order
      (lever L2) turns brownouts into a per-tower puzzle and is the natural home of player-set budgets.
-6. **Next change: the home battery.** This change fixed the engagement-based draw and the supply
-   merit order so a battery slots in between solar and grid — charging from surplus solar,
-   discharging `min(deficit after solar, dischargeRate, charge)` — without reopening anything; it is
-   the designed-for follow-up once the ceiling is known to read at all.
+6. **Battery (add-battery).** The store has no rate limit, so a charged store covers any deficit
+   and a brownout cannot begin until it is empty. Does "infinite while charged" read wrong in play?
+   The store is small and only surplus fills it; the meter shows it draining. If it reads wrong,
+   the recorded lever is a per-battery power figure bounding charge and discharge per tick
+   (add-battery design L1) — which also turns the meter's ceiling into grid + solar + battery
+   power while charged, and makes a second battery matter even when the first is never full. The
+   other levers (grid charging, per-level tariff, round-trip loss) are recorded in ROADMAP.md.
