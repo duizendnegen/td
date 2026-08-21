@@ -233,13 +233,15 @@ export interface EnergyBalance {
 /**
  * The shown period's energy, usage against sources in merit order, both
  * reconciled to the same rounded total — equal by the tick identity, so one
- * figure closes both columns.
+ * figure closes both columns. The solar source row is the panels' whole
+ * output, used and wasted: what was wasted sits on the usage side, and the
+ * two columns balance because of it.
  */
 export function energyBalance(period: WaveLedger, tariffMgPer1000: number): EnergyBalance {
   const total = period.engagedMp + period.standbyMp + period.solarWastedMp;
   const totalTenths = kwhTenths(total);
   const usageRaw = [period.engagedMp, period.standbyMp, period.solarWastedMp];
-  const sourceRaw = [period.solarUsedMp, period.gridMp, period.unmetMp];
+  const sourceRaw = [period.solarUsedMp + period.solarWastedMp, period.gridMp, period.unmetMp];
   const u = reconcile(usageRaw, totalTenths, MP_TICK_PER_TENTH);
   const src = reconcile(sourceRaw, totalTenths, MP_TICK_PER_TENTH);
   return {

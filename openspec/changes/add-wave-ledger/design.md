@@ -138,7 +138,11 @@ and the six energy rows accumulate. `grid` is `gridSupplyMp` exactly as resolved
 balance-bounded), so `unmet` is whatever the merit order left uncovered — the brownout, in
 energy units. The identity `draw + wasted = solar + grid + unmet` follows algebraically from
 these definitions (`draw + max(0, solar − draw) = max(draw, solar) = solar + draw − solarUsed`),
-so it can only break if a writer is wrong — which is what the test is for.
+so it can only break if a writer is wrong — which is what the test is for. `solar` there is the
+panels' whole output: in accumulator terms
+`engagedMp + standbyMp + solarWastedMp = (solarUsedMp + solarWastedMp) + gridMp + unmetMp`, and
+the energy panel's *Solar* source row is accordingly `solarUsed + solarWasted` (D9's 30.5
+includes its 3.7 wasted).
 
 The build phase and the settlement tick accumulate nothing: step 7's `else` branch sets
 `IDLE_POWER` and skips the accumulation; step 9 bills nothing on the settlement tick, and the

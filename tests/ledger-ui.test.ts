@@ -194,13 +194,14 @@ describe('kWh and the tariff (design D7)', () => {
 
 describe('energy columns (design D9)', () => {
   it('the spec\'s wave 4: both columns total 43.0 and the grid row is marked billed', () => {
-    // One displayed tenth is 2000 mp·tick.
+    // One displayed tenth is 2000 mp·tick. The solar source row is the
+    // panels' output — 30.5 = 26.8 used + 3.7 wasted.
     const wave4 = period({
       waveNo: 4,
       engagedMp: 312 * 2000,
       standbyMp: 81 * 2000,
       solarWastedMp: 37 * 2000,
-      solarUsedMp: 305 * 2000,
+      solarUsedMp: 268 * 2000,
       gridMp: 125 * 2000,
       unmetMp: 0,
     });
@@ -222,17 +223,18 @@ describe('energy columns (design D9)', () => {
   });
 
   it('rows that do not fall on tenths still sum to the displayed total in each column', () => {
-    // Raw sums chosen so every row has a fractional tenth.
+    // Raw sums chosen so every row has a fractional tenth; the draw
+    // (engaged + standby) is what solar used, the grid and unmet cover.
     const l = period({
       waveNo: 2,
       engagedMp: 123_456,
       standbyMp: 45_678,
       solarWastedMp: 9_012,
       solarUsedMp: 100_000,
-      gridMp: 70_000,
-      unmetMp: 8_146,
+      gridMp: 61_000,
+      unmetMp: 8_134,
     });
-    expect(l.engagedMp + l.standbyMp + l.solarWastedMp).toBe(l.solarUsedMp + l.gridMp + l.unmetMp);
+    expect(l.engagedMp + l.standbyMp).toBe(l.solarUsedMp + l.gridMp + l.unmetMp);
     const b = energyBalance(l, 12);
     const sum = (rows: { tenths: number }[]) => rows.reduce((a, r) => a + r.tenths, 0);
     expect(sum(b.usage.rows)).toBe(b.usage.totalTenths);

@@ -321,7 +321,8 @@ export class Sim {
       // the merit order just resolved: solar covers first, the grid as
       // bounded, and whatever is left uncovered is the brownout in energy
       // units. Surplus solar is wasted, never sourced. Per tick
-      // engaged + standby + wasted = solarUsed + grid + unmet, by construction.
+      // engaged + standby + wasted = (solarUsed + wasted) + grid + unmet —
+      // solar output on the source side — by construction.
       // The settlement tick accumulates here too — towers drew on it — while
       // step 9 bills nothing for it; documented, not corrected.
       const solarUsed = Math.min(solarMp, pre.drawMp);

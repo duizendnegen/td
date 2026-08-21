@@ -53,9 +53,12 @@ const energyRows = (l: WaveLedger) => Object.fromEntries(ENERGY_ROWS.map((k) => 
 const goldSum = (l: WaveLedger): number =>
   l.openingMg + l.bountiesMg + l.bonusMg + l.interestMg - l.constructionMg - l.billMg - l.stolenMg + l.recoveredMg;
 
-/** The energy identity's two sides (design D4). */
+/**
+ * The energy identity's two sides (design D4): usage against sources, the
+ * source side's solar being the panels' whole output — used and wasted.
+ */
 const usageSum = (l: WaveLedger): number => l.engagedMp + l.standbyMp + l.solarWastedMp;
-const sourceSum = (l: WaveLedger): number => l.solarUsedMp + l.gridMp + l.unmetMp;
+const sourceSum = (l: WaveLedger): number => l.solarUsedMp + l.solarWastedMp + l.gridMp + l.unmetMp;
 
 const group = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   spawn: 'main',
@@ -284,6 +287,9 @@ describe('energy rows — the tick\'s buckets after resolvePower (design D4)', (
       gridMp: 0,
       unmetMp: 0,
     });
+    // Wasted solar is on both sides: as usage, and inside the solar output.
+    expect(usageSum(sim.state.ledger)).toBe(sourceSum(sim.state.ledger));
+    expect(usageSum(sim.state.ledger)).toBe(2000);
   });
 
   it('a tier-capped tick puts the shortfall in unmet', () => {
@@ -384,14 +390,18 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
    * The four-wave harness script plus the sites it does not reach: a wall
    * placed after wave 1 and sold committed after wave 2 (a floored refund),
    * another placed and sold provisional in the same build phase (a full
-   * refund), the rapid upgraded and the connection bought during wave 4 —
-   * which runs the balance into debt mid-wave, so the grid cuts off and the
-   * towers run on nothing (unmet) until bounties return — and a concede
-   * while wave 4 still runs. The base script already has thefts in waves 3
-   * and 4 and their sacks returning at settlement.
+   * refund), a panel before wave 4 in place of the base script's slow —
+   * its output exceeds the quiet draw, so solar is wasted on standby ticks
+   * — the connection bought during wave 4, which runs the balance into debt
+   * mid-wave, so the grid cuts off and the towers run on the panel alone
+   * (unmet) for the rest of the wave, and a concede while wave 4 still
+   * runs. The base script already has thefts in waves 3 and 4 and their
+   * sacks returning at settlement; the tower-upgrade writer has its unit
+   * test above.
    */
   const extendedBuild = (): ReadonlyMap<number, Command[]> => {
     const build = fourWaveBuild();
+    build.delete(1250); // the slow: its 80g is the panel's here
     let seq = 500;
     const at = (t: number, ...bodies: CommandBody[]): void => {
       build.set(t, [...(build.get(t) ?? []), ...bodies.map((b): Command => ({ ...b, seq: seq++ }))]);
@@ -400,7 +410,8 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
     at(705, { kind: 'place', structure: 'wall', tx: 18, ty: 1 });
     at(706, { kind: 'remove', tx: 18, ty: 1 });
     at(710, { kind: 'remove', tx: 18, ty: 0 });
-    at(1230, { kind: 'upgrade', tx: 10, ty: 1 }, { kind: 'upgradeGrid' });
+    at(1200, { kind: 'place', structure: 'panel', tx: 13, ty: 0 });
+    at(1230, { kind: 'upgradeGrid' });
     at(1400, { kind: 'concede' });
     return build;
   };
@@ -418,6 +429,7 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
       let ticks = 0;
       let sawDebt = false;
       let sawUnmet = false;
+      let sawWasted = false;
       const { sim } = powerRun(build(), waves, ({ sim }) => {
         const s = sim.state;
         ticks++;
@@ -426,6 +438,7 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
         expect(usageSum(s.ledger)).toBe(sourceSum(s.ledger));
         if (s.treasuryMg < 0) sawDebt = true;
         if (s.ledger.unmetMp > 0) sawUnmet = true;
+        if (s.ledger.solarWastedMp > 0) sawWasted = true;
         // At each settlement: the closed period reconciles to the new opening.
         if (s.lastLedger.waveNo !== closedWave) {
           closedWave = s.lastLedger.waveNo;
@@ -442,10 +455,11 @@ describe('the identities hold on every tick of the harness runs (design D10)', (
         expect(settlements).toBe(3); // wave 4 was conceded, not settled
         expect(sim.state.runPhase).toBe('lost');
         expect(sim.state.gridTier).toBe(1);
-        expect(sim.state.structures.some((x) => x.level === 2)).toBe(true);
+        expect(sim.state.structures.some((x) => x.kind === 'panel')).toBe(true);
         expect(sim.state.structures.some((x) => x.tx === 18)).toBe(false); // both walls sold
         expect(sawDebt).toBe(true);
         expect(sawUnmet).toBe(true);
+        expect(sawWasted).toBe(true);
         expect(sim.state.lastLedger.recoveredMg).toBeGreaterThan(0);
       } else {
         expect(settlements).toBe(waves);

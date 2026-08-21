@@ -134,8 +134,9 @@ export interface GoldSack {
  * Gold rows are magnitudes with a fixed direction each, except construction,
  * which is net. On every tick
  * `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg === treasuryMg`.
- * Energy rows are per-tick mp sums; on every tick
- * `engagedMp + standbyMp + solarWastedMp === solarUsedMp + gridMp + unmetMp`.
+ * Energy rows are per-tick mp sums; on every tick usage equals sources —
+ * `engagedMp + standbyMp + solarWastedMp === (solarUsedMp + solarWastedMp) + gridMp + unmetMp`,
+ * the source side's solar being the panels' whole output, used and wasted.
  */
 export interface WaveLedger {
   /** Wave number whose start fell in this period (applyStartWave); 0 until one does. */

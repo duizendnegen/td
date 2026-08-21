@@ -27,7 +27,7 @@
 ## 4. The identities, every tick
 
 - [x] 4.1 Lift the leak harness's `powerRun` driver (or its scripted-run core) into `tests/helpers.ts` so `tests/ledger.test.ts` can step the same power-aware scripts tick by tick
-- [x] 4.2 Assert on every tick of both harness scripts: `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg === treasuryMg`, and `engagedMp + standbyMp + solarWastedMp === solarUsedMp + gridMp + unmetMp` — on the open period; and at each settlement that the closed period satisfies the gold identity against the new period's `openingMg`
+- [x] 4.2 Assert on every tick of both harness scripts: `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg === treasuryMg`, and `engagedMp + standbyMp + solarWastedMp === (solarUsedMp + solarWastedMp) + gridMp + unmetMp` (the source side's solar is the panels' whole output — design D4) — on the open period; and at each settlement that the closed period satisfies the gold identity against the new period's `openingMg`
 - [x] 4.3 Extend one script so the identity run also covers a removal refund, a connection upgrade and a mid-wave concede, if the existing scripts do not already
 
 ## 5. Determinism
