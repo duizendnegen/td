@@ -33,6 +33,7 @@ import {
   canRemove,
   footprintFor,
   isFoundation,
+  isGround,
   moveOpenIn,
   removeStructure,
   stackAt,
@@ -189,6 +190,8 @@ export class Sim {
       kills: 0,
       lastWaveBonusMg: 0,
       gridTier: 0,
+      // The store starts empty (add-battery design D2).
+      storedMpTick: 0,
       // The run's first period opens on the starting treasury; the closed
       // slot reads empty (waveNo 0) until the first settlement (design D2).
       ledger: openLedger(data.startingTreasuryMg),
@@ -446,11 +449,11 @@ export class Sim {
 
   /**
    * Whether a placement of `kind` (with or without its wall) lays a ground
-   * structure — a wall, or a panel (energy-infrastructure design D7) — and
-   * so owns mask and fields.
+   * structure — a wall, a panel or a battery (isGround) — and so owns mask
+   * and fields.
    */
   private static laysGround(kind: StructureKind, withWall: boolean): boolean {
-    return kind !== 'tower' || withWall;
+    return isGround(kind) || withWall;
   }
 
   /**
@@ -723,14 +726,15 @@ export class Sim {
     // so it never touches the mask or the fields (build-over-walls design
     // D2); a ground structure re-blocks the footprint and swaps in the
     // fields the validation just built for exactly this mask — one rebuild
-    // per attempt. A panel is a wall with an output (energy-infrastructure
-    // design D7): it takes the wall's branch here, at its own price.
+    // per attempt. A panel is a wall with an output and a battery a wall
+    // with a capacity (energy-infrastructure design D7, add-battery design
+    // D1): each takes the wall's branch here, at its own price.
     if (laysGround) {
       for (const t of footprint) this.grid.setBlocked(t.x, t.y, true);
       this.swapScratchFields();
       this.maskChanged = true;
-      if (kind === 'panel') this.pushStructure('panel', -1, tx, ty, this.data.panelCostMg);
-      else this.pushStructure('wall', -1, tx, ty, this.data.wallCostMg);
+      const ground: StructureKind = kind === 'tower' ? 'wall' : kind;
+      this.pushStructure(ground, -1, tx, ty, this.groundCostMg(ground));
     }
     if (kind === 'tower') {
       const archetypeId = ARCHETYPES.indexOf(archetype);
@@ -738,7 +742,23 @@ export class Sim {
     }
   }
 
-  /** Append a freshly bought structure and charge it — provisional until a wave tick runs over it (design D1). */
+  /** The purchase price of a ground structure, by kind (add-battery design D1). */
+  private groundCostMg(kind: StructureKind): number {
+    switch (kind) {
+      case 'panel':
+        return this.data.panelCostMg;
+      case 'battery':
+        return this.data.batteryCostMg;
+      default:
+        return this.data.wallCostMg;
+    }
+  }
+
+  /**
+   * Append a freshly bought structure — a wall, a panel, a battery or a
+   * tower — and charge it; provisional until a wave tick runs over it
+   * (design D1).
+   */
   private pushStructure(
     kind: StructureKind,
     archetypeId: number,
@@ -757,7 +777,7 @@ export class Sim {
       paidMg: costMg,
       nextFireTick: 0,
       provisional: true,
-      // Damage counters start empty; walls and panels carry them at zero like nextFireTick.
+      // Damage counters start empty; ground structures carry them at zero like nextFireTick.
       waveDamage: 0,
       totalDamage: 0,
     });
@@ -771,7 +791,9 @@ export class Sim {
    * and provisional all survive because the existing structures mutate in
    * place. The destination decides what lands (build-over-walls design D4):
    * bare dirt takes the ground structure — a wall together with its tower,
-   * or a panel (energy-infrastructure design D7) — both mask edits apply
+   * or a panel or battery (energy-infrastructure design D7, add-battery
+   * design D1; the store is untouched, the count does not change) — both
+   * mask edits apply
    * and the fields the validation just built for exactly this mask swap in,
    * one rebuild per attempt, mirroring applyPlace — while a foundation (a
    * bare wall, an empty socket) takes the tower alone, with no mask edit and
@@ -825,8 +847,9 @@ export class Sim {
 
   /**
    * remove (structure-placement spec): peels the tile top-down — the tower
-   * if one stands there, else the wall or panel (build-over-walls design D3), each
-   * judged by the gate for the structure it actually targets. Refused after
+   * if one stands there, else the ground structure — wall, panel or battery
+   * (build-over-walls design D3) — each judged by the gate for the structure
+   * it actually targets. Refused after
    * the run ends, refused mid-wave for construction the wave has already run
    * against (canRemove), and refused on a tile holding no structure — with
    * the same reject event a refused placement emits, and no other effect.
@@ -844,7 +867,7 @@ export class Sim {
       this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
       return;
     }
-    if (removeStructure(s, this.grid, target, this.data.refundPer1000)) {
+    if (removeStructure(s, this.grid, target, this.data)) {
       this.removalUnblocked = true;
     }
   }

@@ -67,6 +67,7 @@ function makeState(): SimState {
     kills: 3,
     lastWaveBonusMg: 12_000,
     gridTier: 1,
+    storedMpTick: 60_000,
     // Both slots populated, so a field flip in either is a real change.
     ledger: { ...openLedger(180_000), waveNo: 1, bountiesMg: 18_000, billMg: 240, engagedMp: 31_000 },
     lastLedger: { ...openLedger(150_000), waveNo: 0, constructionMg: 54_000 },
@@ -141,6 +142,12 @@ describe('state hash', () => {
       // — the open period's bill row and the closed period's wave number.
       (s) => (s.ledger.billMg += 1),
       (s) => (s.lastLedger.waveNo = 3),
+      // Add-battery: the pooled store ("The store is hashed"), the battery
+      // as a kind distinct from the panel, and the two new ledger rows.
+      (s) => (s.storedMpTick += 1),
+      (s) => (s.structures[0]!.kind = 'battery'),
+      (s) => (s.ledger.chargedMp += 1),
+      (s) => (s.lastLedger.batteryMp += 1),
     ];
     for (const mutate of mutations) {
       const state = makeState();
@@ -150,6 +157,15 @@ describe('state hash', () => {
 
     // RNG state is inside the hash too.
     expect(hashState(makeState(), [0x1235, 0x5678, 0x9abc, 0xdef0])).not.toBe(base);
+  });
+
+  it('hashes the battery kind distinctly from every other kind', () => {
+    const hashes = (['wall', 'tower', 'panel', 'battery'] as const).map((kind) => {
+      const state = makeState();
+      state.structures[0]!.kind = kind;
+      return hashState(state, RNG_STATE);
+    });
+    expect(new Set(hashes).size).toBe(4);
   });
 
   it('ignores prevPos — the render-only interpolation snapshot', () => {

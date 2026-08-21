@@ -23,7 +23,7 @@ function mix(h: number, value: number): number {
   return h;
 }
 
-/** One period's fifteen fields, in declaration order (wave-ledger design D1). */
+/** One period's seventeen fields, in declaration order (wave-ledger design D1). */
 function mixLedger(h: number, l: WaveLedger): number {
   h = mix(h, l.waveNo);
   h = mix(h, l.openingMg);
@@ -40,6 +40,8 @@ function mixLedger(h: number, l: WaveLedger): number {
   h = mix(h, l.solarWastedMp);
   h = mix(h, l.gridMp);
   h = mix(h, l.unmetMp);
+  h = mix(h, l.chargedMp);
+  h = mix(h, l.batteryMp);
   return h;
 }
 
@@ -58,6 +60,7 @@ export function hashState(state: SimState, rngState: readonly number[]): number 
   h = mix(h, state.kills);
   h = mix(h, state.lastWaveBonusMg);
   h = mix(h, state.gridTier);
+  h = mix(h, state.storedMpTick);
   // Both ledger slots, open period then closed, walked unconditionally.
   h = mixLedger(h, state.ledger);
   h = mixLedger(h, state.lastLedger);

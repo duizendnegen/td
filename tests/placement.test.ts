@@ -8,6 +8,7 @@ import { tileCentre, toTile } from '../src/sim/fixed';
 import { Sim } from '../src/sim/sim';
 import {
   INERT_POWER,
+  TEST_BATTERY_MP_TICK,
   injectEnemy,
   makeSim,
   mount,
@@ -477,6 +478,86 @@ describe('terrain buildability (phase-4)', () => {
     expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(3);
     // The wall beside it still takes the tower: the rule is the panel's, not the tile's.
     expect(sim.previewPlacement('tower', 4, 0)).toBe('ok');
+  });
+
+  // The battery (add-battery, structure-placement delta): a fourth kind on
+  // the panel's rules — a ground structure, never a foundation, at its own
+  // price — and the one structure whose removal touches the pooled store.
+  it('a battery is a wall on the terrain rules: dirt yes, socket no, scenery no', () => {
+    const { sim } = makeSim(paletteLevel());
+    expect(sim.previewPlacement('battery', 3, 0)).toBe('not-buildable'); // socket
+    expect(sim.previewPlacement('battery', 5, 0)).toBe('not-buildable'); // grass
+    expect(sim.previewPlacement('battery', 1, 0)).toBe('not-buildable'); // rock
+    expect(sim.previewPlacement('battery', 2, 0)).toBe('ok'); // dirt
+    sim.tick([place('battery', 3, 0), place('battery', 5, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(2);
+    // On dirt: one tile blocked, charged at the battery's price (30g in the
+    // test balance), archetype-less at level 0 like a wall, provisional.
+    const before = sim.state.treasuryMg;
+    sim.tick([place('battery', 2, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(sim.state.structures[0]).toMatchObject({
+      kind: 'battery',
+      tx: 2,
+      ty: 0,
+      archetypeId: -1,
+      level: 0,
+      paidMg: 30_000,
+      provisional: true,
+    });
+    expect(sim.state.treasuryMg).toBe(before - 30_000);
+    expect(sim.grid.isBlocked(2, 0)).toBe(true);
+    expect(sim.inbound.cost[sim.grid.idx(2, 0)]).toBe(-1);
+    // Placing a battery never moves the store: it starts and stays empty here.
+    expect(sim.state.storedMpTick).toBe(0);
+  });
+
+  it('a battery that would seal every path is rejected, unpaid', () => {
+    const { sim } = makeSim(openLevel(5, 3, { x: 0, y: 1 }, { x: 4, y: 1 }));
+    sim.tick([place('battery', 2, 0), place('panel', 2, 2)]);
+    expect(sim.state.structures).toHaveLength(2);
+    const before = sim.state.treasuryMg;
+    expect(sim.previewPlacement('battery', 2, 1)).toBe('seals-spawn');
+    sim.tick([place('battery', 2, 1)]);
+    expect(sim.state.structures).toHaveLength(2);
+    expect(sim.state.treasuryMg).toBe(before);
+    expect(sim.grid.isBlocked(2, 1)).toBe(false);
+  });
+
+  it('a battery is ground only: no tower on it, nothing shares its tile, and it is not a wall', () => {
+    const { sim } = makeSim(openLevel(9, 3, { x: 0, y: 1 }, { x: 8, y: 1 }));
+    const twin = makeSim(openLevel(9, 3, { x: 0, y: 1 }, { x: 8, y: 1 })).sim;
+    for (const s of [sim, twin]) {
+      s.tick([place('battery', 2, 0), place('wall', 4, 0), place('panel', 6, 0)]);
+    }
+    expect(sim.state.structures).toHaveLength(3);
+    const before = sim.state.treasuryMg;
+    // Not a foundation: a tower on a battery reads exactly like bare dirt.
+    expect(sim.previewPlacement('tower', 2, 0)).toBe('needs-wall');
+    // One ground structure per tile, whichever kind stands there.
+    expect(sim.previewPlacement('battery', 4, 0)).toBe('occupied'); // on a wall
+    expect(sim.previewPlacement('battery', 6, 0)).toBe('occupied'); // on a panel
+    expect(sim.previewPlacement('wall', 2, 0)).toBe('occupied'); // wall on it
+    expect(sim.previewPlacement('panel', 2, 0)).toBe('occupied'); // panel on it
+    sim.tick([
+      place('tower', 2, 0),
+      place('battery', 4, 0),
+      place('battery', 6, 0),
+      place('wall', 2, 0),
+      place('panel', 2, 0),
+    ]);
+    twin.tick([]);
+    expect(sim.state.structures).toHaveLength(3);
+    expect(sim.state.treasuryMg).toBe(before);
+    expect(sim.hash()).toBe(twin.hash());
+    expect(sim.events.filter((e) => e.kind === 'placementRejected')).toHaveLength(5);
+    // The wall beside it still takes the tower: the rule is the battery's, not the tile's.
+    expect(sim.previewPlacement('tower', 4, 0)).toBe('ok');
+    // And it cannot be upgraded: it is not a tower.
+    sim.tick([upgrade(2, 0)]);
+    expect(sim.state.structures[0]!.level).toBe(0);
+    expect(sim.state.treasuryMg).toBe(before);
   });
 
   it('a panel cannot be upgraded: it is not a tower', () => {
@@ -971,6 +1052,62 @@ describe('the provisional window', () => {
     expect(sim.state.treasuryMg).toBe(beforeSale + 20_000); // half of 40 000
   });
 
+  it('a battery refunds like any structure: in full while provisional, the fraction once committed, never mid-wave once committed', () => {
+    const { sim } = makeSim(twoWaveCorridor());
+    const start = sim.state.treasuryMg;
+    sim.tick([place('battery', 2, 0)]); // 30 000, provisional
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(start); // full refund
+    expect(sim.grid.isBlocked(2, 0)).toBe(false);
+
+    sim.tick([place('battery', 2, 0)]);
+    sim.tick([startWave()]); // commits it
+    const beforeAttempt = sim.hash();
+    sim.commit([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(sim.hash()).toBe(beforeAttempt);
+
+    sim.state.enemies.forEach((e) => (e.hp = 0));
+    sim.tick([]); // settles
+    expect(sim.state.runPhase).toBe('build');
+    const beforeSale = sim.state.treasuryMg;
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(beforeSale + 15_000); // half of 30 000
+  });
+
+  it('removing a battery clamps the store to the remaining capacity; a sale with room loses nothing', () => {
+    // Two 10 kWh test batteries: capacity 2 × 200 000 mp·tick.
+    const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
+    sim.tick([place('battery', 2, 0), place('battery', 4, 0)]);
+    sim.state.storedMpTick = 16 * TEST_BATTERY_MP_TICK / 10; // 16 kWh
+    const ledgerBefore = { ...sim.state.ledger };
+    const before = sim.state.treasuryMg;
+    sim.tick([remove(4, 0)]);
+    expect(sim.state.storedMpTick).toBe(TEST_BATTERY_MP_TICK); // 10 kWh
+    // The 6 kWh are gone — not refunded, not moved to any row: only the
+    // refund itself reaches the books.
+    expect(sim.state.treasuryMg).toBe(before + 30_000);
+    const { constructionMg: _c, ...rest } = sim.state.ledger;
+    const { constructionMg: _cb, ...restBefore } = ledgerBefore;
+    expect(rest).toEqual(restBefore);
+    // 8 kWh stays 8 kWh when one of two leaves: room remains.
+    sim.tick([place('battery', 4, 0)]);
+    sim.state.storedMpTick = 8 * TEST_BATTERY_MP_TICK / 10;
+    sim.tick([remove(2, 0)]);
+    expect(sim.state.storedMpTick).toBe(8 * TEST_BATTERY_MP_TICK / 10);
+    // The last battery leaving empties the store.
+    sim.tick([remove(4, 0)]);
+    expect(sim.state.storedMpTick).toBe(0);
+    // Removing a wall or a panel never touches the store.
+    sim.tick([place('battery', 2, 0), place('wall', 4, 0), place('panel', 2, 2)]);
+    sim.state.storedMpTick = 50_000;
+    sim.tick([remove(4, 0), remove(2, 2)]);
+    expect(sim.state.structures).toHaveLength(1);
+    expect(sim.state.storedMpTick).toBe(50_000);
+  });
+
   it('rejects the committed mid-wave removal atomically', () => {
     const build = () => {
       const { sim } = makeSim(twoWaveCorridor());
@@ -1120,6 +1257,51 @@ describe('move command', () => {
     const socketed = makeSim(paletteLevel()).sim;
     socketed.tick([place('panel', 2, 0)]);
     expect(socketed.previewMove(2, 0, 3, 0)).toBe('not-buildable');
+  });
+
+  it('a battery moves like a wall: mask, both fields, free, kind and refund basis kept, store unchanged', () => {
+    const { sim } = makeSim(openLevel(7, 3, { x: 0, y: 1 }, { x: 6, y: 1 }));
+    sim.tick([place('battery', 3, 0)]);
+    const battery = sim.state.structures[0]!;
+    sim.state.storedMpTick = 120_000; // 6 kWh
+    const before = sim.state.treasuryMg;
+    sim.tick([move(3, 0, 3, 2)]);
+    expect(sim.state.structures[0]).toBe(battery);
+    expect(battery).toMatchObject({ kind: 'battery', tx: 3, ty: 2, paidMg: 30_000, provisional: true });
+    expect(sim.state.treasuryMg).toBe(before);
+    expect(sim.state.storedMpTick).toBe(120_000);
+    expect(sim.grid.isBlocked(3, 0)).toBe(false);
+    expect(sim.grid.isBlocked(3, 2)).toBe(true);
+    expect(sim.inbound.cost[sim.grid.idx(3, 0)]).toBeGreaterThan(0);
+    expect(sim.inbound.cost[sim.grid.idx(3, 2)]).toBe(-1);
+    // And, like a wall, it cannot move onto a socket.
+    const socketed = makeSim(paletteLevel()).sim;
+    socketed.tick([place('battery', 2, 0)]);
+    expect(socketed.previewMove(2, 0, 3, 0)).toBe('not-buildable');
+  });
+
+  it('nothing lands on a battery: a stack, a bare wall, a panel and a socket tower are all occupied there', () => {
+    const { sim } = makeSim(paletteLevel());
+    const twin = makeSim(paletteLevel()).sim;
+    const setup = () => [
+      place('battery', 2, 2),
+      ...mount(4, 2),
+      place('wall', 2, 0),
+      place('tower', 3, 0),
+      place('panel', 6, 2),
+    ];
+    sim.tick(setup());
+    twin.tick(setup());
+    expect(sim.state.structures).toHaveLength(6);
+    expect(sim.previewMove(4, 2, 2, 2)).toBe('occupied'); // wall + tower
+    expect(sim.previewMove(2, 0, 2, 2)).toBe('occupied'); // bare wall
+    expect(sim.previewMove(3, 0, 2, 2)).toBe('occupied'); // socket tower
+    expect(sim.previewMove(6, 2, 2, 2)).toBe('occupied'); // panel
+    expect(sim.previewMove(2, 2, 6, 2)).toBe('occupied'); // and a battery onto a panel
+    sim.tick([move(4, 2, 2, 2), move(2, 0, 2, 2), move(3, 0, 2, 2), move(6, 2, 2, 2)]);
+    twin.tick([]);
+    expect(sim.hash()).toBe(twin.hash());
+    expect(sim.state.structures.filter((s) => s.tx === 2 && s.ty === 2)).toHaveLength(1);
   });
 
   it('nothing lands on a panel: a stack, a bare wall and a socket tower are all occupied there', () => {

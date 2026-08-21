@@ -46,10 +46,23 @@ export function drawOf(s: Structure, engaged: boolean, data: GameData): number {
   return engaged ? rated : Math.floor((rated * data.standbyPer1000) / 1000);
 }
 
-/** The constant solar output of every standing panel, in mp. */
+/** The constant solar output of every standing panel, in mp. Batteries produce nothing. */
 export function solarOf(structures: readonly Structure[], data: GameData): number {
   let total = 0;
   for (const s of structures) if (s.kind === 'panel') total += data.panelOutputMp;
+  return total;
+}
+
+/**
+ * The pooled store's capacity, in mp·tick: the number of standing batteries
+ * times one battery's capacity (add-battery design D2). Derived wherever it
+ * is needed, never stored — so a battery placed mid-wave enlarges the pool
+ * from that tick, and one removed shrinks it (the removal path clamps the
+ * store to what remains).
+ */
+export function storageCapacityOf(structures: readonly Structure[], data: GameData): number {
+  let total = 0;
+  for (const s of structures) if (s.kind === 'battery') total += data.batteryCapacityMpTick;
   return total;
 }
 

@@ -20,19 +20,19 @@
 
 ## 2. Sim — Battery Kind & Store State
 
-- [ ] 2.1 `src/sim/types.ts`: `StructureKind` gains `'battery'` (`STRUCTURE_KIND_ID.battery =
+- [x] 2.1 `src/sim/types.ts`: `StructureKind` gains `'battery'` (`STRUCTURE_KIND_ID.battery =
       3`); `SimState.storedMpTick` (initial 0) with a doc comment naming the unit;
       `WaveLedger.chargedMp` (usage) and `batteryMp` (source) with the identity in the interface
       comment updated; `openLedger` zeroes both. `src/sim/hash.ts`: mix `storedMpTick` after
       `gridTier`; `mixLedger` walks seventeen fields — same commit (standing rule)
-- [ ] 2.2 `src/sim/placement.ts`: `isGround(kind)` (wall | panel | battery) and the
+- [x] 2.2 `src/sim/placement.ts`: `isGround(kind)` (wall | panel | battery) and the
       not-a-foundation predicate (panel | battery) replace the literal checks in `groundAt` and
       `validateMove`'s occupancy rule; `removeStructure` clamps `storedMpTick` to the remaining
       capacity after a battery leaves (design D5). `src/sim/sim.ts`: `laysGround` and
       `applyPlace` cover the battery at `batteryCostMg`; `pushStructure` comment lists it
-- [ ] 2.3 `src/sim/power.ts`: `storageCapacityOf(structures, data)` beside `solarOf`;
+- [x] 2.3 `src/sim/power.ts`: `storageCapacityOf(structures, data)` beside `solarOf`;
       `solarOf` unchanged (counts panels only)
-- [ ] 2.4 `tests/placement.test.ts`: battery seals → rejected; on a socket → not-buildable; on a
+- [x] 2.4 `tests/placement.test.ts`: battery seals → rejected; on a socket → not-buildable; on a
       wall and a wall on it → occupied; tower on it → `needs-wall`; provisional refund in full,
       committed at the fraction, refused during a wave; removing a battery clamps the store
       (16 → 10 with two 10 kWh batteries; 8 stays 8). `tests/movetool.test.ts`: a battery moves
