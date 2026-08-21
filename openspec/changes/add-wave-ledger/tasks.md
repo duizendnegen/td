@@ -2,10 +2,10 @@
 
 ## 1. The ledger as hashed state (sim)
 
-- [ ] 1.1 Add `WaveLedger` to `src/sim/types.ts` exactly as design D1 (waveNo, openingMg, seven gold rows, six energy rows) with doc comments naming each row's writer and direction, and `SimState.ledger` / `SimState.lastLedger`; add an `openLedger(openingMg)` constructor returning a fresh period
-- [ ] 1.2 Hash both slots in `src/sim/hash.ts` — one `mix()` per field, open period then closed, walked unconditionally — same commit, per standing rule D-P1-2
-- [ ] 1.3 Initialise `ledger = openLedger(startingTreasuryMg)` and `lastLedger = openLedger(0)` in the `SimState` initialiser in `src/sim/sim.ts`
-- [ ] 1.4 Test in `tests/hash.test.ts`: two states differing only in `ledger.billMg`, and two differing only in `lastLedger.waveNo`, hash differently (wave-ledger spec, "hashed state")
+- [x] 1.1 Add `WaveLedger` to `src/sim/types.ts` exactly as design D1 (waveNo, openingMg, seven gold rows, six energy rows) with doc comments naming each row's writer and direction, and `SimState.ledger` / `SimState.lastLedger`; add an `openLedger(openingMg)` constructor returning a fresh period
+- [x] 1.2 Hash both slots in `src/sim/hash.ts` — one `mix()` per field, open period then closed, walked unconditionally — same commit, per standing rule D-P1-2
+- [x] 1.3 Initialise `ledger = openLedger(startingTreasuryMg)` and `lastLedger = openLedger(0)` in the `SimState` initialiser in `src/sim/sim.ts`
+- [x] 1.4 Test in `tests/hash.test.ts`: two states differing only in `ledger.billMg`, and two differing only in `lastLedger.waveNo`, hash differently (wave-ledger spec, "hashed state")
 
 ## 2. Gold writers
 

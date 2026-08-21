@@ -124,6 +124,78 @@ export interface GoldSack {
   amountMg: number;
 }
 
+/**
+ * One ledger period's books (wave-ledger design D1): a period opens at run
+ * start and at every settlement, and closes at the next settlement — so it
+ * spans a build phase and the wave it led to. Every row is an integer sum of
+ * tick-level figures, written beside the mutation it mirrors (design D3) and
+ * read by nothing in the simulation: the ledger observes, never feeds back.
+ *
+ * Gold rows are magnitudes with a fixed direction each, except construction,
+ * which is net. On every tick
+ * `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg === treasuryMg`.
+ * Energy rows are per-tick mp sums; on every tick
+ * `engagedMp + standbyMp + solarWastedMp === solarUsedMp + gridMp + unmetMp`.
+ */
+export interface WaveLedger {
+  /** Wave number whose start fell in this period (applyStartWave); 0 until one does. */
+  waveNo: number;
+  /** The treasury balance the period opened on — at run start, or the settled balance. */
+  openingMg: number;
+  /** + economy.ts resolveDeaths: every bounty credited. */
+  bountiesMg: number;
+  /** + sim.ts settlement: the wave speed bonus. */
+  bonusMg: number;
+  /** + economy.ts accrueInterest: the floored amount actually credited each tick. */
+  interestMg: number;
+  /**
+   * Net construction spend: + sim.ts pushStructure / applyUpgrade /
+   * applyUpgradeGrid (a connection tier is construction, like a panel),
+   * − placement.ts removeStructure's refund. May go negative in a selling
+   * build phase.
+   */
+  constructionMg: number;
+  /** − sim.ts step 9: the grid bill as debited (nothing on the settlement tick). */
+  billMg: number;
+  /** − economy.ts resolveArrivals: gold grabbed at the treasury. */
+  stolenMg: number;
+  /** + economy.ts returnSacks: gold recovered from unclaimed sacks at settlement. */
+  recoveredMg: number;
+  /** Usage: rated draw of towers with a target this tick (sim.ts step 7). */
+  engagedMp: number;
+  /** Usage: standby draw of towers without a target this tick. */
+  standbyMp: number;
+  /** Source: min(solar, draw) per tick. */
+  solarUsedMp: number;
+  /** Usage: solar output beyond the draw — discarded, neither stored nor sold. */
+  solarWastedMp: number;
+  /** Source: the grid's supply as resolved — tier- and balance-bounded. */
+  gridMp: number;
+  /** Source: draw left uncovered by solar and grid — the brownout, in energy units. */
+  unmetMp: number;
+}
+
+/** A fresh period with every row at zero, opened on `openingMg` (design D1/D2). */
+export function openLedger(openingMg: number): WaveLedger {
+  return {
+    waveNo: 0,
+    openingMg,
+    bountiesMg: 0,
+    bonusMg: 0,
+    interestMg: 0,
+    constructionMg: 0,
+    billMg: 0,
+    stolenMg: 0,
+    recoveredMg: 0,
+    engagedMp: 0,
+    standbyMp: 0,
+    solarUsedMp: 0,
+    solarWastedMp: 0,
+    gridMp: 0,
+    unmetMp: 0,
+  };
+}
+
 export interface SimState {
   tick: number;
   /** Treasury balance in milli-gold. */
@@ -156,4 +228,15 @@ export interface SimState {
    * the structures and the treasury each tick — never stored, never hashed.
    */
   gridTier: number;
+  /**
+   * The open ledger period (wave-ledger design D1/D2): opened at run start
+   * on the starting treasury and at every settlement on the settled balance.
+   */
+  ledger: WaveLedger;
+  /**
+   * The most recently closed period — a copy taken at settlement, never an
+   * alias. `waveNo === 0` means none has closed yet. Both slots are hashed
+   * and walked unconditionally; nothing in the simulation reads either.
+   */
+  lastLedger: WaveLedger;
 }

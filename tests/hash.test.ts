@@ -2,7 +2,7 @@
 // any single-field divergence is visible at the tick it happens.
 import { describe, expect, it } from 'vitest';
 import { hashState } from '../src/sim/hash';
-import type { Enemy, SimState } from '../src/sim/types';
+import { openLedger, type Enemy, type SimState } from '../src/sim/types';
 
 function makeEnemy(id: number): Enemy {
   return {
@@ -67,6 +67,9 @@ function makeState(): SimState {
     kills: 3,
     lastWaveBonusMg: 12_000,
     gridTier: 1,
+    // Both slots populated, so a field flip in either is a real change.
+    ledger: { ...openLedger(180_000), waveNo: 1, bountiesMg: 18_000, billMg: 240, engagedMp: 31_000 },
+    lastLedger: { ...openLedger(150_000), waveNo: 0, constructionMg: 54_000 },
   };
 }
 
@@ -134,6 +137,10 @@ describe('state hash', () => {
       // Energy-infrastructure: the grid tier, and the panel as a distinct kind.
       (s) => s.gridTier++,
       (s) => (s.structures[0]!.kind = 'panel'),
+      // Wave-ledger: both slots are hashed state ("hashed state" requirement)
+      // — the open period's bill row and the closed period's wave number.
+      (s) => (s.ledger.billMg += 1),
+      (s) => (s.lastLedger.waveNo = 3),
     ];
     for (const mutate of mutations) {
       const state = makeState();

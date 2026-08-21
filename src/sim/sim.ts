@@ -45,7 +45,7 @@ import { COVERAGE_SCALE, resolvePower, solarOf, tierCapacityMp } from './power';
 import { fireTowers, preTargetTowers, selectTarget } from './tower';
 import { Rng } from './rng';
 import { cursorsExhausted, lastSpawnOffset, resolveWaves, stepWaveSpawns, type ResolvedGroup } from './waves';
-import type { Enemy, SimState, Structure, StructureKind } from './types';
+import { openLedger, type Enemy, type SimState, type Structure, type StructureKind } from './types';
 
 /** Towers may only upgrade to this level; the level-3 inspector reads maxed. */
 export const MAX_TOWER_LEVEL = 3;
@@ -186,6 +186,10 @@ export class Sim {
       kills: 0,
       lastWaveBonusMg: 0,
       gridTier: 0,
+      // The run's first period opens on the starting treasury; the closed
+      // slot reads empty (waveNo 0) until the first settlement (design D2).
+      ledger: openLedger(data.startingTreasuryMg),
+      lastLedger: openLedger(0),
     };
   }
 
