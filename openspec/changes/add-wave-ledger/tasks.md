@@ -37,8 +37,8 @@
 
 ## 6. Presentation module (pure)
 
-- [ ] 6.1 `src/ui/ledger.ts`: `shown(ledger, lastLedger)` per design D5 returning `{ period, preparing }`; `reconcile(parts, total)` largest-remainder rounding per design D6; `KWH_PER_MP_TICK = 1 / (POWER × TICK_HZ)` and `formatKwh`, `formatTariff(tariffMgPer1000)` per design D7; row-model builders for the gold blocks (label, sign, display value) and the energy columns
-- [ ] 6.2 Tests in `tests/ledger-ui.test.ts`: `shown` for pre-first-wave, mid-wave, build-phase, final-settlement-won, conceded-mid-wave; `reconcile` on a case where independent floors sum one short and one long, result within one unit per part and summing exactly; a block's displayed rows sum to `floor(closing) − floor(opening)` for a constructed milli-gold case; `formatKwh` on the harness magnitudes (215 100 mp·tick → `10.8`), `formatTariff(12)` → `0.24`
+- [x] 6.1 `src/ui/ledger.ts`: `shown(ledger, lastLedger)` per design D5 returning `{ period, preparing }`; `reconcile(parts, total)` largest-remainder rounding per design D6; `KWH_PER_MP_TICK = 1 / (POWER × TICK_HZ)` and `formatKwh`, `formatTariff(tariffMgPer1000)` per design D7; row-model builders for the gold blocks (label, sign, display value) and the energy columns
+- [x] 6.2 Tests in `tests/ledger-ui.test.ts`: `shown` for pre-first-wave, mid-wave, build-phase, final-settlement-won, conceded-mid-wave; `reconcile` on a case where independent floors sum one short and one long, result within one unit per part and summing exactly; a block's displayed rows sum to `floor(closing) − floor(opening)` for a constructed milli-gold case; `formatKwh` on the harness magnitudes (215 100 mp·tick → `10.8`), `formatTariff(12)` → `0.24`
 
 ## 7. Disclosure controller
 
