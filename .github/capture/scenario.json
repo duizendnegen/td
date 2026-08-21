@@ -1,5 +1,5 @@
 {
-  "$note": "PR-preview capture scenario (openspec add-pr-wave-preview, design D11). Review tooling, not application data: played through __td.scheduler by .github/capture/capture.mjs against level_01 with the seed below. Build-over-walls: a tower needs a foundation, so every dirt tower is a wall command followed by the tower on it, and the opening sniper takes the (8,6) socket — a built-in foundation covering both legs of the maze. Opening rapid+sniper hold wall B's north gap through three off-camera waves; the bounties and wave bonuses fund the wall-mounted area+slow pair and the top-right maze walls (four now — the mounts cost 20g each and the treasury lands at 8.8g before wave 4); wave 4 is the on-camera window, with a tank and a brute injected so every declared enemy type appears (design D6). tests/scenario.test.ts asserts the roster coverage; the economy margins were measured by playing this file through the sim.",
+  "$note": "PR-preview capture scenario (openspec add-pr-wave-preview, design D11). Review tooling, not application data: played through __td.scheduler by .github/capture/capture.mjs against level_01 with the seed below. Build-over-walls: a tower needs a foundation, so every dirt tower is a wall command followed by the tower on it, and the opening sniper takes the (8,6) socket — a built-in foundation covering both legs of the maze. Opening rapid+sniper hold wall B's north gap through three off-camera waves; the bounties and wave bonuses fund the wall-mounted area+slow pair and the top-right maze walls (three now — the mounts cost 20g each and the grid bill over the three off-camera waves takes ~18g of income, so the treasury lands at 10.9g before wave 4, clear of startWave's solvency gate; on camera the four towers' 4.5 kW rated draw exceeds the 4 kW opening tier, so the clip shows a brownout); wave 4 is the on-camera window, with a tank and a brute injected so every declared enemy type appears (design D6). tests/scenario.test.ts asserts the roster coverage; the economy margins were measured by playing this file through the sim.",
   "seed": 12648430,
   "level": "level_01",
   "commands": [
@@ -18,7 +18,6 @@
     { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 13, "ty": 0 } },
     { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 14, "ty": 0 } },
     { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 15, "ty": 0 } },
-    { "tick": 1560, "body": { "kind": "place", "structure": "wall", "tx": 16, "ty": 0 } },
 
     { "tick": 1580, "body": { "kind": "startWave" } },
     { "tick": 1620, "body": { "kind": "spawn", "type": "tank", "spawn": 0 } },

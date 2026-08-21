@@ -1,7 +1,7 @@
 // See the phase-4 wave-scheduling spec and design D2/D7
 import { describe, expect, it } from 'vitest';
 import { toTile } from '../src/sim/fixed';
-import { concede, makeSim, openLevel, startWave, testBalance, trivialWave } from './helpers';
+import { INERT_POWER, concede, makeSim, openLevel, startWave, testBalance, trivialWave } from './helpers';
 
 // A short straight corridor: spawn (0,1) → treasury (6,1).
 const corridor = (waves: Record<string, unknown>[]) =>
@@ -151,6 +151,7 @@ describe('spawn activation by wave (design D7)', () => {
     ],
     terrain: { legend: { '.': 'dirt' }, map: ['.......', '.......', '.......'] },
     economy: { startingTreasury: 200, interestRatePerTick: 0 },
+    power: INERT_POWER,
     waves,
   });
 

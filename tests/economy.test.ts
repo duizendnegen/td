@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { liquidationTotalMg, waveBonusMg } from '../src/sim/economy';
 import {
+  INERT_POWER,
   concede,
   injectEnemy,
   makeSim,
@@ -265,6 +266,7 @@ describe('origin-only escape (return-to-origin-spawn spec)', () => {
     ],
     terrain: { legend: { '.': 'dirt' }, map: ['.......', '.......', '.......'] },
     economy: { startingTreasury: 200, interestRatePerTick: 0 },
+    power: INERT_POWER,
     waves: [trivialWave('west'), trivialWave('east')],
   });
 

@@ -5,7 +5,12 @@
 //   - Owns all state, the RNG, and the tick counter
 //   - Fixed 10-step tick order (see ARCHITECTURE.md §7)
 //   - The run state machine: waves in step 4, progression in step 9 (D2)
-//   - Exposes render-only events, which are outside the state hash
+//   - The power step inside step 7 (energy-infrastructure design D2/D4/D5,
+//     add-battery design D3/D4): target pre-pass → draw → supply resolution
+//     (solar → store → grid) → the store's delta applied → coverage →
+//     firing; the bill computed there is debited in step 9 before interest
+//   - Exposes render-only events, which are outside the state hash, and the
+//     tick's derived power figures, likewise unhashed
 
 import type { GameData, TowerArchetype } from '../data/schema';
 import { ARCHETYPES } from '../data/schema';
@@ -29,6 +34,7 @@ import {
   canRemove,
   footprintFor,
   isFoundation,
+  isGround,
   moveOpenIn,
   removeStructure,
   stackAt,
@@ -37,13 +43,56 @@ import {
   validateMove,
   validatePlacement,
 } from './placement';
-import { fireTowers, selectTarget } from './tower';
+import { COVERAGE_SCALE, resolvePower, solarOf, storageCapacityOf, tierCapacityMp } from './power';
+import { fireTowers, preTargetTowers, selectTarget } from './tower';
 import { Rng } from './rng';
 import { cursorsExhausted, lastSpawnOffset, resolveWaves, stepWaveSpawns, type ResolvedGroup } from './waves';
-import type { Enemy, SimState, Structure, StructureKind } from './types';
+import { openLedger, type Enemy, type SimState, type Structure, type StructureKind } from './types';
 
 /** Towers may only upgrade to this level; the level-3 inspector reads maxed. */
 export const MAX_TOWER_LEVEL = 3;
+
+/**
+ * The tick's power figures (energy-infrastructure design D2/D9): DERIVED once
+ * per wave tick from hashed state — structures, gridTier, treasury, the
+ * store — and exposed for the frame (meter, tower tint, F4). Never stored
+ * across ticks, never hashed, never written by anything but the sim. Idle
+ * outside a wave: nothing draws, coverage reads full, nothing is billed —
+ * but the store and its capacity are read in every phase, so the meter can
+ * show the reserve a wave would start with (add-battery design D8).
+ */
+export interface PowerReadout {
+  drawMp: number;
+  /** The engaged share of `drawMp` (wave-ledger design D4); standby is `drawMp − engagedMp`. */
+  engagedMp: number;
+  solarMp: number;
+  /** The store's discharge this tick (add-battery design D3); 0 outside a wave. */
+  batterySupplyMp: number;
+  /** Surplus solar the store took this tick; 0 outside a wave. */
+  chargedMp: number;
+  gridSupplyMp: number;
+  /** In COVERAGE_SCALE; below full is a brownout. */
+  coverage: number;
+  /** The bill step 9 debits this tick (0 on the settlement tick and outside waves). */
+  billMg: number;
+  /** The store after this tick's movement, in mp·tick — meaningful in any phase. */
+  storedMpTick: number;
+  /** count(battery) × one battery's capacity, in mp·tick — meaningful in any phase. */
+  storageCapacityMpTick: number;
+}
+
+const IDLE_POWER: Readonly<PowerReadout> = {
+  drawMp: 0,
+  engagedMp: 0,
+  solarMp: 0,
+  batterySupplyMp: 0,
+  chargedMp: 0,
+  gridSupplyMp: 0,
+  coverage: COVERAGE_SCALE,
+  billMg: 0,
+  storedMpTick: 0,
+  storageCapacityMpTick: 0,
+};
 
 /**
  * A placement verdict together with the routing it would produce
@@ -87,6 +136,15 @@ export class Sim {
    * the renderer, never read back, excluded from the hash.
    */
   readonly events: RenderEvent[] = [];
+  /**
+   * The most recent tick's power resolution — read-only for render and
+   * tests. Overwritten every advance; the step-9 debit reads `billMg` from
+   * here within the same tick, which is the only sim read of it. Outside a
+   * wave it reads idle except for the store and its capacity, which are
+   * refreshed every tick (and after settlement) so the meter's reserve line
+   * is never stale.
+   */
+  power: Readonly<PowerReadout> = IDLE_POWER;
 
   private readonly rng: Rng;
   private readonly treasury: { x: number; y: number };
@@ -149,6 +207,13 @@ export class Sim {
       escapedMg: 0,
       kills: 0,
       lastWaveBonusMg: 0,
+      gridTier: 0,
+      // The store starts empty (add-battery design D2).
+      storedMpTick: 0,
+      // The run's first period opens on the starting treasury; the closed
+      // slot reads empty (waveNo 0) until the first settlement (design D2).
+      ledger: openLedger(data.startingTreasuryMg),
+      lastLedger: openLedger(0),
     };
   }
 
@@ -250,12 +315,76 @@ export class Sim {
     stepEnemies(s, this.grid, fields, this.data.slowSpeedPer100);
     // 6. Arrival: treasury grab-and-flip, sack pickup, spawn escape
     resolveArrivals(s, this.treasury, this.allSpawns, this.carryMgByType, this.events);
-    // 7. Tower targeting and firing (damage applies this tick)
-    fireTowers(s, this.grid, fields, this.data, this.events);
+    // 7. Tower targeting and firing (damage applies this tick): the target
+    //    pre-pass, then — during a wave — the power resolution (solar →
+    //    store → grid) that yields the tick's coverage, the store's delta
+    //    applied here where energy resolves (add-battery design D3), then
+    //    the firing pass at that coverage (energy-infrastructure design
+    //    D2/D4). Nothing draws outside a wave: the build phase fires at full
+    //    coverage, bills nothing, and leaves the store where it stands.
+    const pre = preTargetTowers(s, this.grid, fields, this.data);
+    const storageCapacityMpTick = storageCapacityOf(s.structures, this.data);
+    if (s.runPhase === 'wave') {
+      const solarMp = solarOf(s.structures, this.data);
+      const r = resolvePower(
+        pre.drawMp,
+        solarMp,
+        s.storedMpTick,
+        storageCapacityMpTick,
+        tierCapacityMp(this.data, s.gridTier),
+        s.treasuryMg,
+        this.data.tariffMgPer1000,
+      );
+      // The store moves on every wave tick supply resolves — the settlement
+      // tick included (design D4): towers drew on it and the ledger books
+      // it, so the store's movement and the ledger's rows agree tick for
+      // tick. Only the step-9 bill is exempt there; it is gold, not energy.
+      s.storedMpTick += r.chargedMp - r.batterySupplyMp;
+      this.power = {
+        drawMp: pre.drawMp,
+        engagedMp: pre.engagedMp,
+        solarMp,
+        batterySupplyMp: r.batterySupplyMp,
+        chargedMp: r.chargedMp,
+        gridSupplyMp: r.gridSupplyMp,
+        coverage: r.coverage,
+        billMg: r.billMg,
+        storedMpTick: s.storedMpTick,
+        storageCapacityMpTick,
+      };
+      // The tick's energy buckets (wave-ledger design D4, add-battery design
+      // D6), from the figures the merit order just resolved: solar covers
+      // first, the surplus charges the store and the rest is wasted; the
+      // store then the grid cover the deficit, and whatever is left is the
+      // brownout in energy units. Per tick
+      // engaged + standby + charging + wasted
+      //   = (solarUsed + charging + wasted) + battery + grid + unmet
+      // — solar output on the source side — by construction: both sides are
+      // max(draw, solar). The store itself is not a row.
+      // The settlement tick accumulates here too — towers drew on it and
+      // the store moved — while step 9 bills nothing for it; documented,
+      // not corrected.
+      const solarUsed = Math.min(solarMp, pre.drawMp);
+      const l = s.ledger;
+      l.engagedMp += pre.engagedMp;
+      l.standbyMp += pre.drawMp - pre.engagedMp;
+      l.solarUsedMp += solarUsed;
+      l.chargedMp += r.chargedMp;
+      l.solarWastedMp += solarMp - solarUsed - r.chargedMp;
+      l.batteryMp += r.batterySupplyMp;
+      l.gridMp += r.gridSupplyMp;
+      l.unmetMp += pre.drawMp - solarUsed - r.batterySupplyMp - r.gridSupplyMp;
+    } else {
+      // Outside a wave nothing draws, the energy rows do not move and the
+      // store holds; only the reserve readout is refreshed.
+      this.power = this.idlePower(storageCapacityMpTick);
+    }
+    fireTowers(s, this.grid, fields, this.data, this.events, this.power.coverage, pre);
     // 8. Deaths: bounties, carrier sack drops, tombstones
     resolveDeaths(s, this.bountyMgByType);
-    // 9. Run progression (design D2): interest while a wave runs, settlement
-    //    when it drains, refund-driven win from the post-final-wave lock
+    // 9. Run progression (design D2): the grid bill, then interest while a
+    //    wave runs; settlement when it drains, refund-driven win from the
+    //    post-final-wave lock
     this.stepProgression();
     // 10. Compact tombstones; increment tick
     if (s.enemies.some((e) => !e.alive)) {
@@ -265,9 +394,11 @@ export class Sim {
   }
 
   /**
-   * Step 9 — the single progression point (design D2). No interest accrues
-   * on the settlement tick: the wave is already over when step 9 sees it
-   * drained.
+   * Step 9 — the single progression point (design D2). Bill, then interest
+   * on the post-bill balance (energy-infrastructure design D5) — neither on
+   * the settlement tick: the wave is already over when step 9 sees it
+   * drained. The bill was bounded in step 7 by what the positive balance
+   * could pay, and step 8 only raises the balance, so the debit lands at ≥ 0.
    */
   private stepProgression(): void {
     const s = this.state;
@@ -275,11 +406,17 @@ export class Sim {
       const drained =
         cursorsExhausted(s, this.waves[s.waveIndex - 1]!) && !s.enemies.some((e) => e.alive);
       if (!drained) {
+        s.treasuryMg -= this.power.billMg;
+        s.ledger.billMg += this.power.billMg;
         accrueInterest(s, this.data.interestRatePpm);
         return;
       }
-      // Settlement: sack return, then the speed bonus, then the progression
-      // judgement on the post-return, post-bonus balance (run-lifecycle spec).
+      // Settlement: no bill (the readout reads idle from here, since the
+      // build phase that follows charges nothing — the store, which did move
+      // on this tick, stays readable), sack return, then the speed bonus,
+      // then the progression judgement on the post-return, post-bonus
+      // balance, then the ledger period closes (run-lifecycle spec).
+      this.power = this.idlePower(this.power.storageCapacityMpTick);
       returnSacks(s);
       s.lastWaveBonusMg = waveBonusMg(
         s.tick - s.waveStartTick,
@@ -287,6 +424,7 @@ export class Sim {
         this.data.waveBonus,
       );
       s.treasuryMg += s.lastWaveBonusMg;
+      s.ledger.bonusMg += s.lastWaveBonusMg;
       s.waveStartTick = -1;
       s.groupCursors = [];
       if (s.waveIndex >= this.waves.length) {
@@ -294,10 +432,29 @@ export class Sim {
       } else {
         s.runPhase = 'build';
       }
+      // The period boundary is the last thing settlement does (wave-ledger
+      // design D2): the sack return and the bonus are booked to the wave
+      // that earned them, and the next period opens on exactly the balance
+      // the judgement saw. A copy into the closed slot, never an alias.
+      s.lastLedger = { ...s.ledger };
+      s.ledger = openLedger(s.treasuryMg);
     } else if (s.runPhase === 'settled-locked' && s.treasuryMg >= 0) {
       // A step-3 refund brought the balance home: the win fires this tick.
       s.runPhase = 'won';
     }
+  }
+
+  /**
+   * The idle readout with the store and its capacity filled in: nothing
+   * draws, nothing is billed, coverage is full — and the reserve is
+   * readable (add-battery design D8). Returns the shared constant when no
+   * battery stands and the store is empty, so no-battery runs allocate
+   * nothing per tick.
+   */
+  private idlePower(storageCapacityMpTick: number): Readonly<PowerReadout> {
+    const storedMpTick = this.state.storedMpTick;
+    if (storedMpTick === 0 && storageCapacityMpTick === 0) return IDLE_POWER;
+    return { ...IDLE_POWER, storedMpTick, storageCapacityMpTick };
   }
 
   /**
@@ -318,8 +475,8 @@ export class Sim {
    * enemies, paths — and is gated on both purchases: the wall at the current
    * balance and the tower at the balance the wall leaves, so a compound is
    * never half-affordable and never half-applied (design D6). `scratch`
-   * holds the post-placement fields afterwards exactly when a wall's
-   * routing-dependent verdict rebuilt them — see laysWall.
+   * holds the post-placement fields afterwards exactly when a ground
+   * structure's routing-dependent verdict rebuilt them — see laysGround.
    */
   private placementVerdict(
     kind: StructureKind,
@@ -342,9 +499,13 @@ export class Sim {
     );
   }
 
-  /** Whether a placement of `kind` (with or without its wall) lays a wall — and so owns mask and fields. */
-  private static laysWall(kind: StructureKind, withWall: boolean): boolean {
-    return kind === 'wall' || withWall;
+  /**
+   * Whether a placement of `kind` (with or without its wall) lays a ground
+   * structure — a wall, a panel or a battery (isGround) — and so owns mask
+   * and fields.
+   */
+  private static laysGround(kind: StructureKind, withWall: boolean): boolean {
+    return isGround(kind) || withWall;
   }
 
   /**
@@ -356,7 +517,7 @@ export class Sim {
    */
   previewMove(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementVerdict {
     const stack = stackAt(this.state.structures, fromTx, fromTy);
-    if ((!stack.wall && !stack.tower) || !moveOpenIn(this.state.runPhase)) return 'not-buildable';
+    if ((!stack.ground && !stack.tower) || !moveOpenIn(this.state.runPhase)) return 'not-buildable';
     return validateMove(
       this.grid,
       stack,
@@ -398,10 +559,10 @@ export class Sim {
     const verdict = this.placementVerdict(kind, footprint, withWall);
     // A foundation-only tower placement short-circuits before the rebuild,
     // so the buffers still hold the previous evaluation's fields — never
-    // readable as this one's. Only a wall's routing-dependent verdicts
-    // rebuilt them.
+    // readable as this one's. Only a ground structure's routing-dependent
+    // verdicts rebuilt them.
     const rebuilt =
-      Sim.laysWall(kind, withWall) &&
+      Sim.laysGround(kind, withWall) &&
       (verdict === 'ok' || verdict === 'seals-spawn' || verdict === 'strands-enemy');
     if (!rebuilt) return { verdict, lanes: null, orphaned: null };
     return {
@@ -422,7 +583,7 @@ export class Sim {
    */
   previewMoveRoutes(fromTx: number, fromTy: number, toTx: number, toTy: number): PlacementRoutes {
     const stack = stackAt(this.state.structures, fromTx, fromTy);
-    if ((!stack.wall && !stack.tower) || !moveOpenIn(this.state.runPhase)) {
+    if ((!stack.ground && !stack.tower) || !moveOpenIn(this.state.runPhase)) {
       return { verdict: 'not-buildable', lanes: null, orphaned: null };
     }
     const verdict = validateMove(
@@ -538,6 +699,9 @@ export class Sim {
       case 'upgrade':
         this.applyUpgrade(command.tx, command.ty);
         break;
+      case 'upgradeGrid':
+        this.applyUpgradeGrid();
+        break;
       case 'remove':
         this.applyRemove(command.tx, command.ty);
         break;
@@ -561,6 +725,8 @@ export class Sim {
     // The wave damage counter's only reset point (tower-damage-stats design
     // D3): from here until the next start it is this wave's figure.
     for (const structure of s.structures) structure.waveDamage = 0;
+    // The only place the open ledger period learns it has a wave (design D2).
+    s.ledger.waveNo = s.waveIndex;
     this.activeSpawnIds = this.data.level.spawns
       .map((sp, i) => (sp.activeFromWave <= s.waveIndex ? i : -1))
       .filter((i) => i >= 0);
@@ -600,7 +766,7 @@ export class Sim {
     withWall: boolean,
   ): void {
     const footprint = footprintFor(tx, ty);
-    const laysWall = Sim.laysWall(kind, withWall);
+    const laysGround = Sim.laysGround(kind, withWall);
 
     const verdict = this.placementVerdict(kind, footprint, withWall);
     if (verdict !== 'ok') {
@@ -610,13 +776,17 @@ export class Sim {
 
     // Commit. A tower stands on a foundation whose tile is already blocked,
     // so it never touches the mask or the fields (build-over-walls design
-    // D2); a wall re-blocks the footprint and swaps in the fields the
-    // validation just built for exactly this mask — one rebuild per attempt.
-    if (laysWall) {
+    // D2); a ground structure re-blocks the footprint and swaps in the
+    // fields the validation just built for exactly this mask — one rebuild
+    // per attempt. A panel is a wall with an output and a battery a wall
+    // with a capacity (energy-infrastructure design D7, add-battery design
+    // D1): each takes the wall's branch here, at its own price.
+    if (laysGround) {
       for (const t of footprint) this.grid.setBlocked(t.x, t.y, true);
       this.swapScratchFields();
       this.maskChanged = true;
-      this.pushStructure('wall', -1, tx, ty, this.data.wallCostMg);
+      const ground: StructureKind = kind === 'tower' ? 'wall' : kind;
+      this.pushStructure(ground, -1, tx, ty, this.groundCostMg(ground));
     }
     if (kind === 'tower') {
       const archetypeId = ARCHETYPES.indexOf(archetype);
@@ -624,7 +794,23 @@ export class Sim {
     }
   }
 
-  /** Append a freshly bought structure and charge it — provisional until a wave tick runs over it (design D1). */
+  /** The purchase price of a ground structure, by kind (add-battery design D1). */
+  private groundCostMg(kind: StructureKind): number {
+    switch (kind) {
+      case 'panel':
+        return this.data.panelCostMg;
+      case 'battery':
+        return this.data.batteryCostMg;
+      default:
+        return this.data.wallCostMg;
+    }
+  }
+
+  /**
+   * Append a freshly bought structure — a wall, a panel, a battery or a
+   * tower — and charge it; provisional until a wave tick runs over it
+   * (design D1).
+   */
   private pushStructure(
     kind: StructureKind,
     archetypeId: number,
@@ -639,15 +825,16 @@ export class Sim {
       tx,
       ty,
       archetypeId,
-      level: kind === 'wall' ? 0 : 1,
+      level: kind === 'tower' ? 1 : 0,
       paidMg: costMg,
       nextFireTick: 0,
       provisional: true,
-      // Damage counters start empty; walls carry them at zero like nextFireTick.
+      // Damage counters start empty; ground structures carry them at zero like nextFireTick.
       waveDamage: 0,
       totalDamage: 0,
     });
     s.treasuryMg -= costMg;
+    s.ledger.constructionMg += costMg;
   }
 
   /**
@@ -655,7 +842,10 @@ export class Sim {
    * stack — free of charge and identity-preserving: id, kind, paidMg, level
    * and provisional all survive because the existing structures mutate in
    * place. The destination decides what lands (build-over-walls design D4):
-   * bare dirt takes the wall together with its tower — both mask edits apply
+   * bare dirt takes the ground structure — a wall together with its tower,
+   * or a panel or battery (energy-infrastructure design D7, add-battery
+   * design D1; the store is untouched, the count does not change) — both
+   * mask edits apply
    * and the fields the validation just built for exactly this mask swap in,
    * one rebuild per attempt, mirroring applyPlace — while a foundation (a
    * bare wall, an empty socket) takes the tower alone, with no mask edit and
@@ -667,7 +857,7 @@ export class Sim {
   private applyMove(tx: number, ty: number, toTx: number, toTy: number): void {
     const s = this.state;
     const stack = stackAt(s.structures, tx, ty);
-    const movable = (stack.wall !== null || stack.tower !== null) && moveOpenIn(s.runPhase);
+    const movable = (stack.ground !== null || stack.tower !== null) && moveOpenIn(s.runPhase);
     const verdict = movable
       ? validateMove(
           this.grid,
@@ -693,14 +883,14 @@ export class Sim {
       tower.ty = toTy;
       return;
     }
-    // Relocate: validateMove guaranteed a wall in the stack.
-    const wall = stack.wall!;
-    this.grid.setBlocked(wall.tx, wall.ty, false);
+    // Relocate: validateMove guaranteed a ground structure in the stack.
+    const ground = stack.ground!;
+    this.grid.setBlocked(ground.tx, ground.ty, false);
     this.grid.setBlocked(toTx, toTy, true);
     this.swapScratchFields();
     this.maskChanged = true;
-    wall.tx = toTx;
-    wall.ty = toTy;
+    ground.tx = toTx;
+    ground.ty = toTy;
     if (stack.tower) {
       stack.tower.tx = toTx;
       stack.tower.ty = toTy;
@@ -709,8 +899,9 @@ export class Sim {
 
   /**
    * remove (structure-placement spec): peels the tile top-down — the tower
-   * if one stands there, else the wall (build-over-walls design D3), each
-   * judged by the gate for the structure it actually targets. Refused after
+   * if one stands there, else the ground structure — wall, panel or battery
+   * (build-over-walls design D3) — each judged by the gate for the structure
+   * it actually targets. Refused after
    * the run ends, refused mid-wave for construction the wave has already run
    * against (canRemove), and refused on a tile holding no structure — with
    * the same reject event a refused placement emits, and no other effect.
@@ -728,7 +919,7 @@ export class Sim {
       this.events.push({ kind: 'placementRejected', tiles: footprintFor(tx, ty) });
       return;
     }
-    if (removeStructure(s, this.grid, target, this.data.refundPer1000)) {
+    if (removeStructure(s, this.grid, target, this.data)) {
       this.removalUnblocked = true;
     }
   }
@@ -749,8 +940,29 @@ export class Sim {
     // levels[] is 0-based: the next level's row is levels[t.level].
     const costMg = this.data.towers[t.archetypeId]!.levels[t.level]!.costMg;
     s.treasuryMg -= costMg;
+    s.ledger.constructionMg += costMg;
     t.paidMg += costMg;
     t.level++;
+  }
+
+  /**
+   * upgradeGrid (power-grid spec, design D6): buy the next connection tier.
+   * Valid in any live phase — a wave included, since a mid-wave "we need more
+   * power" is a legitimate rescue — under the spending gate (balance ≥ 0, may
+   * go into debt like any purchase) and below the last tier. The tier is
+   * hashed state; the charge and the capacity land in the same tick. One-way:
+   * no provisional flag, no refund, no share of the liquidation total. A
+   * refusal is silent, like startWave's — there is no tile to flash.
+   */
+  private applyUpgradeGrid(): void {
+    const s = this.state;
+    if (s.runPhase === 'won' || s.runPhase === 'lost') return;
+    const next = this.data.gridTiers[s.gridTier + 1];
+    if (!next || !canSpend(s.treasuryMg)) return;
+    s.treasuryMg -= next.costMg;
+    // A connection tier is construction, like a panel (wave-ledger design D3).
+    s.ledger.constructionMg += next.costMg;
+    s.gridTier++;
   }
 
   /** Swap the live and scratch field sets wholesale — arrays included (D4). */

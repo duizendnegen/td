@@ -69,10 +69,21 @@ export interface Enemy {
   alive: boolean;
 }
 
-/** Hashed as an integer via STRUCTURE_KIND_ID. */
-export type StructureKind = 'wall' | 'tower';
+/**
+ * Hashed as an integer via STRUCTURE_KIND_ID. The panel (energy-infrastructure
+ * design D7) is a wall that generates power, and the battery (add-battery
+ * design D1) a wall that adds capacity to the pooled store: both live on the
+ * wall's placement and refund path and differ only in what the power step
+ * reads off them.
+ */
+export type StructureKind = 'wall' | 'tower' | 'panel' | 'battery';
 
-export const STRUCTURE_KIND_ID: Record<StructureKind, number> = { wall: 0, tower: 1 };
+export const STRUCTURE_KIND_ID: Record<StructureKind, number> = {
+  wall: 0,
+  tower: 1,
+  panel: 2,
+  battery: 3,
+};
 
 export interface Structure {
   id: number;
@@ -80,16 +91,16 @@ export interface Structure {
   /** The structure's tile; every structure is 1×1 (phase-3 design D1). */
   tx: number;
   ty: number;
-  /** Towers: index into the canonical archetype list. Walls: -1. */
+  /** Towers: index into the canonical archetype list. Walls, panels and batteries: -1. */
   archetypeId: number;
-  /** Towers: current upgrade level, 1–3. Walls: 0. */
+  /** Towers: current upgrade level, 1–3. Walls, panels and batteries: 0. */
   level: number;
   /**
    * Total invested in milli-gold — base cost plus every upgrade cost paid.
    * The basis of the removal refund (phase-3 design D3).
    */
   paidMg: number;
-  /** Towers: absolute tick of the earliest permitted next shot. Walls: 0. */
+  /** Towers: absolute tick of the earliest permitted next shot. Walls, panels and batteries: 0. */
   nextFireTick: number;
   /**
    * True from placement until the simulation advances a tick while a wave is
@@ -120,6 +131,88 @@ export interface GoldSack {
   amountMg: number;
 }
 
+/**
+ * One ledger period's books (wave-ledger design D1): a period opens at run
+ * start and at every settlement, and closes at the next settlement — so it
+ * spans a build phase and the wave it led to. Every row is an integer sum of
+ * tick-level figures, written beside the mutation it mirrors (design D3) and
+ * read by nothing in the simulation: the ledger observes, never feeds back.
+ *
+ * Gold rows are magnitudes with a fixed direction each, except construction,
+ * which is net. On every tick
+ * `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg === treasuryMg`.
+ * Energy rows are per-tick mp sums; on every tick usage equals sources —
+ * `engagedMp + standbyMp + chargedMp + solarWastedMp === (solarUsedMp + chargedMp + solarWastedMp) + batteryMp + gridMp + unmetMp`,
+ * the source side's solar being the panels' whole output — used, stored and
+ * wasted (add-battery design D6). The store itself is not a row: a period's
+ * charging and discharge need not net to zero, since the store persists
+ * across periods and a clamp on removal is no tick's usage.
+ */
+export interface WaveLedger {
+  /** Wave number whose start fell in this period (applyStartWave); 0 until one does. */
+  waveNo: number;
+  /** The treasury balance the period opened on — at run start, or the settled balance. */
+  openingMg: number;
+  /** + economy.ts resolveDeaths: every bounty credited. */
+  bountiesMg: number;
+  /** + sim.ts settlement: the wave speed bonus. */
+  bonusMg: number;
+  /** + economy.ts accrueInterest: the floored amount actually credited each tick. */
+  interestMg: number;
+  /**
+   * Net construction spend: + sim.ts pushStructure / applyUpgrade /
+   * applyUpgradeGrid (a connection tier is construction, like a panel),
+   * − placement.ts removeStructure's refund. May go negative in a selling
+   * build phase.
+   */
+  constructionMg: number;
+  /** − sim.ts step 9: the grid bill as debited (nothing on the settlement tick). */
+  billMg: number;
+  /** − economy.ts resolveArrivals: gold grabbed at the treasury. */
+  stolenMg: number;
+  /** + economy.ts returnSacks: gold recovered from unclaimed sacks at settlement. */
+  recoveredMg: number;
+  /** Usage: rated draw of towers with a target this tick (sim.ts step 7). */
+  engagedMp: number;
+  /** Usage: standby draw of towers without a target this tick. */
+  standbyMp: number;
+  /** Source: min(solar, draw) per tick. */
+  solarUsedMp: number;
+  /** Usage: solar output beyond the draw AND beyond the store's room — discarded, not sold. */
+  solarWastedMp: number;
+  /** Source: the grid's supply as resolved — tier- and balance-bounded. */
+  gridMp: number;
+  /** Source: draw left uncovered by solar, the store and grid — the brownout, in energy units. */
+  unmetMp: number;
+  /** Usage: surplus solar the store took this tick (add-battery design D6). */
+  chargedMp: number;
+  /** Source: what the store supplied toward the deficit this tick. */
+  batteryMp: number;
+}
+
+/** A fresh period with every row at zero, opened on `openingMg` (design D1/D2). */
+export function openLedger(openingMg: number): WaveLedger {
+  return {
+    waveNo: 0,
+    openingMg,
+    bountiesMg: 0,
+    bonusMg: 0,
+    interestMg: 0,
+    constructionMg: 0,
+    billMg: 0,
+    stolenMg: 0,
+    recoveredMg: 0,
+    engagedMp: 0,
+    standbyMp: 0,
+    solarUsedMp: 0,
+    solarWastedMp: 0,
+    gridMp: 0,
+    unmetMp: 0,
+    chargedMp: 0,
+    batteryMp: 0,
+  };
+}
+
 export interface SimState {
   tick: number;
   /** Treasury balance in milli-gold. */
@@ -145,4 +238,33 @@ export interface SimState {
   kills: number;
   /** The most recent settlement's speed bonus (run-lifecycle spec); 0 before any. */
   lastWaveBonusMg: number;
+  /**
+   * The grid connection: a 0-based index into the level's tier table
+   * (energy-infrastructure design D6). Raised one-way by `upgradeGrid`, never
+   * lowered, never refunded. Coverage and the bill are DERIVED from this,
+   * the structures and the treasury each tick — never stored, never hashed.
+   */
+  gridTier: number;
+  /**
+   * The pooled store's stored energy in mp·tick — power units × ticks, the
+   * product the ledger's rows sum; one kWh is POWER × TICK_HZ of it
+   * (add-battery design D2/D7). One quantity for every battery on the
+   * board: its capacity is `count(battery) × batteryCapacityMpTick`, derived
+   * from the structures and never stored. Starts at 0, persists across waves
+   * and the build phase, moves only in step 7 of a wave tick (charge from
+   * surplus solar, discharge against the deficit) and when a removal shrinks
+   * the capacity beneath it (clamped eagerly, design D5).
+   */
+  storedMpTick: number;
+  /**
+   * The open ledger period (wave-ledger design D1/D2): opened at run start
+   * on the starting treasury and at every settlement on the settled balance.
+   */
+  ledger: WaveLedger;
+  /**
+   * The most recently closed period — a copy taken at settlement, never an
+   * alias. `waveNo === 0` means none has closed yet. Both slots are hashed
+   * and walked unconditionally; nothing in the simulation reads either.
+   */
+  lastLedger: WaveLedger;
 }

@@ -355,3 +355,25 @@ Answered by playing, not by argument. Full list in
 3. Does uncapped interest self-balance?
 4. Is a flat per-wave stipend needed against the death spiral? (Only if testing demands it — never by
    softening theft itself.)
+5. Power: is a broke wave with no solar recoverable (else the debt / credit-line lever); do
+   panels-as-investment keep walls relevant; does the ceiling alone reward infrastructure enough
+   (overdrive lever); does uniform brownout frustrate (priority lever)?
+6. Battery: does "infinite while charged" read wrong in play — a charged store covers any deficit,
+   so a brownout cannot begin until it is empty? The store is small and only surplus fills it; if
+   the answer is yes, the recorded levers are the answer, in order:
+   - **Rate limit — "shaving peaks is a capacity increase"**: a per-battery power figure bounding
+     charge and discharge per tick, so the meter's ceiling becomes grid + solar + battery power
+     while charged. Two `min` arguments and a data field; it is the second reason to buy more
+     batteries, and the one that turns bill-shaving into ceiling-raising.
+   - **Grid charging**: buy into the store from spare tier capacity on quiet ticks. Saves no gold
+     at a flat tariff; shaves a capacity peak without solar; contradicts "stores what would be
+     wasted" — consider only with the rate limit.
+   - **Per-level tariff**: the data-only knob that makes storage dominant on an "energy crisis"
+     level.
+   - **Round-trip loss**: a per-1000 efficiency on charging — one multiplication, plus a `lost`
+     row to keep the ledger identity, which is why it is not free.
+
+## Next up
+
+Nothing is queued. The home battery shipped (add-battery): the pooled store fills the supply
+merit order's storage slot, and its four levers are recorded under the open questions above.

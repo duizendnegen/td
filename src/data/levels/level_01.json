@@ -20,6 +20,16 @@
     ]
   },
   "economy": { "startingTreasury": 200, "interestRatePerTick": 0.0002 },
+  "power": {
+    "$note": "Energy-infrastructure placeholders. Tier 1 (4 kW) is sized so gold, not power, binds in the opening: 200g buys three level-1 towers (~3 kW rated) — the ceiling first bites at peaks around wave 3, once bounties and the wave bonus can answer it. Tiers escalate to a last one (congestion) so late scaling falls to solar. Tariff 0.24 g/kW/s (12 mg per kW-tick) puts a fully grid-fed mid-run defense's bill at roughly a tenth of a wave's income — clearly above interest, below the wave bonus — so a panel's saved bill is visible within a run without a wave-1 opening ever being billed broke (its worst case is ~9g on the ~10g left after the opening trio). Read the per-wave figures with POWER_LOG=1 npx vitest run tests/leak.test.ts.",
+    "tiers": [
+      { "capacity": 4, "cost": 0 },
+      { "capacity": 7, "cost": 60 },
+      { "capacity": 11, "cost": 120 },
+      { "capacity": 16, "cost": 200 }
+    ],
+    "tariff": 0.24
+  },
   "waves": [
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 6, "spawnInterval": 10, "delay": 40 }] },
     { "groups": [{ "spawn": "west", "type": "swarm", "count": 12, "spawnInterval": 8, "delay": 40 }] },

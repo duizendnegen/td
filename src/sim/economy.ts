@@ -6,7 +6,9 @@
 //   - Treasury grab-and-flip (full-capacity overdraw), spawn escape, sacks
 //   - Deaths: bounty credit and carrier sack drops
 //   - Interest in integer ppm (design D3); end-of-wave sack return
-//   - Run summary counters accumulate where the gold moves
+//   - Run summary counters accumulate where the gold moves, and so do the
+//     open ledger period's rows (wave-ledger design D3): one line beside
+//     each treasury mutation, same value, one more destination
 
 import type { RenderEvent } from './events';
 import { tileCentre, toTile } from './fixed';
@@ -72,6 +74,7 @@ export function resolveArrivals(
       const grab = carryMg - e.carriedMg;
       state.treasuryMg -= grab;
       state.stolenMg += grab;
+      state.ledger.stolenMg += grab;
       e.carriedMg += grab;
       e.mode = 'returning';
     }
@@ -107,6 +110,7 @@ export function resolveDeaths(state: SimState, bountyMgByType: readonly number[]
     e.alive = false;
     state.kills++;
     state.treasuryMg += bountyMgByType[e.typeId]!;
+    state.ledger.bountiesMg += bountyMgByType[e.typeId]!;
     dropSack(state, toTile(e.pos.x), toTile(e.pos.y), e.carriedMg);
     e.carriedMg = 0;
   }
@@ -118,7 +122,9 @@ export function resolveDeaths(state: SimState, bountyMgByType: readonly number[]
  */
 export function accrueInterest(state: SimState, ratePpm: number): void {
   if (state.treasuryMg > 0) {
-    state.treasuryMg += Math.floor((state.treasuryMg * ratePpm) / 1_000_000);
+    const creditMg = Math.floor((state.treasuryMg * ratePpm) / 1_000_000);
+    state.treasuryMg += creditMg;
+    state.ledger.interestMg += creditMg;
   }
 }
 
@@ -142,7 +148,10 @@ export function waveBonusMg(
  * insertion order (theft-economy spec).
  */
 export function returnSacks(state: SimState): void {
-  for (const s of state.sacks) state.treasuryMg += s.amountMg;
+  for (const s of state.sacks) {
+    state.treasuryMg += s.amountMg;
+    state.ledger.recoveredMg += s.amountMg;
+  }
   state.sacks = [];
 }
 

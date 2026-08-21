@@ -18,6 +18,15 @@ export const DIAG = 1448;
 /** Milli-gold per whole gold. The treasury is held in thousandths. */
 export const GOLD = 1000;
 
+/**
+ * Milli-power units ("mp") per authored power unit (energy-infrastructure
+ * design D8). Ratings, panel output and tier capacity are authored in whole
+ * units (the HUD reads them as kW) and held in thousandths, for the same
+ * reason money is: per-tick standby fractions and bills must not truncate to
+ * zero.
+ */
+export const POWER = 1000;
+
 /** Simulation rate. */
 export const TICK_HZ = 20;
 export const TICK_MS = 50;

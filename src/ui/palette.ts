@@ -2,7 +2,12 @@
 // See ARCHITECTURE.md §9 and the aether-ui-redesign build-ui spec
 //
 // Responsibilities:
-//   - Wall + all four tower archetypes with level-1 costs, plus removal
+//   - Wall + all four tower archetypes with level-1 costs, the solar panel
+//     with its cost and output, the battery with its cost and capacity in kWh
+//     (add-battery build-ui delta), plus removal and move; every tower card
+//     also shows its level-1 rated power (energy-infrastructure build-ui
+//     delta) — lack of power never blocks or warns on a card, the meter
+//     carries that
 //   - Tower items carry an "on wall" caption: towers stand on walls
 //     (build-over-walls), and the palette is where a player armed over an
 //     empty board learns it before the ghost reads red
@@ -17,12 +22,23 @@
 
 import type { TowerArchetype } from '../data/schema';
 import { GOLD } from '../sim/fixed';
+import { formatKwh } from './ledger';
+import { formatKw } from './powermeter';
 
-export type Tool = 'wall' | TowerArchetype | 'remove' | 'move';
+export type Tool = 'wall' | 'panel' | 'battery' | TowerArchetype | 'remove' | 'move';
 
 /** The structure a tool places, or null for the removal and move tools. */
-export function toolStructure(tool: Tool): { kind: 'wall' } | { kind: 'tower'; archetype: TowerArchetype } | null {
+export function toolStructure(
+  tool: Tool,
+):
+  | { kind: 'wall' }
+  | { kind: 'panel' }
+  | { kind: 'battery' }
+  | { kind: 'tower'; archetype: TowerArchetype }
+  | null {
   if (tool === 'wall') return { kind: 'wall' };
+  if (tool === 'panel') return { kind: 'panel' };
+  if (tool === 'battery') return { kind: 'battery' };
   if (tool === 'remove' || tool === 'move') return null;
   return { kind: 'tower', archetype: tool };
 }
@@ -67,14 +83,42 @@ const KEY_HINT =
 const CAPTION = 'pointer-events-none font-mono text-[8px] leading-none uppercase tracking-wider opacity-60';
 const TOWER_CAPTION = 'on wall';
 
+/**
+ * The power figure on a card: a tower's rated draw, the panel's output, the
+ * battery's capacity — the last without a trailing `.0`, so it clears the
+ * hotkey on a 64px card.
+ */
+const POWER_TAG =
+  'pointer-events-none absolute right-1 top-0.5 font-mono text-label-xs text-tertiary-fixed-dim/80';
+
 const ICONS: Record<Tool, string> = {
   wall: 'foundation',
+  panel: 'solar_power',
+  battery: 'battery_charging_full',
   rapid: 'bolt',
   sniper: 'my_location',
   area: 'flare',
   slow: 'ac_unit',
   remove: 'delete',
   move: 'open_with',
+};
+
+/**
+ * Hotkey per tool — the one table the cards and the desktop hint line read,
+ * so a shift (the panel's, then the battery's) cannot leave them disagreeing.
+ * The panel and the battery slot after the towers so the 1–5 muscle memory
+ * survives; remove and move shift down.
+ */
+export const TOOL_KEYS: Record<Tool, string> = {
+  wall: '1',
+  rapid: '2',
+  sniper: '3',
+  area: '4',
+  slow: '5',
+  panel: '6',
+  battery: '7',
+  remove: '8',
+  move: '9',
 };
 
 /** Badge text for the free tools; cost-bearing tools show their price. */
@@ -95,6 +139,14 @@ export interface PaletteCosts {
   wallMg: number;
   /** Level-1 cost per archetype, in canonical order rapid/sniper/area/slow. */
   towerMg: Record<TowerArchetype, number>;
+  panelMg: number;
+  batteryMg: number;
+  /** Level-1 rated power per archetype, in mp — shown on every tower card. */
+  towerRatedMp: Record<TowerArchetype, number>;
+  /** The panel's constant output, in mp — shown on its card. */
+  panelOutputMp: number;
+  /** One battery's capacity, in mp·tick — shown on its card in kWh. */
+  batteryCapacityMpTick: number;
 }
 
 export class PaletteUI {
@@ -116,16 +168,20 @@ export class PaletteUI {
       '<span class="font-mono text-label-xs uppercase text-on-surface-variant">BUILD</span></div>';
     slot.appendChild(panel);
 
-    const defs: [Tool, string, string, number][] = [
-      ['wall', 'Wall', '1', costs.wallMg],
-      ['rapid', 'Rapid', '2', costs.towerMg.rapid],
-      ['sniper', 'Sniper', '3', costs.towerMg.sniper],
-      ['area', 'Area', '4', costs.towerMg.area],
-      ['slow', 'Slow', '5', costs.towerMg.slow],
-      ['remove', 'Remove', '6', 0],
-      ['move', 'Move', '7', 0],
+    // Tool, label, cost, power tag — in hotkey order (TOOL_KEYS).
+    const defs: [Tool, string, number, string][] = [
+      ['wall', 'Wall', costs.wallMg, ''],
+      ['rapid', 'Rapid', costs.towerMg.rapid, formatKw(costs.towerRatedMp.rapid)],
+      ['sniper', 'Sniper', costs.towerMg.sniper, formatKw(costs.towerRatedMp.sniper)],
+      ['area', 'Area', costs.towerMg.area, formatKw(costs.towerRatedMp.area)],
+      ['slow', 'Slow', costs.towerMg.slow, formatKw(costs.towerRatedMp.slow)],
+      ['panel', 'Solar', costs.panelMg, `+${formatKw(costs.panelOutputMp)}`],
+      ['battery', 'Battery', costs.batteryMg, `${formatKwh(costs.batteryCapacityMpTick).replace(/\.0$/, '')} kWh`],
+      ['remove', 'Remove', 0, ''],
+      ['move', 'Move', 0, ''],
     ];
-    for (const [tool, label, key, costMg] of defs) {
+    for (const [tool, label, costMg, powerTag] of defs) {
+      const key = TOOL_KEYS[tool];
       const button = document.createElement('button');
       const initial = tool === 'remove' ? BTN_REMOVE : BTN_AFFORDABLE;
       button.className = initial;
@@ -150,6 +206,12 @@ export class PaletteUI {
         button.appendChild(caption);
       }
       button.append(badge, hint);
+      if (powerTag) {
+        const power = document.createElement('div');
+        power.className = POWER_TAG;
+        power.textContent = powerTag;
+        button.appendChild(power);
+      }
 
       button.addEventListener('click', () => this.select(tool));
       panel.appendChild(button);

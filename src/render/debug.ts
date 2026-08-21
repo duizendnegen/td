@@ -5,18 +5,24 @@
 //   - F2 enemy state and committed waypoints
 //   - F3 tower ranges and target lines (Phase 3), plus every active spawn's
 //     returning field as per-tile direction ticks (return-to-origin-spawn D6)
-//   - F4 tick / state hash / entity count / ms-per-tick
+//   - F4 tick / state hash / entity count / ms-per-tick — and, during a
+//     wave, the tick's power figures: draw, solar, the store's discharge and
+//     charge, grid, tier/capacity, coverage, bill (energy-infrastructure
+//     debug-tooling delta); and whenever a battery stands, in any phase, the
+//     stored energy against the store's capacity (add-battery delta)
 //
 // "Where do enemies go" is a player surface now, not a debug one: the
 // path-preview lane ribbon answers it, and its orphaned-region shade covers
 // what F1's unreachable diamonds used to.
 
 import * as THREE from 'three';
-import { TILE } from '../sim/fixed';
+import { GOLD, POWER, TICK_HZ, TILE } from '../sim/fixed';
 import { DIR_DX, DIR_DY } from '../sim/flowfield';
 import { formatHash } from '../sim/hash';
+import { COVERAGE_SCALE } from '../sim/power';
 import type { Sim } from '../sim/sim';
 import { towerCentre, towerStats } from '../sim/tower';
+import { formatKwh } from '../ui/ledger';
 import { GROUND_TOP_Y } from './renderer';
 
 const OVERLAY_Y = GROUND_TOP_Y + 0.03;
@@ -110,12 +116,30 @@ export class DebugOverlay {
       // A pending commit is why the hash can move at a standing tick: the state
       // has absorbed intent but not advanced through it. Marked so that reads as
       // intended rather than as determinism drift (time-controls design D3).
+      // Power figures during a wave only: outside one nothing draws (power-grid
+      // spec). The store's level reads in any phase while a battery stands.
+      let power = '';
+      const p = this.sim.power;
+      const kw = (mp: number): string => (mp / POWER).toFixed(2);
+      if (s.runPhase === 'wave') {
+        const tier = this.sim.data.gridTiers[s.gridTier]!;
+        power =
+          `\npower   draw ${kw(p.drawMp)} kW · solar ${kw(p.solarMp)}` +
+          ` · battery ${kw(p.batterySupplyMp)} · charge ${kw(p.chargedMp)} · grid ${kw(p.gridSupplyMp)}\n` +
+          `        tier ${s.gridTier + 1}/${this.sim.data.gridTiers.length} cap ${kw(tier.capacityMp)} kW` +
+          ` · coverage ${((p.coverage * 100) / COVERAGE_SCALE).toFixed(1)}%\n` +
+          `        bill ${p.billMg} mg/tick (${((p.billMg * TICK_HZ) / GOLD).toFixed(2)} g/s)`;
+      }
+      if (p.storageCapacityMpTick > 0) {
+        power += `\nstored  ${formatKwh(p.storedMpTick)} / ${formatKwh(p.storageCapacityMpTick)} kWh`;
+      }
       this.readout.textContent =
         `tick    ${s.tick}${pendingCommit ? ' +pending' : ''}\n` +
         `hash    ${formatHash(this.sim.hash())}\n` +
         `enemies ${s.enemies.length} (${slowed} slowed)\n` +
         `        ${types}\n` +
-        `ms/tick ${lastTickMs.toFixed(3)}`;
+        `ms/tick ${lastTickMs.toFixed(3)}` +
+        power;
     }
   }
 

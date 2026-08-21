@@ -1,7 +1,20 @@
 // See ARCHITECTURE.md §12 and the phase-3 tower-upgrades spec
 import { describe, expect, it } from 'vitest';
+import { liquidationTotalMg } from '../src/sim/economy';
 import type { Sim } from '../src/sim/sim';
-import { injectEnemy, makeSim, mount, openLevel, place, remove, testBalance, upgrade } from './helpers';
+import {
+  injectEnemy,
+  makeSim,
+  mount,
+  openLevel,
+  place,
+  remove,
+  startWave,
+  testBalance,
+  trivialWave,
+  upgrade,
+  upgradeGrid,
+} from './helpers';
 
 // 9×5 board, lane on row 2. Test-balance rapid ladder: 50/85/145 gold,
 // damage 8/11/15, interval 5/4/3. Every tower stands on a wall
@@ -126,5 +139,93 @@ describe('tower upgrades', () => {
     // both have (the fight resolved on different ticks).
     expect(run(10, 15)).not.toBe(run(20, 15));
     expect(run(10, 200)).not.toBe(run(20, 200));
+  });
+});
+
+// The grid connection upgrade (power-grid spec, energy-infrastructure design
+// D6): a one-way, any-live-phase purchase of the next tier under the
+// spending gate; the tier is hashed state.
+describe('grid connection upgrades', () => {
+  const tiered = () =>
+    openLevel(9, 5, { x: 0, y: 2 }, { x: 8, y: 2 }, [], {
+      power: {
+        tiers: [
+          { capacity: 4, cost: 0 },
+          { capacity: 7, cost: 60 },
+          { capacity: 11, cost: 120 },
+        ],
+        tariff: 0,
+      },
+      waves: [trivialWave(), trivialWave()],
+    });
+
+  it('charges the next tier and raises the tier in the same tick', () => {
+    const { sim } = makeSim(tiered(), testBalance(), 42);
+    expect(sim.state.gridTier).toBe(0);
+    sim.tick([upgradeGrid()]);
+    expect(sim.state.gridTier).toBe(1);
+    expect(sim.state.treasuryMg).toBe(200_000 - 60_000);
+    sim.tick([upgradeGrid()]);
+    expect(sim.state.gridTier).toBe(2);
+    expect(sim.state.treasuryMg).toBe(200_000 - 60_000 - 120_000);
+  });
+
+  it('is refused at the last tier with no state change', () => {
+    const { sim } = makeSim(tiered(), testBalance(), 42);
+    sim.tick([upgradeGrid(), upgradeGrid()]);
+    expect(sim.state.gridTier).toBe(2);
+    const probe = makeSim(tiered(), testBalance(), 42).sim;
+    probe.tick([upgradeGrid(), upgradeGrid()]);
+    sim.tick([upgradeGrid()]);
+    probe.tick([]);
+    expect(sim.state.gridTier).toBe(2);
+    expect(sim.state.treasuryMg).toBe(20_000);
+    expect(sim.hash()).toBe(probe.hash());
+  });
+
+  it('obeys the spending gate: permitted at balance ≥ 0 into debt, blocked below 0', () => {
+    const { sim } = makeSim(tiered(), testBalance(), 42);
+    sim.state.treasuryMg = 0;
+    sim.tick([upgradeGrid()]); // 0 → −60: allowed at ≥ 0
+    expect(sim.state.gridTier).toBe(1);
+    expect(sim.state.treasuryMg).toBe(-60_000);
+    sim.tick([upgradeGrid()]); // below 0: blocked
+    expect(sim.state.gridTier).toBe(1);
+    expect(sim.state.treasuryMg).toBe(-60_000);
+  });
+
+  it('applies during a wave as well as between waves', () => {
+    const { sim } = makeSim(tiered(), testBalance(), 42);
+    sim.tick([startWave()]);
+    expect(sim.state.runPhase).toBe('wave');
+    sim.tick([upgradeGrid()]);
+    expect(sim.state.gridTier).toBe(1);
+  });
+
+  it('is one-way: no refund path, no share of the liquidation total', () => {
+    const { sim, data } = makeSim(tiered(), testBalance(), 42);
+    sim.tick(mount(3, 0));
+    expect(sim.state.structures).toHaveLength(2);
+    const liquidationBefore = liquidationTotalMg(sim.state.structures, data.refundPer1000);
+    expect(liquidationBefore).toBeGreaterThan(0);
+    sim.tick([upgradeGrid()]);
+    expect(liquidationTotalMg(sim.state.structures, data.refundPer1000)).toBe(liquidationBefore);
+    // Selling everything standing — the tower, then its wall — recovers both
+    // in full (still provisional), never the tier.
+    sim.tick([remove(3, 0)]);
+    sim.tick([remove(3, 0)]);
+    expect(sim.state.structures).toHaveLength(0);
+    expect(sim.state.treasuryMg).toBe(200_000 - 60_000);
+    expect(sim.state.gridTier).toBe(1);
+  });
+
+  it('the tier is in the hash: two runs differing only in a tier upgrade diverge', () => {
+    const a = makeSim(tiered(), testBalance(), 42).sim;
+    const b = makeSim(tiered(), testBalance(), 42).sim;
+    a.tick([upgradeGrid()]);
+    b.tick([]);
+    // Equalise the treasury so the tier is the only remaining difference.
+    b.state.treasuryMg = a.state.treasuryMg;
+    expect(a.hash()).not.toBe(b.hash());
   });
 });

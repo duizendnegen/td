@@ -8,6 +8,8 @@
 
 import type { TowerArchetype } from '../src/data/schema';
 import type { BurstGroup } from '../src/app/presets';
+import type { Command, CommandBody } from '../src/sim/commands';
+import { INERT_POWER } from './helpers';
 
 export interface LayoutItem {
   build: TowerArchetype | 'wall';
@@ -47,6 +49,7 @@ export function corridorLevel(): Record<string, unknown> {
     // Ample treasury: every thief that arrives leaves with full capacity, so
     // leak numbers measure the defense, not treasury exhaustion.
     economy: { startingTreasury: 10_000, interestRatePerTick: 0 },
+    power: INERT_POWER,
     // Never started; present only to satisfy the waves-required validation.
     waves: [{ groups: [{ spawn: 'west', type: 'runner', count: 1, spawnInterval: 1, delay: 0 }] }],
   };
@@ -137,3 +140,72 @@ export const SCENARIOS: LeakScenario[] = [
     counterMaxLeakMg: 40_000,
   },
 ];
+
+// ── The power-aware scripts (energy-infrastructure), for helpers.ts powerRun ──
+
+/**
+ * The replay's opening on the build-over-walls board: a mounted rapid and
+ * area holding wall B's north-gap exit (2.2 kW rated) under the 4 kW tier-1
+ * connection. Two waves: gold binds, not power.
+ */
+export function openingBuild(): ReadonlyMap<number, Command[]> {
+  let seq = 0;
+  const cmd = (body: CommandBody): Command => ({ ...body, seq: seq++ });
+  return new Map<number, Command[]>([
+    [
+      50,
+      [
+        cmd({ kind: 'place', structure: 'wall', tx: 10, ty: 1 }),
+        cmd({ kind: 'place', structure: 'tower', archetype: 'rapid', tx: 10, ty: 1 }),
+        cmd({ kind: 'place', structure: 'wall', tx: 9, ty: 2 }),
+        cmd({ kind: 'place', structure: 'tower', archetype: 'area', tx: 9, ty: 2 }),
+      ],
+    ],
+  ]);
+}
+
+/**
+ * The opening, then the (8,6) socket sniper before wave 3 (wave 2 settles at
+ * 698, wave 3 starts at 748) — 3.7 kW, still under the tier — and a slow
+ * mounted beside the pair before wave 4 (wave 3 settles at 1225, wave 4
+ * starts at 1275), lifting the rated total to 4.5 kW on a 4 kW tier: by
+ * then three waves of bounties have paid for both with a buffer to spare,
+ * and the cluster engages as one, so the ceiling bites exactly while the
+ * pack passes it. Four waves.
+ */
+export function fourWaveBuild(): Map<number, Command[]> {
+  const build = new Map(openingBuild());
+  build.set(730, [{ kind: 'place', structure: 'tower', archetype: 'sniper', tx: 8, ty: 6, seq: 99 }]);
+  build.set(1250, [
+    { kind: 'place', structure: 'wall', tx: 10, ty: 2, seq: 100 },
+    { kind: 'place', structure: 'tower', archetype: 'slow', tx: 10, ty: 2, seq: 101 },
+  ]);
+  return build;
+}
+
+/**
+ * The solar line (add-battery harness): the four-wave build with the slow's
+ * gold spent on a panel at (13,0) before wave 4 instead (wave 3 settles at
+ * 1176, wave 4 starts at 1226 — 3.7 kW rated against 2 kW of solar, so quiet
+ * ticks run a surplus and engaged ticks a deficit), then — before wave 5
+ * (wave 4 settles at 1733, wave 5 starts at 1783) — either a battery beside
+ * the panel, or three far-corner walls for the same 60 g, so both runs start
+ * wave 5 on the same balance and differ only in the store (the leak
+ * scenarios' spend-parity padding, applied to the power harness). Five waves.
+ */
+export function solarBuild(storage: 'battery' | 'padding'): Map<number, Command[]> {
+  const build = fourWaveBuild();
+  build.delete(1250);
+  build.set(1200, [{ kind: 'place', structure: 'panel', tx: 13, ty: 0, seq: 100 }]);
+  build.set(
+    1745,
+    storage === 'battery'
+      ? [{ kind: 'place', structure: 'battery', tx: 14, ty: 0, seq: 101 }]
+      : [
+          { kind: 'place', structure: 'wall', tx: 16, ty: 0, seq: 101 },
+          { kind: 'place', structure: 'wall', tx: 17, ty: 0, seq: 102 },
+          { kind: 'place', structure: 'wall', tx: 18, ty: 0, seq: 103 },
+        ],
+  );
+  return build;
+}

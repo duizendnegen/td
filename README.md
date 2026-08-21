@@ -52,7 +52,8 @@ Treasury and build-gold are **one pool**. Spending on towers lowers the same bal
 - **Dropped gold:** killing a carrier drops its sack on its tile. Any enemy (inbound or outbound) walking over it picks it up, up to remaining capacity — a swarm can distribute a large sack. An inbound enemy that picks up gold **immediately flips to returning**.
 - Unclaimed sacks return to the treasury at end of wave. Gold that escapes through a spawn is **gone** — no mercy.
 - **Kill bounties** go straight to the treasury and are meaningful (primary income).
-- **Interest** accrues **only during waves** (build phase earns nothing), as a percentage of held balance per tick. No cap initially — the system self-balances: hoarding earns interest but leaves you undertowered against thieves. Interest is a skill-expression lever that rewards restraint and punishes overspending.
+- **Interest** accrues **only during waves** (build phase earns nothing), as a percentage of held balance per tick — on the balance *after* that tick's grid bill (see [Power](#power)). No cap initially — the system self-balances: hoarding earns interest but leaves you undertowered against thieves. Interest is a skill-expression lever that rewards restraint and punishes overspending.
+- **The grid bill** is the one running cost: every wave tick, the power your towers draw from the grid is charged at the level's tariff (see [Power](#power)). It stops the moment a wave settles, it can bring the balance to exactly zero and never below, and at or below zero the grid simply stops supplying — nothing is bought on credit. Solar panels are the way to turn that running cost into a one-time one.
 - **Bankruptcy is a solvency gate, not a threshold:** starting the next wave requires **balance ≥ 0**. You **cannot spend on towers while below 0**; while wave-locked, the only income is selling structures at their refund — 50% for anything a wave has already run against, the full price for construction that has not yet been committed — and recovery weakens the defense, which *is* the death spiral. There is **no automatic loss**: the run ends only when the player concedes, and the UI states plainly when liquidating everything could not clear the debt. Winning requires the same solvency — after the final wave settles, victory fires the moment the balance is ≥ 0.
 - Death-spiral mitigation, if testing demands it: a small flat per-wave stipend — never a softening of theft itself.
 
@@ -69,6 +70,22 @@ Four archetypes, each with a **3-level upgrade path**. Each archetype upgrades a
 
 - **Slow does not stack** — strongest slow wins (`slowUntil = max(...)`).
 - Sniper's carrier priority makes treasury-side placement a distinct defensive role from spawn-side placement — the maze has two meaningful ends.
+- **Every tower level has a rated power** (shown on its palette card and in the inspector), drawn while it has a target — see [Power](#power). Rated power grows more slowly than damage across levels, so upgrading is the power-efficient way to add damage.
+
+## Power
+
+Towers are appliances. Money buys **power**, power is the ceiling on how much damage the defense can run at full rate, and the maze is what turns that potential into kills — `money → power → maze → damage`. The mechanic deliberately mirrors home energy infrastructure, because that vocabulary is already legible: a connection with a rated capacity, a tariff on what you draw, rooftop solar, and a home battery.
+
+- **Rated draw while engaged.** On every wave tick a tower draws its rated power if it has a target in range (whether or not it fires that tick) and a small standby share otherwise. Walls, panels and batteries draw nothing; nothing draws outside a wave. Because engagement is a state, the wave itself produces a load curve — quiet as the first group walks in, a peak when both maze ends are busy, a tail.
+- **Grid connection with tiered capacity.** Each level authors a table of connection tiers (capacity + one-time upgrade cost, escalating). The grid supplies at most the current tier's capacity per tick and bills what it supplies at the level's flat tariff. **Upgrading the connection is one-way** — buy the next tier from the power meter, any time including mid-wave, no refund, and it never counts toward liquidation. The last tier is the last: grid congestion; from there only solar scales.
+- **Solar panels** are a 1×1 buildable on dirt that block pathing exactly like a wall (same placement validation, same provisional/committed refund, same between-wave-only removal once committed; never on a socket, not inspectable). Each panel adds a constant output while a wave runs; enemies cannot damage, drain, or steal from them. A panel is priced as a deliberate investment — several walls' worth — so walls stay the maze piece and a panel competes head-on with the next connection tier.
+- **Batteries** are a 1×1 buildable on dirt on exactly the panel's rules (wall-style validation, refund, removal and move; never on a socket, never on a wall, not a foundation, not inspectable). Every battery adds its capacity — authored in kWh — to **one pooled store**: a single stored-energy quantity, not per-battery charge, shown on every battery's gauge at the same level. The store charges only from surplus solar, only during waves; it discharges against the deficit before the grid is asked; it persists across waves and through the build phase; selling a battery shrinks the capacity and clamps the store to it, the excess sunk like an upgrade. No round-trip losses, no charge or discharge rate limit, no charging from the grid (each a recorded lever, see ROADMAP). A battery without a panel stores nothing: it is the second purchase of a solar line.
+- **Supply merit order** each wave tick: solar first, then the store, then the grid — up to capacity and up to what the positive balance can pay. Solar beyond the draw charges the store up to its capacity; only the surplus beyond that is wasted: not sold, not carried over. A tick either charges or discharges, never both.
+- **Brownout, never a refusal.** Placement is never blocked for lack of power. When the tick's draw exceeds what can be supplied, every tower runs at coverage `supplied ÷ draw`: its next shot is scheduled at `interval ÷ coverage` — uniformly, deterministically, slow towers' reapplication included. Full cadence resumes the tick coverage returns to 1. On the board the towers dim together and the meter turns red.
+- **Broke means cut off.** At a balance ≤ 0 the grid supplies nothing — the bill is a purchase and nothing is bought below zero — so towers run on solar and the store alone, and with neither they hold fire until a bounty or a refund brings the balance positive again. This compounds the death spiral deliberately (playtest gate; the per-wave stipend lever is the mitigation); solar is what makes it survivable — insurance, not just savings.
+- **One meter** beside the treasury: during a wave, the live draw against the ceiling (connection capacity + solar), the solar/battery/grid split, the grid cost per second and the tier; between waves, the standing towers' rated total against that ceiling, so a peak's headroom is visible before START WAVE. Whenever a battery stands the meter also shows the stored energy against the store's capacity in kWh, in both phases — the reserve a wave starts with is a planning read (desktop; on mobile the gauges and the energy balance carry it). The connection-upgrade control lives in the meter, worded as final. `F4` shows the tick's power figures, the store's movement included.
+- **Energy reads in kWh** in the meter's dropdown (the energy balance, below): a second of wave time is presented as an hour, so kilowatt-seconds read as kilowatt-hours and the level's authored tariff — gold per kW per second — is the `g/kWh` the panel shows, unchanged. Presentation only, like the kW label.
+- **Data:** every tower level's `ratedPower`, the balance `power` block (`standbyFraction`, `panel { cost, output }`, `battery { cost, capacity }` with the capacity in kWh) and each level's `power` block (`tiers[]`, `tariff`, in gold per unit per second) are validated at load and converted to integers once. The HUD reads a power unit as a kW; the sim holds thousandths ("mp"), like milli-gold, and energy as mp·tick. Every quantity is integer and deterministic; the connection tier and the stored energy are hashed state, coverage, the bill and the store's capacity are derived per tick and never stored.
 
 ## Enemies
 
@@ -89,8 +106,9 @@ Three types for the POC, each designed to punish a missing tower:
 - **No timer in the build phase** — plan as long as you like. Building during waves is allowed and instant.
 - **What you build this phase stays undoable until the wave runs.** A structure is *provisional* until a tick of live wave time passes over it: sell it and you get **100%** back, whatever the phase. The build phase is a planning board, and **START WAVE is the decision** — its first tick locks in everything standing. Provisional structures are marked on the board, so what is about to lock in is visible without clicking each one. A misclicked wall costs nothing; a maze you have already fought behind costs the usual half. (The same rule makes a purchase during a *paused* wave undoable, since no live tick has passed — resume time and it commits.)
 - **Selling committed construction is instant, but only between waves.** This is the anti-juggling rule: open/close treadmill exploits need removal cycles *during* a wave, so removal of anything the wave has already run against is simply refused while one runs — which bans the exploit outright without taxing deliberate re-mazing, and without banning legitimate mid-wave construction. The **50% refund** on committed structures is what makes re-mazing an established maze cost something.
-- **Upgrades are not undoable** once the tower is committed — selling a provisional tower returns its upgrades too, but a committed tower's upgrade is a one-way spend.
+- **Upgrades are not undoable** once the tower is committed — selling a provisional tower returns its upgrades too, but a committed tower's upgrade is a one-way spend. **The grid connection upgrade is never undoable**: no provisional state, no refund, no share of the liquidation value — the control says so.
 - **Moving is free, build phase only, and moves the tile's stack.** Drop a wall with its tower on bare dirt and both relocate under the usual wall rules (origin freed, destination blocked, full path validation); drop it on a bare wall or an empty socket and only the tower hops across — the origin wall stays and the maze never changes. Identity, investment, and provisional status all travel with each structure. Because a tower on a committed wall is its own structure, mounting one mid-wave is allowed and unmounting a provisional one leaves the committed wall standing.
+- **Solar panels and batteries build like walls** — same terrain (dirt only), same validation, same provisional window and committed refund, same removal and move rules — and differ in two ways: the power step reads something off them (a panel's output, a battery's capacity), and they are not foundations — a tower stands on a wall or a socket, never on a panel or a battery, so each costs you a maze tile a tower could otherwise have used.
 - Fully sealing the path is impossible (placement validation rejects it).
 - Fallback if juggling persists in testing: penalize enemies whose new waypoint equals their previous tile (turn-around detection) — the hook already exists in the waypoint cache.
 
@@ -130,6 +148,14 @@ Three types for the POC, each designed to punish a missing tower:
     "startingTreasury": 200,
     "interestRatePerTick": 0.0004
   },
+  "power": {
+    "tiers": [
+      { "capacity": 4, "cost": 0 },
+      { "capacity": 7, "cost": 60 },
+      { "capacity": 11, "cost": 120 }
+    ],
+    "tariff": 0.24
+  },
   "waves": [
     {
       "groups": [
@@ -162,12 +188,34 @@ the layout reference the shipped HUD follows.
 "desktop"; anything smaller — including landscape phones — is "mobile"):
 
 - **Desktop**: top app bar (concede + impossible-recovery notice left, wave counter/progress
-  center, treasury readout right), build palette as a left rail, tower inspector as a right
+  center, power meter and treasury readout right), build palette as a left rail, tower inspector as a right
   panel, START WAVE bottom-right — replaced in place by the play/pause and fast-forward transport
   while a wave runs. Debug spawn panel and the hotkey hint line are desktop-only.
-- **Mobile**: compact top bar (same counter and treasury), build palette as a bottom menu,
+- **Mobile**: compact top bar (same counter, meter and treasury), build palette as a bottom menu,
   inspector as a bottom sheet that swaps with the build menu while a tower is selected,
   START WAVE above the menu. Portrait shows a rotate prompt — the game is landscape-first.
+
+**Expandable readouts.** The treasury readout and the power meter each drop down a panel on
+click, tap, or Enter/Space while focused; opening one closes the other, and Escape or a click
+anywhere else closes it (that click still reaches the board). Neither pauses the game. On desktop
+the panel hangs under its readout; on mobile it spans the width of the compact bar.
+
+- **Gold ledger** (under the treasury): where the gold went, settlement to settlement. A period
+  is a build phase and the wave it prepared; the panel shows the period of the latest wave start —
+  live while that wave runs, frozen once it settles — as `Opening`, then bounties, wave bonus,
+  interest, construction (net of refunds; a connection tier counts as construction), energy (the
+  grid bill), stolen and recovered, each signed, then `Closing`. In the build phase the settled
+  wave's block is followed by a `PREPARING WAVE n` block holding the construction since, whose
+  `Balance` is the readout's figure. Every block's rows add up exactly to its closing line —
+  whole gold, reconciled so a reader summing by hand lands where the panel does.
+- **Energy balance** (under the meter): the same period's energy as two columns that total the
+  same figure — *usage* (engaged, standby, charging, wasted solar) against *sources* in merit
+  order (solar, battery, grid marked *billed*, unmet) — in kWh to one decimal, with the tariff in
+  `g/kWh` in the header. The store itself is not a row: a period's charging and battery need not
+  net to zero, since the store persists.
+  The panel values nothing in gold and never claims a "saving": the grid row is what was billed,
+  and the tariff lets you price solar with one multiplication. Before wave 1 it says so instead of
+  showing zeros.
 
 **Interaction models** split on capability, not user agent (`(hover: hover) and
 (pointer: fine)`):

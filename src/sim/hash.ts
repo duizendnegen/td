@@ -9,7 +9,7 @@
 // types.ts gets a line here in the same commit. prevPos is deliberately
 // absent: it is the renderer's interpolation snapshot, not sim state.
 
-import { ENEMY_STATE_ID, RUN_PHASE_ID, STRUCTURE_KIND_ID, type SimState } from './types';
+import { ENEMY_STATE_ID, RUN_PHASE_ID, STRUCTURE_KIND_ID, type SimState, type WaveLedger } from './types';
 
 const FNV_OFFSET = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
@@ -20,6 +20,28 @@ function mix(h: number, value: number): number {
     h = (h ^ ((value >>> shift) & 0xff)) >>> 0;
     h = Math.imul(h, FNV_PRIME) >>> 0;
   }
+  return h;
+}
+
+/** One period's seventeen fields, in declaration order (wave-ledger design D1). */
+function mixLedger(h: number, l: WaveLedger): number {
+  h = mix(h, l.waveNo);
+  h = mix(h, l.openingMg);
+  h = mix(h, l.bountiesMg);
+  h = mix(h, l.bonusMg);
+  h = mix(h, l.interestMg);
+  h = mix(h, l.constructionMg);
+  h = mix(h, l.billMg);
+  h = mix(h, l.stolenMg);
+  h = mix(h, l.recoveredMg);
+  h = mix(h, l.engagedMp);
+  h = mix(h, l.standbyMp);
+  h = mix(h, l.solarUsedMp);
+  h = mix(h, l.solarWastedMp);
+  h = mix(h, l.gridMp);
+  h = mix(h, l.unmetMp);
+  h = mix(h, l.chargedMp);
+  h = mix(h, l.batteryMp);
   return h;
 }
 
@@ -37,6 +59,11 @@ export function hashState(state: SimState, rngState: readonly number[]): number 
   h = mix(h, state.escapedMg);
   h = mix(h, state.kills);
   h = mix(h, state.lastWaveBonusMg);
+  h = mix(h, state.gridTier);
+  h = mix(h, state.storedMpTick);
+  // Both ledger slots, open period then closed, walked unconditionally.
+  h = mixLedger(h, state.ledger);
+  h = mixLedger(h, state.lastLedger);
   h = mix(h, state.nextEnemyId);
   h = mix(h, state.enemies.length);
   for (const e of state.enemies) {

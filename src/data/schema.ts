@@ -9,10 +9,14 @@
 //   - Every spawn reaches the treasury on the starting terrain
 //   - Per-archetype level tables: exactly three hand-authored rows, with each
 //     archetype's non-axis stats identical across rows (phase-3 design D2)
+//   - Power data (energy-infrastructure): a rated power per tower level, the
+//     standby fraction, the panel block and the battery block (cost and a
+//     capacity in kWh — add-battery design D7) in balance; a non-empty,
+//     strictly ascending connection-tier table and a flat tariff per level
 //   - Float rates from JSON converted to integers once, here, at load
 
 import { z } from 'zod';
-import { GOLD, TILE } from '../sim/fixed';
+import { GOLD, POWER, TICK_HZ, TILE } from '../sim/fixed';
 import { buildField } from '../sim/flowfield';
 import { Grid, TERRAIN } from '../sim/grid';
 
@@ -39,6 +43,16 @@ const WaveSchema = z.object({
 
 const TERRAIN_KINDS = ['dirt', 'grass', 'rock', 'socket'] as const;
 
+/**
+ * One grid connection tier (power-grid spec): its capacity in authored power
+ * units and the one-time cost of upgrading INTO it. The first tier is the
+ * starting connection, so its cost is ignored.
+ */
+const GridTierSchema = z.object({
+  capacity: z.number().positive(),
+  cost: z.int().nonnegative(),
+});
+
 export const LevelSchema = z.object({
   id: z.string().min(1),
   grid: z.object({ width: z.int().positive(), height: z.int().positive() }),
@@ -53,6 +67,13 @@ export const LevelSchema = z.object({
   economy: z.object({
     startingTreasury: z.int().nonnegative(),
     interestRatePerTick: z.number().nonnegative(),
+  }),
+  /** The grid connection (energy-infrastructure design D6/D8). */
+  power: z.object({
+    /** Ordered, non-empty; capacities strictly ascending (checked below). */
+    tiers: z.array(GridTierSchema).min(1),
+    /** Gold per power unit per SECOND; converted to mg per 1000 mp per tick. */
+    tariff: z.number().nonnegative(),
   }),
   waves: z.array(WaveSchema).min(1),
 });
@@ -78,6 +99,11 @@ const TowerLevelSchema = z.object({
   fireIntervalTicks: z.int().positive(),
   /** Slow only: status duration bought by upgrades. */
   slowDurationTicks: z.int().positive().optional(),
+  /**
+   * Rated power in authored units — drawn in full while the tower has a
+   * target, scaled by the standby fraction otherwise (power-grid spec).
+   */
+  ratedPower: z.number().nonnegative(),
 });
 
 const TowerSchema = z.looseObject({
@@ -109,6 +135,26 @@ export const BalanceSchema = z.object({
     area: TowerSchema,
     slow: TowerSchema,
   }),
+  /** Power block (energy-infrastructure design D1/D7). */
+  power: z.object({
+    /** Share of the rating a tower draws with nothing in range, in [0, 1]. */
+    standbyFraction: z.number().min(0).max(1),
+    /** The solar panel: gold cost and constant output in authored units. */
+    panel: z.object({
+      cost: z.int().nonnegative(),
+      output: z.number().nonnegative(),
+    }),
+    /**
+     * The battery (add-battery design D7): gold cost and the capacity one
+     * battery adds to the pooled store, in kWh — under the ledger's
+     * convention that one second of wave time is one hour, so one kWh is one
+     * authored power unit sustained for one second.
+     */
+    battery: z.object({
+      cost: z.int().nonnegative(),
+      capacity: z.number().positive(),
+    }),
+  }),
   enemies: z.record(z.string(), EnemyStatsSchema),
 });
 export type Balance = z.infer<typeof BalanceSchema>;
@@ -139,6 +185,15 @@ export interface TowerLevelStats {
   fireIntervalTicks: number;
   /** 0 for every archetype but slow. */
   slowDurationTicks: number;
+  /** Rated power in mp, drawn while engaged; standby is a fraction of it. */
+  ratedPowerMp: number;
+}
+
+/** One grid connection tier, integer-converted. */
+export interface GridTier {
+  capacityMp: number;
+  /** Cost of upgrading into this tier; 0 and never charged for tiers[0]. */
+  costMg: number;
 }
 
 /** One archetype, integer-converted; indexed by archetypeId in GameData. */
@@ -172,6 +227,26 @@ export interface GameData {
   towers: TowerDef[];
   /** The single global slow multiplier: slowed speed = speed × this / 100. */
   slowSpeedPer100: number;
+  /** standbyFraction × 1000, rounded — standby draw is rated × this / 1000, floored. */
+  standbyPer1000: number;
+  panelCostMg: number;
+  /** Constant per-tick output of one panel while a wave runs. */
+  panelOutputMp: number;
+  batteryCostMg: number;
+  /**
+   * Capacity one battery adds to the pooled store, in mp·tick (energy
+   * units: power units × ticks, the product the ledger's rows sum) —
+   * `round(capacity × POWER × TICK_HZ)`, one kWh being POWER mp for TICK_HZ
+   * ticks (add-battery design D7).
+   */
+  batteryCapacityMpTick: number;
+  /** The level's connection tiers, in order; SimState.gridTier indexes this. */
+  gridTiers: GridTier[];
+  /**
+   * Tariff in milli-gold per 1000 mp per TICK (design D8) — the bill is
+   * floor(gridSupplyMp × tariffMgPer1000 / 1000), one floor per tick.
+   */
+  tariffMgPer1000: number;
 }
 
 /**
@@ -208,6 +283,22 @@ function checkTowerAxes(balance: Balance): void {
 }
 
 /**
+ * The connection-tier table must ascend strictly (level-data delta): a later
+ * tier with no more capacity than an earlier one is an upgrade that buys
+ * nothing. The error names the tier, 1-based like the authoring.
+ */
+function checkGridTiers(level: Level): void {
+  const tiers = level.power.tiers;
+  for (let i = 1; i < tiers.length; i++) {
+    if (tiers[i]!.capacity <= tiers[i - 1]!.capacity) {
+      throw new Error(
+        `level ${level.id}: power tier ${i + 1} capacity ${tiers[i]!.capacity} is not greater than tier ${i} (${tiers[i - 1]!.capacity})`,
+      );
+    }
+  }
+}
+
+/**
  * Validate and load level + balance data. Throws with a message naming the
  * offending reference; a level that fails here never reaches the sim or the
  * renderer.
@@ -216,6 +307,7 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
   const level = LevelSchema.parse(levelJson);
   const balance = BalanceSchema.parse(balanceJson);
   checkTowerAxes(balance);
+  checkGridTiers(level);
 
   const { width, height } = level.grid;
   const grid = new Grid(width, height);
@@ -319,10 +411,24 @@ export function loadGameData(levelJson: unknown, balanceJson: unknown): GameData
           rangeUnits: Math.round(l.rangeTiles * TILE),
           fireIntervalTicks: l.fireIntervalTicks,
           slowDurationTicks: l.slowDurationTicks ?? 0,
+          ratedPowerMp: Math.round(l.ratedPower * POWER),
         })),
         burstRadiusUnits: Math.round((t.burstRadiusTiles ?? 0) * TILE),
       };
     }),
     slowSpeedPer100: balance.towers.slow.slowSpeedPercent ?? 100,
+    standbyPer1000: Math.round(balance.power.standbyFraction * 1000),
+    panelCostMg: balance.power.panel.cost * GOLD,
+    panelOutputMp: Math.round(balance.power.panel.output * POWER),
+    batteryCostMg: balance.power.battery.cost * GOLD,
+    // One kWh is one power unit (POWER mp) for one second (TICK_HZ ticks).
+    batteryCapacityMpTick: Math.round(balance.power.battery.capacity * POWER * TICK_HZ),
+    gridTiers: level.power.tiers.map((t, i) => ({
+      capacityMp: Math.round(t.capacity * POWER),
+      // The first tier is the starting connection: never bought, never charged.
+      costMg: i === 0 ? 0 : t.cost * GOLD,
+    })),
+    // Authored per unit per second → mg per 1000 mp (one unit) per tick.
+    tariffMgPer1000: Math.round((level.power.tariff * GOLD) / TICK_HZ),
   };
 }

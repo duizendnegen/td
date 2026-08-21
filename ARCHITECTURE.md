@@ -24,6 +24,13 @@ rather than an accident.
 | D10 | Numeric model | **1/1024 tile units, milli-gold** | int32-safe headroom; per-tick interest accrues exactly |
 | D11 | Repo & deploy | **git init + GitHub Pages** | Shareable link exists from Phase 1, so every gate is externally playtestable |
 | D12 | Debug tooling | **First-class overlay in Phase 1** | Flow fields and fixed-point state cannot be verified by watching |
+| D13 | Power model | **Engagement-based draw**: a tower draws its rating while it has a target, a standby share otherwise; walls draw nothing; nothing draws outside a wave | Constant draw makes the load curve flat and leaves the follow-up battery nothing to shave; per-shot draw is a tax on damage and needs a rolling HUD |
+| D14 | Power ceiling | **Per-tick soft ceiling via brownout**: coverage = supplied ÷ draw, capped at 1, computed once per tick from an engaged pre-count | A hard cap (refuse placement) contradicts inform-don't-block; a soft cap unifies "over capacity" and "broke" under one mechanism |
+| D15 | Supply order | **Merit order solar → storage → grid**, the grid bounded by tier capacity and by the positive balance at the tariff; surplus solar beyond the store's room discarded | The storage slot was reserved from the start and is now filled (D19) without the order around it moving; the treasury bound is what makes "the bill lands at exactly zero, never below" true |
+| D16 | Brownout shape | **Uniform interval stretch**: every tower's next shot at interval ÷ coverage, integer ceiling; hold at zero | Probabilistic shot-skipping is replay-visible noise that reads as flaky; per-tower priority is a later lever, not this change |
+| D17 | Grid connection | **Hashed integer tier, one-way `upgradeGrid` command**, any live phase, no refund | A mid-wave "we need more power" is a legitimate rescue; the finality is stated in the UI rather than modelled as provisional state |
+| D18 | Wave ledger | **Settlement-bounded period** — one open period and one closed, both hashed; opened at run start and at every settlement, closed at the next — with the HUD flipping to the open period the moment its wave starts | A period reset at wave start (the `waveDamage` pattern) would book build-phase spending to the wave *before* it and show the previous wave's books mutating while the player builds; the settlement boundary needs the second slot, and the flip at wave start is what makes "preparing wave n" and "wave n" the same books |
+| D19 | Battery store | **One pooled, hashed `storedMpTick`**; capacity derived as `count(battery) × capacity`, never stored; charges from surplus and discharges against the deficit in step 7 on every wave tick, the settlement tick included; clamped eagerly in `removeStructure` when a battery leaves | Per-battery charge needs a fill order, a drain order and per-structure state for no rule that could tell the difference; the store is energy, so it moves where energy resolves, not where gold does; a lazy clamp would let hashed state exceed capacity through a whole build phase |
 
 ### D1 in detail — why 3D
 
@@ -118,7 +125,8 @@ src/
 │  ├─ flowfield.ts         Dijkstra fields + corner rule + no-transit spawns
 │  ├─ placement.ts         validation, removal + its phase gate
 │  ├─ enemy.ts             steering, state machine, theft
-│  ├─ tower.ts             targeting, firing, upgrades
+│  ├─ tower.ts             targeting (pre-pass), coverage-aware firing, upgrades
+│  ├─ power.ts             draw, solar, supply merit order, coverage, grid bill
 │  ├─ economy.ts           treasury, interest, bounties, settlement
 │  ├─ waves.ts             wave scheduling and spawn activation
 │  ├─ commands.ts          command types and application
@@ -138,7 +146,8 @@ src/
 │  ├─ ribbon.ts            lane ribbon: traced routes, projected reroute, orphaned region
 │  └─ debug.ts             waypoints, ranges, sim readout
 ├─ ui/
-│  ├─ hud.ts               treasury, wave
+│  ├─ hud.ts               treasury
+│  ├─ powerhud.ts          the power meter + connection-upgrade control
 │  ├─ palette.ts           build menu
 │  ├─ ghostbadges.ts       price badge on each box the placement ghost draws
 │  ├─ inspector.ts         selected tower panel
@@ -236,6 +245,46 @@ sacks returning, then the run-progression judgement) runs in that same step 9 sl
 empties, with no interest on the settlement tick. There is no bankruptcy threshold — theft may
 overdraw the balance arbitrarily far below zero, and the only consequences are the spending block
 below 0 and the solvency gate on starting the next wave.
+
+**Power** is held in **milli-power units** (`mp`, `POWER = 1000` per authored unit — the HUD
+reads a unit as a kW), for the same reason money is in thousandths: a per-tick standby share
+of a rating must not truncate to zero. Ratings, panel output and connection-tier capacity are
+authored in whole units and scaled once at load. The tariff is authored as gold per unit per
+*second* and converted once to `tariffMgPer1000` — milli-gold per 1000 mp per *tick* —
+mirroring `interestRatePpm`:
+
+```ts
+tariffMgPer1000 = Math.round(0.24 * GOLD / TICK_HZ);      // 0.24 g/kW/s → 12 mg per kW-tick
+gridSupplyMp    = Math.min(deficit, tierCapacityMp, affordable);
+billMg          = Math.floor(gridSupplyMp * tariffMgPer1000 / 1000);   // the one floor
+coverage        = Math.min(1024, Math.floor(supplied * 1024 / drawMp)); // full = 1024
+```
+
+`affordable` is `floor(treasuryMg × 1000 / tariffMgPer1000)` on a positive balance and 0 at
+or below zero — so the bill can bring the balance to exactly zero and never below it, and a
+broke treasury buys no grid power (a zero tariff is a free grid and skips the bound). Coverage
+is a fixed-point ratio in 1/1024, like positions; the stretched fire interval is
+`ceil(interval × 1024 / coverage)`. Coverage, the bill and the store's capacity are derived
+per tick and never stored; the connection tier (`SimState.gridTier`) and the stored energy
+(`SimState.storedMpTick`) are state, both hashed.
+
+**Energy** is power summed over ticks — **mp·tick** — the unit of every ledger energy row and
+of the battery store. The HUD's convention is that one real second of wave time is one game
+hour, so one kWh is one power unit for one second: `POWER × TICK_HZ = 20 000` mp·tick.
+Battery capacity is authored in kWh and converted once at load:
+
+```ts
+batteryCapacityMpTick = Math.round(12 * POWER * TICK_HZ);   // 12 kWh → 240 000 mp·tick
+room     = capacity − stored;                               // capacity = count(battery) × that
+charged  = Math.min(Math.max(0, solar − draw), room);       // surplus into the store…
+battery  = Math.min(Math.max(0, draw − solar), stored);     // …or the store into the deficit
+stored  += charged − battery;                               // applied in step 7, the same tick
+```
+
+Surplus and deficit cannot both be positive, so a tick charges or discharges, never both; the
+grid is asked for `deficit − battery` under the same two bounds as before. A 12 kWh store
+therefore fills in twelve seconds of a 1 kW surplus and empties in twelve seconds of a 1 kW
+deficit — the scale the harness's load curves are read in.
 
 **HP, damage and bounties** are plain integers. **Timers** (`slowUntil`, `nextFireTick`) are
 absolute tick numbers, never countdowns, so they need no per-tick decrement and survive
@@ -361,12 +410,56 @@ Fixed and documented, because order is part of the determinism contract:
 6. Enemy arrival: theft at treasury (full-capacity overdraw), escape at the enemy's origin
    spawn (origin-only — no-transit routing means no other spawn tile is ever reachable), gold
    pickup
-7. Tower targeting and firing (damage applies this tick)
+7. Tower targeting and firing (damage applies this tick): a **target pre-pass** over every
+   tower (engaged = has a target this tick; the tick's draw is rated-while-engaged plus
+   standby), then — during a wave — **power resolution** (solar → store → grid up to
+   capacity and the positive balance, yielding the tick's coverage and bill), **the store's
+   delta applied here** (`storedMpTick += charged − discharged`, on every wave tick the
+   settlement tick included) and the tick's **energy buckets** into the open ledger period,
+   then the **firing pass** at that coverage: a firing tower schedules its next shot at
+   `interval ÷ coverage`, and at coverage zero every due tower holds without advancing.
+   Outside a wave nothing draws, nothing accumulates, the store holds, and towers fire at
+   full coverage.
 8. Deaths, bounties, gold-sack drops
-9. Run progression: interest accrual while the wave is live; end-of-wave settlement (sack
-   return, then the won / wave-locked / build judgement) the tick it drains; refund-driven
-   win checks from the post-final-wave locked state
+9. Run progression: the **grid bill**, then interest accrual on the post-bill balance while
+   the wave is live; end-of-wave settlement (no bill, no interest; sack return, then the won /
+   wave-locked / build judgement, then the **ledger period closes**) the tick it drains;
+   refund-driven win checks from the post-final-wave locked state
 10. Compact tombstones; increment tick
+
+### The wave ledger
+
+`SimState.ledger` (open) and `SimState.lastLedger` (closed) are two `WaveLedger` periods —
+seventeen integer fields each, hashed unconditionally, read by nothing in the simulation. A
+period opens at run start (on the starting treasury) and at each settlement (on the settled
+balance), and closes at the next settlement as a copy into the closed slot; `waveNo` is set in
+`applyStartWave` and is 0 until a wave starts in the period.
+
+The gold rows are written beside the ten treasury mutations they mirror, same value, one more
+destination: `bountiesMg` (`economy.ts` `resolveDeaths`), `interestMg` (`accrueInterest`, the
+floored credit), `stolenMg` (`resolveArrivals`), `recoveredMg` (`returnSacks`), `billMg`
+(`sim.ts` step 9), `bonusMg` (settlement), `constructionMg` += in `pushStructure`,
+`applyUpgrade` and `applyUpgradeGrid`, −= the refund in `placement.ts` `removeStructure`. The
+energy rows are written once per wave tick in step 7 from the figures `resolvePower` just
+returned: `engagedMp`/`standbyMp` from the pre-pass split, `solarUsedMp = min(solar, draw)`,
+`chargedMp` as the store took, `solarWastedMp = solar − solarUsed − charged`, `batteryMp` as
+the store supplied, `gridMp` as supplied, `unmetMp = draw − solarUsed − battery − grid`. The
+store itself is no row: a period's charging and discharge need not net to zero, since the
+store persists across periods, and the energy a removal's clamp sinks is no tick's usage.
+
+Two identities hold on every tick, and `tests/ledger.test.ts` asserts them on every tick of the
+harness scripts (refunds, upgrades, the connection tier, thefts, sack returns, brownouts, debt,
+wasted solar, a concede):
+
+- gold: `openingMg + bountiesMg + bonusMg + interestMg − constructionMg − billMg − stolenMg + recoveredMg = treasuryMg`
+- energy: `engagedMp + standbyMp + chargedMp + solarWastedMp = (solarUsedMp + chargedMp + solarWastedMp) + batteryMp + gridMp + unmetMp`
+  — usage against sources, the source side's solar being the panels' whole output, used,
+  stored and wasted; both sides equal `max(draw, solar)` per tick.
+
+One documented asymmetry: the settlement tick's draw is in the energy rows (towers drew; the
+killing shot fires in step 7) and the store moves on it, while step 9 bills nothing for it, so
+that tick's grid supply has no bill row counterpart. The ledger records what moved, never a
+recomputation.
 
 ### Entity storage
 
@@ -503,13 +596,22 @@ if (sim.tick >= t.nextFireTick) {
 }
 ```
 
-Stats (`damage`, `fireIntervalTicks`, range, slow duration) come from the tower archetype's
-current level row in balance data. Within a tick, towers due to fire resolve in **insertion
-order**, and target selection skips enemies already at `hp ≤ 0` from an earlier same-tick shot —
-build order pins same-tick resolution, and no shot is wasted on the dead. Priorities read the
-flow fields: rapid/area/slow pick minimal *inbound* cost (first along path); the sniper's
-carrier rule picks minimal cost in each carrier's **origin** returning field (closest to escaping
-through its own exit), otherwise max stat-block hp.
+Stats (`damage`, `fireIntervalTicks`, range, slow duration, rated power) come from the tower
+archetype's current level row in balance data. Within a tick, towers due to fire resolve in
+**insertion order**, and target selection skips enemies already at `hp ≤ 0` from an earlier
+same-tick shot — build order pins same-tick resolution, and no shot is wasted on the dead.
+Priorities read the flow fields: rapid/area/slow pick minimal *inbound* cost (first along path);
+the sniper's carrier rule picks minimal cost in each carrier's **origin** returning field (closest
+to escaping through its own exit), otherwise max stat-block hp.
+
+Step 7 is two passes since energy-infrastructure (`preTargetTowers`, then `fireTowers`): every
+tower selects its target once up front — that engagement is what draws power — and the firing
+pass reuses the cached target, re-selecting only if an earlier tower killed it this tick (the
+skip-the-dead rule, unchanged). The pass in between (`sim/power.ts`) turns the tick's draw into
+a coverage ratio, and `t.nextFireTick = tick + ceil(fireIntervalTicks × 1024 / coverage)`
+stretches every archetype's cadence alike — a slow tower's reapplication slows, its authored
+duration does not. At coverage zero a due tower holds its fire tick and shoots on the first
+later tick with any supply.
 
 `events` is drained by the renderer each frame and never read by the sim, so it is outside the state
 hash. The known cost: a catapult boulder can visibly land after its target has already died.
@@ -648,9 +750,35 @@ so Tailwind's scanner sees every class verbatim.
 `#overlay` — that components mount into once; desktop vs. mobile placement is pure CSS
 (responsive variants at one breakpoint: ≥768px wide and ≥480px tall is desktop).
 
-- **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar.
-- **Palette** — four towers plus wall, remove and move, with costs, greyed out when unaffordable
-  or when `balance < 0` (the README's no-spending-while-negative rule). Tower items carry an
+- **HUD** — treasury (rendered from milli-gold), wave number, segmented wave progress bar, and
+  the **power meter** beside the treasury (`ui/powerhud.ts` over the pure `ui/powermeter.ts`
+  derivation): live draw against the ceiling (capacity + solar), solar/grid split, gold per
+  second and tier during a wave — red while coverage < 1 — the rated total between waves, and
+  the one-way connection-upgrade control with the palette's affordable / debt / blocked states.
+- **Disclosure** (`ui/disclosure.ts`) — the expandable-readout pattern: one controller owns the
+  open panel across every registered `(control, panel)` pair. It sets `role="button"`,
+  `tabindex`, `aria-expanded` and `aria-controls` on the control; toggles on click and
+  Enter/Space (Space's propagation stopped, so the focused readout does not also start a
+  wave; clicks and keys from a `<button>` inside the control — the grid upgrade — are not
+  toggles); closes on Escape, bound in the capture phase and acted on only while a panel is
+  open, so the palette's Escape is untouched otherwise; and closes on a capture-phase document
+  `pointerdown` outside control and panel without cancelling it, so the same press still reaches
+  the board. Panels are shown and hidden by whole-class swap — `desktop:absolute` under the
+  control, `mobile:fixed inset-x-0` under the compact bar. The next top-bar panel registers
+  another pair and changes nothing here.
+- **Gold ledger and energy balance** (`ui/ledgerhud.ts` over the pure `ui/ledger.ts`) — the
+  two dropdowns on the treasury and the meter. `ledger.ts` owns every figure: `shown(ledger,
+  lastLedger)` picks the period with the latest wave start (the open one once its wave has
+  started, else the closed one with the open one as the "preparing" block — a pure function of
+  the two slots, no phase cases); `reconcile(parts, total, scale)` is largest-remainder rounding
+  so a block's displayed rows sum exactly to `floor(closing) − floor(opening)` and each energy
+  column to the displayed total; `KWH_PER_MP_TICK`, `formatKwh`, `formatTariff` carry the
+  one-second-is-one-hour convention under which the authored tariff reads as `g/kWh`. The HUD
+  class derives per frame, builds a content key, and writes the DOM only when the key changes
+  and only for the panel that is open. Tests: `tests/ledger-ui.test.ts`.
+- **Palette** — four towers plus wall, solar panel, remove and move, with costs, and the rated
+  power on every tower card, greyed out when unaffordable or when `balance < 0` (the README's
+  no-spending-while-negative rule); lack of power never greys anything. Tower items carry an
   "on wall" caption, naming the foundation rule where a player first arms one. The remove tool
   ignores the balance and greys out while a wave runs instead.
 - **Placement ghost** — a translucent box on the hovered tile, tinted by the real validation.
@@ -658,11 +786,11 @@ so Tailwind's scanner sees every class verbatim.
   or two further back, so height is never used to say anything. Each box carries a small price
   badge at its mid-height while the placement reads valid. A tower tool over bare dirt draws the wall ghost inside the tower
   ghost — two boxes, two badges, the overlap denser — because that click lays the wall and mounts
-  the tower in one command.
-- **Inspector** — selected tower: level, damage, rate, range, a performance block (effective
-  damage this/last wave and in total, from the tower's own hashed counters), upgrade cost, and
-  sell/remove showing the refund it returns, locked while a wave runs. Right panel on desktop;
-  bottom sheet on mobile.
+  the tower in one command. The panel ghosts as a wall.
+- **Inspector** — selected tower: level, damage, rate, range, rated power, a performance block
+  (effective damage this/last wave and in total, from the tower's own hashed counters), upgrade
+  cost with the next level's rated power, and sell/remove showing the refund it returns, locked
+  while a wave runs. Right panel on desktop; bottom sheet on mobile. Panels are not inspectable.
 - **Lane ribbon** — shown only while a build tool is armed: one traced route per active spawn to
   the treasury plus one back out, drawn as marching dashes so direction reads without colour.
   While a ghost sits on a tile whose validation produced post-placement routing, the projected
@@ -696,6 +824,10 @@ const LevelSchema = z.object({
     map: z.array(z.string()),          // one row string per grid row, one char per tile
   }),
   economy: z.object({ startingTreasury: z.int(), interestRatePerTick: z.number() }),
+  power: z.object({
+    tiers: z.array(z.object({ capacity: z.number(), cost: z.int() })).min(1),  // strictly ascending
+    tariff: z.number(),                // gold per unit per second
+  }),
   waves: z.array(WaveSchema).min(1),
 });
 export type Level = z.infer<typeof LevelSchema>;
@@ -709,12 +841,16 @@ Validation goes beyond shape, and this is the main reason it is worth a dependen
 - Treasury and spawns are inside the grid and on dirt terrain.
 - **Every spawn can reach the treasury on the level's starting terrain** — a graph check, run at load,
   that catches an unwinnable level before it ever renders.
+- The connection-tier table is non-empty and its capacities ascend strictly; every tower level
+  carries a rated power; the standby fraction is in [0, 1]; the panel block is present.
 
-Float rates in the file (`interestRatePerTick: 0.0004`) are converted to integers **once**, at load,
-and the sim only ever sees integers. Authoring stays readable; the sim stays deterministic.
+Float rates in the file (`interestRatePerTick: 0.0004`, `tariff: 0.24`, `standbyFraction: 0.2`,
+per-level `ratedPower`) are converted to integers **once**, at load, and the sim only ever sees
+integers. Authoring stays readable; the sim stays deterministic.
 
-`balance.json` holds tower and enemy stat blocks; level files are pure composition referencing them by
-`type`, exactly as the README specifies.
+`balance.json` holds tower and enemy stat blocks plus the power block (standby fraction, panel
+cost and output); level files are pure composition referencing them by `type` — plus the level's
+own connection tiers and tariff — exactly as the README specifies.
 
 ---
 
@@ -727,7 +863,7 @@ by watching the game:
 |---|---|
 | `F2` | Enemy state: committed waypoint line, inbound/returning, carried gold, slow timer |
 | `F3` | Tower ranges and current target lines; every active spawn's returning field as per-tile direction ticks |
-| `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count |
+| `F4` | Readout: tick, state hash, entity count, ms/tick, field rebuild count — and, during a wave, the tick's draw, solar / battery / charge / grid supply, tier and capacity, coverage and bill; whenever a battery stands, the stored energy against capacity |
 
 The player-facing **lane ribbon** (§9) remains the answer to "where do they go"; F3's returning
 fields exist because per-origin routing multiplies the fields, and "is spawn 2's field sane" can
@@ -760,11 +896,15 @@ Vitest, `sim/` only. No render or UI tests.
 | File | Asserts |
 |---|---|
 | `flowfield.test.ts` | Reachability; no diagonal between two blocked tiles; costs monotonic toward source; route tracing terminates and follows the field |
-| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal unblocks and refunds in its own tick; mid-wave removal refused with an unchanged hash |
+| `placement.test.ts` | Seal attempt rejected; stranded-enemy case rejected; removal unblocks and refunds in its own tick; mid-wave removal refused with an unchanged hash; the panel and the battery on the ground path — terrain, occupancy, not a foundation, refund, move; a battery's removal clamps the store |
 | `theft.test.ts` | Full round trip: steal → carry at 80% → killed → sack drops → picked up → flip to returning → escape |
 | `economy.test.ts` | Interest only during waves and only on positive balance; settlement order; the solvency gate lock and refund-driven unlock; solvent-to-win |
 | `fixed.test.ts` | Normalisation exactness; no float leaks; division rounding at negatives |
-| `level.test.ts` | Schema rejects bad spawn refs, unknown enemy types, unreachable treasury |
+| `level.test.ts` | Schema rejects bad spawn refs, unknown enemy types, unreachable treasury, missing or malformed power data; the battery block and its kWh conversion |
+| `power.test.ts` | Engaged vs standby draw; merit order and its bounds; the storage slot — surplus charges up to room, the store covers the deficit before the grid, a tick never both charges and discharges, no-battery cases unchanged; the bill lands at zero, never below; cut-off and recovery; bill before interest, none on settlement; coverage stretches cadence, holds at zero, recovers; the store in play — persists across settlement, moves on the settlement tick, enlarges mid-wave, hashed |
+| `ledger.test.ts` | Both identities on every tick of the harness scripts, a battery script included; the storage rows; a clamp on removal and the build phase move no energy row |
+| `leak.test.ts` | The counter-matrix contract; the power harness — load curves, the ceiling at peaks, and a battery beside a panel at spend parity: bill and wasted fall, the store never exceeds capacity, non-empty at settlement |
+| `hash.test.ts` | Every field flips the hash — the store and the battery kind included |
 | `replay.test.ts` | Seed + recorded commands → state hash matches golden after N ticks |
 
 `replay.test.ts` is the enforcement mechanism for section 4 and is the one test that must never be
@@ -836,3 +976,21 @@ To be answered by playtesting, not by argument:
 3. Does uncapped interest actually self-balance, or does hoarding dominate?
 4. Is a flat per-wave stipend needed to soften the death spiral? (Only if testing demands it — never
    by softening theft itself.)
+5. **Power (energy-infrastructure).** Four questions, each with its recorded lever:
+   - Is a broke wave with no solar recoverable? Broke means cut off, so towers stop; the between-wave
+     sell path and the stipend (4.) are the existing outs. If not recoverable in play, fall back to
+     debt accrual / a grid credit line (design lever L3) rather than softening the cut-off.
+   - Does panels-as-investment keep walls relevant, or do panels obsolete the maze piece? Panels are
+     priced at several walls each on purpose; the price is the knob.
+   - Does the ceiling alone reward infrastructure enough — do players *want* power — or does surplus
+     supply need to do something? Overdrive (lever L1: lift the coverage cap above 1) is a one-line
+     lever, but the battery is the better home for surplus.
+   - Does uniform brownout frustrate ("everything slows at once")? A priority / shedding order
+     (lever L2) turns brownouts into a per-tower puzzle and is the natural home of player-set budgets.
+6. **Battery (add-battery).** The store has no rate limit, so a charged store covers any deficit
+   and a brownout cannot begin until it is empty. Does "infinite while charged" read wrong in play?
+   The store is small and only surplus fills it; the meter shows it draining. If it reads wrong,
+   the recorded lever is a per-battery power figure bounding charge and discharge per tick
+   (add-battery design L1) — which also turns the meter's ceiling into grid + solar + battery
+   power while charged, and makes a second battery matter even when the first is never full. The
+   other levers (grid charging, per-level tariff, round-trip loss) are recorded in ROADMAP.md.
