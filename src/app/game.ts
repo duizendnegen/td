@@ -27,8 +27,10 @@ import { buildGround } from '../render/ground';
 import { GROUND_TOP_Y, Renderer, tileToWorld } from '../render/renderer';
 import { LaneRibbon } from '../render/ribbon';
 import { StructureRenderer } from '../render/towers';
+import { Disclosure } from '../ui/disclosure';
 import { GhostBadges } from '../ui/ghostbadges';
 import { TreasuryHud } from '../ui/hud';
+import { LedgerHud } from '../ui/ledgerhud';
 import { PowerHud } from '../ui/powerhud';
 import { buildHintLine, PointerDriver } from '../ui/input';
 import { InputCore } from '../ui/inputcore';
@@ -203,6 +205,9 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
   // build-ui delta): the two figures the run is managed by, side by side.
   const powerHud = new PowerHud(slot('topbar-right'), sim, data, commands);
   const treasuryHud = new TreasuryHud(slot('topbar-right'));
+  // Both readouts expand (wave-ledger build-ui delta): one disclosure owns
+  // the open panel, so opening the energy balance closes the gold ledger.
+  const ledgerHud = new LedgerHud(new Disclosure(), treasuryHud, powerHud, data, sim.totalWaves);
   const palette = new PaletteUI(slot('rail'), {
     wallMg: data.wallCostMg,
     towerMg: {
@@ -400,6 +405,7 @@ export async function buildGame(canvas: HTMLCanvasElement): Promise<GameHandles>
     ribbon.animate(nowMs);
     treasuryHud.update(sim.state.treasuryMg);
     powerHud.update();
+    ledgerHud.update(sim.state);
     palette.refresh(
       sim.state.treasuryMg,
       removalOpenIn(sim.state.runPhase),
